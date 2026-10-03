@@ -2,10 +2,6 @@
 
 Bake an Inkscape plan and building GLBs into layer files the arena manifest can reference.
 
-`scene-graph/` is the biovis lab freezer, linked here as reference only. This package does not import it, the arena, or the kernel. `scene-graph/src/walls.js` extrudes wall polylines into boxes. This tool does the inverse: after scale, mesh triangles become a coarse XZ occupancy grid, and a doorway stays a gap between runs.
-
-No browser and no Babylon runtime. `npm test` uses a fixture SVG and a fake wall list. It does not need a real GLB. The bake does not write `arena.game.json`. The arena manifest points at the placements file with `scene.placements`, and the host loads that file.
-
 ## Workflow
 
 1. **Measure.** `blueprint-scene measure --glb model.glb --out buildings/<id>.json --svg buildings/<id>.svg` reads every triangle mesh and writes model bounds in meters plus an SVG footprint group tagged `data-model="<id>"`. That SVG is a stencil, not a layout.
