@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   width="40mm"
+   height="40mm"
+   viewBox="0 0 40 40"
+   id="plan">
+  <sodipodi:namedview
+     id="namedview"
+     inkscape:document-units="mm"
+     inkscape:document-scale="1" />
+  <g
+     inkscape:groupmode="layer"
+     inkscape:label="bounds"
+     id="layer-bounds">
+    <rect id="room" x="0" y="0" width="40" height="40" />
+  </g>
+  <g
+     inkscape:groupmode="layer"
+     inkscape:label="ignore"
+     id="layer-ignore">
+    <rect id="skip-me" data-model="building-a" x="0" y="0" width="2" height="2" />
+  </g>
+  <g
+     inkscape:groupmode="layer"
+     inkscape:label="notes"
+     id="layer-notes">
+    <rect id="note" data-model="building-a" x="1" y="1" width="2" height="2" />
+  </g>
+  <g
+     inkscape:groupmode="layer"
+     inkscape:label="buildings"
+     id="layer-buildings">
+    <rect id="caption" x="0" y="0" width="1" height="1" />
+    <g inkscape:groupmode="layer" inkscape:label="ignore" id="layer-nested-ignore">
+      <rect id="hidden-door" data-model="building-a" x="0" y="0" width="1" height="1" />
+    </g>
+    <rect
+       id="bldg-south"
+       data-model="building-a"
+       x="6"
+       y="14"
+       width="4"
+       height="4" />
+    <rect
+       id="bldg-north"
+       data-model="building-a"
+       x="6"
+       y="2"
+       width="4"
+       height="4"
+       transform="rotate(90 8 4)" />
+  </g>
+</svg>
