@@ -67,6 +67,51 @@ export type SceneSpawn = {
   yaw: Yaw;
 };
 
+export type DoorHinge = "left" | "right";
+
+/**
+ * A rectangle on the `doors` layer, before it is pushed onto a wall.
+ * `center` is the rectangle center. `width` is set only by `data-width`.
+ */
+export type SceneDoor = {
+  id: string;
+  /** Asset id from `data-model` or the label `model:<id>`. */
+  model: string;
+  building: string;
+  center: Vec3;
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  hinge: DoorHinge;
+  width?: number;
+  height?: number;
+  depth?: number;
+  open: boolean;
+};
+
+/**
+ * One hinged panel. `position` is the rectangle center on the wall face.
+ * `size` is `[width, height, depth]` in meters. There is no obstacle.
+ */
+export type DoorPlacement = {
+  id: string;
+  /** Asset id, the same string a prop writes. Not a default of "door". */
+  model: string;
+  position: Vec3;
+  yaw: Yaw;
+  hinge: DoorHinge;
+  size: Vec3;
+  open: boolean;
+};
+
+export type DoorsFile = {
+  formatVersion: 1;
+  units: "meters";
+  placements: DoorPlacement[];
+  obstacles: [];
+};
+
 /** File the manifest points at with `scene.spawnPoints`. `y` is 0. */
 export type SpawnPoint = {
   id: string;

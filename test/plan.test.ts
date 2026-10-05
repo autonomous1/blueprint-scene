@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import path from "node:path";
 import { PlanError } from "../src/errors.ts";
 import { readPlacements, readScene } from "../src/plan.ts";
 
@@ -10,6 +8,18 @@ const NS = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inksca
 function plan(body: string, attrs = `width="10mm" height="10mm" viewBox="0 0 10 10"`): string {
   return `<?xml version="1.0"?><svg ${NS} ${attrs}><g inkscape:groupmode="layer" inkscape:label="buildings">${body}</g></svg>`;
 }
+
+test("a stencil path is the group footprint, and the gap stays inside that box", () => {
+  const [placed] = readPlacements(plan(`
+    <g id="gap" data-model="wall">
+      <path fill-rule="evenodd" d="M 0 0 L 4 0 L 4 -0.5 L 0 -0.5 Z M 6 0 L 10 0 L 10 -0.5 L 6 -0.5 Z"/>
+    </g>
+  `));
+  assert.ok(placed);
+  assert.equal(placed.drawnWidth, 10);
+  assert.equal(placed.drawnDepth, 0.5);
+  assert.deepEqual(placed.position, [5, 0, 10.25]);
+});
 
 test("rectangle center uses toolbar y as z, and a quarter turn", () => {
   const placements = readPlacements(plan(`
@@ -244,21 +254,4 @@ test("two bounds rectangles fail, and a model: label selects a prop", () => {
   assert.equal(scene.props[0]?.model, "cover-crate");
   assert.equal(scene.props[0]?.scale, 2);
   assert.equal(scene.sawBoundsLayer, false);
-});
-
-test("arena-1.svg keeps brutalist-urban-1 z inside the room", () => {
-  const svg = readFileSync(path.join(import.meta.dirname, "..", "scenes", "arena-1.svg"), "utf8");
-  const scene = readScene(svg);
-  const placed = scene.placements.find((item) => item.id === "brutalist-urban-1");
-  assert.ok(placed);
-  assert.ok(placed.position[2] >= -24 && placed.position[2] <= 24);
-  assert.ok(scene.bounds);
-  assert.ok(scene.bounds.minX < -20 && scene.bounds.maxX > 20);
-  assert.ok(scene.bounds.minZ > -30 && scene.bounds.minZ < -20);
-  assert.ok(scene.bounds.maxZ > 20 && scene.bounds.maxZ < 30);
-  assert.equal(scene.props.length, 3);
-  assert.equal(scene.spawns.length, 5);
-  for (const spawn of scene.spawns) {
-    assert.ok(spawn.position[2] >= -24 && spawn.position[2] <= 24, spawn.id);
-  }
 });

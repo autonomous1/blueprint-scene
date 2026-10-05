@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Node on PATH may be older than 22. Prefer a Node 22 binary when it is.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SOURCE="$(readlink -f "$0")"
+ROOT="$(cd "$(dirname "$SOURCE")/.." && pwd)"
+#ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 pick_node() {
   if [[ -n "${BLUEPRINT_NODE:-}" ]]; then

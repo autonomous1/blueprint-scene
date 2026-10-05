@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { CELL_M, coarseFootprint, footprintFromTriangles, MAX_OBSTACLES } from "../src/footprint.ts";
+import { CELL_M, coarseFootprint, footprintFromTriangles, MAX_OBSTACLES, measureFootprint } from "../src/footprint.ts";
 import type { LocalBox, Triangle, Vec3 } from "../src/types.ts";
 import { trianglesFromBox } from "./boxes.ts";
 
@@ -73,6 +73,16 @@ test("a 10 m wall with a 2 m gap is two runs, and a 0.2 m mullion is absent", ()
   assert.equal(boxes.some((box) => covers(box, [5, 1, 0.25]) && covers(box, [17, 1, 0.25])), false);
 });
 
+test("stamping a 2 m opening splits a 10 m wall and leaves the middle empty", () => {
+  const wall = trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]);
+  const sealed = footprintFromTriangles(wall);
+  assert.equal(sealed.length, 1);
+  const boxes = footprintFromTriangles(wall, CELL_M, [{ minX: -1, maxX: 1, minZ: -1, maxZ: 1 }]);
+  assert.equal(boxes.length, 2);
+  assert.equal(boxes.some((box) => covers(box, [0, 1, 0])), false);
+  assert.ok((boxes[1]?.minX ?? 0) - (boxes[0]?.maxX ?? 0) >= 2);
+});
+
 test("a wall of sub-cell triangles is one run", () => {
   const triangles: Triangle[] = [];
   for (let i = 0; i < 50; i += 1) {
@@ -89,6 +99,17 @@ test("a wall of sub-cell triangles is one run", () => {
   assert.equal(boxes[0]!.minY, 0);
   assert.equal(boxes[0]!.maxY, 3);
   assert.ok(boxes[0]!.maxZ - boxes[0]!.minZ >= 0.4);
+});
+
+test("measure keeps a sub-metre run that bake drops", () => {
+  const wall = trianglesFromBox([0, 0, 0], [0.8, 1, 0.3]);
+  assert.equal(footprintFromTriangles(wall).length, 0);
+  const boxes = measureFootprint(wall);
+  assert.equal(boxes.length, 1);
+  assert.equal(boxes[0]!.minX, 0);
+  assert.equal(boxes[0]!.maxX, 0.8);
+  assert.equal(boxes[0]!.minZ, 0);
+  assert.equal(boxes[0]!.maxZ, 0.3);
 });
 
 test("more than 32 runs doubles the cell once", () => {

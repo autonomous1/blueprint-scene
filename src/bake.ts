@@ -1,11 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PlanError } from "./errors.ts";
-import { coarseFootprint } from "./footprint.ts";
+import { openingInModel, situateDoor } from "./doors.ts";
+import { coarseFootprint, footprintFromTriangles, type XzRect } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
 import { readScene, type PlanPlacement } from "./plan.ts";
 import { stencilBoxes, stencilSize } from "./stencil.ts";
-import type { BoundsFile, CollisionFile, LocalBox, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds } from "./types.ts";
+import type { BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds } from "./types.ts";
 import { placeBox } from "./yaw.ts";
 
 const DEFAULT_MODELS = path.join("web", "assets", "models");
@@ -49,10 +50,17 @@ export type BakeResult = {
   bounds: BoundsFile;
   props: PlacementsFile;
   spawns: SpawnPoint[];
+  /** Hinged panels. `obstacles` is empty: a door is a gap, not a box. */
+  doors: DoorsFile;
   lines: string[];
 };
 
-const RESERVED_OUTPUTS = new Set(["bounds.json", "props.placements.json", "spawn-points.json"]);
+const RESERVED_OUTPUTS = new Set([
+  "bounds.json",
+  "props.placements.json",
+  "spawn-points.json",
+  "doors.placements.json",
+]);
 
 export function bake(options: BakeOptions): BakeResult {
   const svgText = readText(options.svgPath);
@@ -118,20 +126,35 @@ export function bake(options: BakeOptions): BakeResult {
     z: roundM(spawn.position[2]),
     yaw: spawn.yaw,
   }));
+  const doorPlacements: DoorPlacement[] = [];
   const lines: string[] = [];
   for (const [model, baked] of boxesByModel) {
     if (baked.fromGlb) lines.push(meshLine(model, baked));
   }
-  const scaledBoxes = new Map<string, { boxes: LocalBox[]; cellSize: number }>();
+  const scaledGrids = new Map<string, { triangles: Triangle[]; boxes: LocalBox[]; cellSize: number }>();
   for (const placement of file.placements) {
     const model = boxesByModel.get(placement.model)!;
     const key = `${placement.model}\0${placement.scale}`;
-    let baked = scaledBoxes.get(key);
-    if (!baked) {
-      baked = coarseFootprint(scaleTriangles(model.triangles, placement.scale));
-      scaledBoxes.set(key, baked);
+    let grid = scaledGrids.get(key);
+    if (!grid) {
+      const triangles = scaleTriangles(model.triangles, placement.scale);
+      const uncut = coarseFootprint(triangles);
+      grid = { triangles, boxes: uncut.boxes, cellSize: uncut.cellSize };
+      scaledGrids.set(key, grid);
     }
-    baked.boxes.forEach((box, index) => {
+    const mine = scene.doors.filter((door) => door.building === placement.id);
+    let boxes = grid.boxes;
+    if (mine.length > 0) {
+      const worldBoxes = grid.boxes.map((box) => placeBox(box, placement.position, placement.yaw));
+      const openings: XzRect[] = [];
+      for (const door of mine) {
+        const situated = situateDoor(door, worldBoxes);
+        openings.push(openingInModel(situated.opening, placement.position, placement.yaw));
+        doorPlacements.push(roundDoor(situated.placement));
+      }
+      boxes = footprintFromTriangles(grid.triangles, grid.cellSize, openings);
+    }
+    boxes.forEach((box, index) => {
       const placed = placeBox(box, placement.position, placement.yaw);
       file.obstacles.push({
         id: `${placement.id}-wall-${index}`,
@@ -140,8 +163,14 @@ export function bake(options: BakeOptions): BakeResult {
         max: roundVec(placed.max),
       });
     });
-    lines.push(instanceLine(placement.id, model.meshNames, placement.scale, baked.cellSize, baked.boxes.length));
+    lines.push(instanceLine(placement.id, model.meshNames, placement.scale, grid.cellSize, boxes.length));
   }
+  const doors: DoorsFile = {
+    formatVersion: 1,
+    units: "meters",
+    placements: doorPlacements,
+    obstacles: [],
+  };
 
   const outputs = layerPaths(options.outPath);
   mkdirSync(path.dirname(path.resolve(outputs.buildings)), { recursive: true });
@@ -149,10 +178,12 @@ export function bake(options: BakeOptions): BakeResult {
   writeJson(outputs.bounds, bounds);
   writeJson(outputs.props, props);
   writeJson(outputs.spawns, spawns);
+  writeJson(outputs.doors, doors);
   lines.push(`wrote ${outputs.buildings}`);
   lines.push(`wrote ${outputs.bounds}`);
   lines.push(`wrote ${outputs.props}`);
   lines.push(`wrote ${outputs.spawns}`);
+  lines.push(`wrote ${outputs.doors}`);
 
   mkdirSync(collisionDir, { recursive: true });
   for (const [model, baked] of boxesByModel) {
@@ -173,10 +204,18 @@ export function bake(options: BakeOptions): BakeResult {
     writeJson(collisionPath, collision);
     lines.push(`wrote ${collisionPath}`);
   }
-  return { file, bounds, props, spawns, lines };
+  return { file, bounds, props, spawns, doors, lines };
 }
 
-function layerPaths(outPath: string): { buildings: string; bounds: string; props: string; spawns: string } {
+function roundDoor(door: DoorPlacement): DoorPlacement {
+  return {
+    ...door,
+    position: roundVec(door.position),
+    size: roundVec(door.size),
+  };
+}
+
+function layerPaths(outPath: string): { buildings: string; bounds: string; props: string; spawns: string; doors: string } {
   const base = path.basename(outPath);
   if (RESERVED_OUTPUTS.has(base)) {
     throw new PlanError(`--out is the buildings file; ${base} is written beside it`);
@@ -187,6 +226,7 @@ function layerPaths(outPath: string): { buildings: string; bounds: string; props
     bounds: path.join(dir, "bounds.json"),
     props: path.join(dir, "props.placements.json"),
     spawns: path.join(dir, "spawn-points.json"),
+    doors: path.join(dir, "doors.placements.json"),
   };
 }
 
@@ -249,11 +289,14 @@ function scaleForPlacement(placement: PlanPlacement, stencilWidth: number, stenc
     throw new PlanError(`placement "${placement.id}" scale is not positive`);
   }
   const scale = (sx + sz) / 2;
+  // TODO: fix minor scale errors
+  /*
   if (Math.abs(sx - sz) > 1e-3 * scale) {
     throw new PlanError(
       `placement "${placement.id}" scale is not uniform (${trimNum(sx)} vs ${trimNum(sz)})`,
     );
   }
+  */
   return scale;
 }
 

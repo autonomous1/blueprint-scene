@@ -19,6 +19,13 @@ export function transformXz(x: number, z: number, yaw: Yaw): { x: number; z: num
   }
 }
 
+/** Inverse of `transformXz`. 90° and 270° swap; 0° and 180° are their own inverses. */
+export function inverseYaw(yaw: Yaw): Yaw {
+  if (yaw === 90) return 270;
+  if (yaw === 270) return 90;
+  return yaw;
+}
+
 /** `0 === -0`, and JSON keeps a signed zero as 0. The placement math should too. */
 function xz(x: number, z: number): { x: number; z: number } {
   return { x: x === 0 ? 0 : x, z: z === 0 ? 0 : z };

@@ -14,8 +14,15 @@ export const MAX_OBSTACLES = 32;
 const MIN_THICKNESS_M = 0.4;
 const MIN_LENGTH_M = 1;
 
-/** Triangles whose highest vertex is under this are floor debris. */
+/** Triangles whose highest vertex is under this are floor debris. Bake only. */
 const FLOOR_Y_M = 0.5;
+
+/**
+ * Measure grid on the unscaled GLB, in GLB units. Arena meters are the SVG
+ * instance scale, applied later. A run of one cell is kept. The bake cutoffs
+ * (`MIN_LENGTH_M`, `MIN_THICKNESS_M`) are not applied here.
+ */
+export const MEASURE_CELL_M = 0.05;
 
 const EPS = 1e-6;
 
@@ -38,17 +45,65 @@ export type CoarseFootprint = {
   cellSize: number;
 };
 
+/** Axis-aligned opening in the same XZ space as the occupancy grid. */
+export type XzRect = {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+};
+
 /**
  * Project triangles onto XZ and emit one AABB per horizontal or vertical run.
  * Call this after scale and before yaw. A doorway is a run of empty cells;
  * gaps wider than one cell are left open.
  */
-export function footprintFromTriangles(triangles: Triangle[], cellSize = CELL_M): LocalBox[] {
+export function footprintFromTriangles(
+  triangles: Triangle[],
+  cellSize = CELL_M,
+  openings: readonly XzRect[] = [],
+): LocalBox[] {
+  return occupancy(triangles, {
+    cellSize,
+    openings,
+    floorY: FLOOR_Y_M,
+    minThickness: MIN_THICKNESS_M,
+    minLength: MIN_LENGTH_M,
+  });
+}
+
+/**
+ * Footprint of a raw GLB, in the same units as the vertex positions. Every
+ * triangle is projected. The cell is 0.05. A run stays when its long side is
+ * at least one cell. This is the measure stencil, not the bake obstacle grid.
+ */
+export function measureFootprint(triangles: Triangle[]): LocalBox[] {
+  return occupancy(triangles, {
+    cellSize: MEASURE_CELL_M,
+    openings: [],
+    floorY: null,
+    minThickness: 0,
+    minLength: MEASURE_CELL_M,
+  });
+}
+
+type OccupancyOptions = {
+  cellSize: number;
+  openings: readonly XzRect[];
+  /** Drop a triangle whose highest vertex is under this. `null` keeps every triangle. */
+  floorY: number | null;
+  minThickness: number;
+  minLength: number;
+};
+
+function occupancy(triangles: Triangle[], options: OccupancyOptions): LocalBox[] {
+  const { cellSize, openings } = options;
   if (!(cellSize > 0)) throw new PlanError("cell size must be positive");
-  const items = keptTriangles(triangles);
+  const items = keptTriangles(triangles, options.floorY);
   if (items.length === 0) return [];
   const geom = new Map<string, Clip>();
   for (const item of items) markCells(item, cellSize, geom);
+  for (const opening of openings) eraseOpening(geom, cellSize, opening);
   if (geom.size === 0) return [];
   const cells: Array<[number, number]> = [];
   for (const key of geom.keys()) cells.push(unpack(key));
@@ -56,7 +111,7 @@ export function footprintFromTriangles(triangles: Triangle[], cellSize = CELL_M)
     ...boxesFromRuns(runsAlongRows(cells), geom),
     ...boxesFromRuns(runsAlongColumns(cells), geom),
   ].map((box) => assignY(box, items));
-  return dropContained(dropShort(boxes));
+  return dropContained(dropShort(boxes, options.minThickness, options.minLength));
 }
 
 /** 0.5 m grid, or 1 m when the first pass still exceeds `MAX_OBSTACLES`. */
@@ -67,15 +122,16 @@ export function coarseFootprint(triangles: Triangle[]): CoarseFootprint {
 }
 
 /**
- * Floor triangles are dropped. A tessellated wall is made of pieces smaller
- * than a cell; those still paint any center they cover. A mullion disappears
+ * Bake drops floor triangles. Measure passes `floorY` null and keeps every
+ * triangle. A tessellated wall is made of pieces smaller than a cell; those
+ * still paint any center they cover. On the bake grid, a mullion disappears
  * later, when its run is thinner than 0.4 m or shorter than 1 m.
  */
-function keptTriangles(triangles: Triangle[]): Item[] {
+function keptTriangles(triangles: Triangle[], floorY: number | null): Item[] {
   const items: Item[] = [];
   for (const triangle of triangles) {
     const item = itemOf(triangle);
-    if (item.maxY < FLOOR_Y_M) continue;
+    if (floorY != null && item.maxY < floorY) continue;
     items.push(item);
   }
   return items;
@@ -138,6 +194,24 @@ function covers(ax: number, az: number, bx: number, bz: number, cx: number, cz: 
   const w2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / denom;
   const w0 = 1 - w1 - w2;
   return w0 >= -1e-8 && w1 >= -1e-8 && w2 >= -1e-8;
+}
+
+/**
+ * Drop every solid cell the opening overlaps, including a cell the rectangle
+ * only partly covers. A center-only test can leave a jamb inside the door.
+ */
+function eraseOpening(geom: Map<string, Clip>, cell: number, opening: XzRect): void {
+  if (!(opening.maxX > opening.minX) || !(opening.maxZ > opening.minZ)) return;
+  const doomed: string[] = [];
+  for (const key of geom.keys()) {
+    const [i, k] = unpack(key);
+    const x0 = i * cell;
+    const z0 = k * cell;
+    if (x0 + cell > opening.minX && x0 < opening.maxX && z0 + cell > opening.minZ && z0 < opening.maxZ) {
+      doomed.push(key);
+    }
+  }
+  for (const key of doomed) geom.delete(key);
 }
 
 function runsAlongRows(cells: Array<[number, number]>): Run[] {
@@ -223,11 +297,11 @@ function assignY(box: LocalBox, items: Item[]): LocalBox {
   return { ...box, minY, maxY };
 }
 
-function dropShort(boxes: LocalBox[]): LocalBox[] {
+function dropShort(boxes: LocalBox[], minThickness: number, minLength: number): LocalBox[] {
   return boxes.filter((box) => {
     const dx = box.maxX - box.minX;
     const dz = box.maxZ - box.minZ;
-    return Math.min(dx, dz) >= MIN_THICKNESS_M - 1e-4 && Math.max(dx, dz) >= MIN_LENGTH_M - 1e-4;
+    return Math.min(dx, dz) >= minThickness - 1e-4 && Math.max(dx, dz) >= minLength - 1e-4;
   });
 }
 

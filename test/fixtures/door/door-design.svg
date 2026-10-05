@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   width="10mm"
+   height="10mm"
+   viewBox="0 0 10 10"
+   id="door-design">
+  <sodipodi:namedview
+     id="namedview"
+     inkscape:document-units="mm"
+     inkscape:document-scale="1" />
+  <g
+     inkscape:groupmode="layer"
+     inkscape:label="door-design"
+     id="layer-door">
+    <!-- Toolbar y is up. Frame is 1.2 m by 2.4 m with its bottom on toolbar y 0. -->
+    <rect
+       id="data-part-frame"
+       x="1"
+       y="7.6"
+       width="1.2"
+       height="2.4" />
+    <!-- Door is 1.0 m by 2.1 m, inset 0.1 m on the sides and 0.15 m above and below. -->
+    <rect
+       id="data-part-door"
+       x="1.1"
+       y="7.75"
+       width="1"
+       height="2.1" />
+    <!-- The picture covers the frame. The door uses only the opening. -->
+    <image
+       id="data-part-texture"
+       x="1"
+       y="7.6"
+       width="1.2"
+       height="2.4"
+       preserveAspectRatio="none"
+       xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGPYYqAAAAKgAQXhnQpJAAAAAElFTkSuQmCC" />
+    <!-- Centered on the door's left edge, midway up. -->
+    <rect
+       id="data-part-hinge"
+       x="1.05"
+       y="8.7"
+       width="0.1"
+       height="0.2" />
+  </g>
+</svg>

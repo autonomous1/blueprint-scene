@@ -1,2 +1,3 @@
-bin/blueprint-scene measure --glb ../conveyor-engine-arena/web/assets/models/brutalist-urban-4.glb --out buildings/brutalist-urban-4.json --svg buildings/brutalist-urban-4.svg
+#!/usr/bin/env bash
+npm run scene:bake --glb ../conveyor-engine-arena/web/assets/models/$1.glb --out buildings/$1.json --svg buildings/$1.svg
 

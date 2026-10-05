@@ -1,5 +1,5 @@
 import { PlanError } from "./errors.ts";
-import type { SceneProp, SceneSpawn, Vec3, XzBounds, Yaw } from "./types.ts";
+import type { DoorHinge, SceneDoor, SceneProp, SceneSpawn, Vec3, XzBounds, Yaw } from "./types.ts";
 import { attr, localName, parseXml, type XmlNode } from "./xml.ts";
 
 /**
@@ -80,6 +80,23 @@ export type PlanScene = {
   bounds?: XzBounds;
   props: SceneProp[];
   spawns: SceneSpawn[];
+  doors: SceneDoor[];
+};
+
+/**
+ * One rectangle or image on a named Inkscape layer, in toolbar meters. Y is up.
+ * The part is the element id: `data-part-frame`, `data-part-door`,
+ * `data-part-hinge`, or `data-part-texture`.
+ */
+export type DesignRect = {
+  id: string;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  part?: string;
+  /** `data-part-texture` href: a data URI or a path relative to the SVG. */
+  href?: string;
 };
 
 /**
@@ -127,11 +144,18 @@ export function readScene(svgText: string): PlanScene {
     propIds: new Set<string>(),
     spawns: [],
     spawnIds: new Set<string>(),
+    doors: [],
+    doorIds: new Set<string>(),
     sawBoundsLayer: false,
     boundsRects: 0,
   };
   walk(svg, ident(), [], collect);
   if (collect.placements.length === 0) throw new PlanError("no building placements in the SVG");
+  for (const door of collect.doors) {
+    if (!collect.ids.has(door.building)) {
+      throw new PlanError(`door "${door.id}" data-building "${door.building}" does not match a placement`);
+    }
+  }
   if (collect.bounds) {
     for (const spawn of collect.spawns) {
       const [x, , z] = spawn.position;
@@ -146,7 +170,211 @@ export function readScene(svgText: string): PlanScene {
     ...(collect.bounds ? { bounds: collect.bounds } : {}),
     props: collect.props,
     spawns: collect.spawns,
+    doors: collect.doors,
   };
+}
+
+const PART_BY_ID: Record<string, string> = {
+  "data-part-frame": "frame",
+  "data-part-door": "door",
+  "data-part-hinge": "hinge",
+  "data-part-texture": "texture",
+};
+
+/**
+ * Rectangles and images on one Inkscape layer, in the same toolbar meters as the plan.
+ * X is toolbar x. Y is toolbar y, up. A rotated rectangle fails.
+ * A door design names each part with its element id.
+ */
+export function readDesignRects(svgText: string, layer: string): DesignRect[] {
+  const svg = parseXml(svgText);
+  const frame = pageFrame(svg);
+  const units = documentUnits(svg);
+  const rects: DesignRect[] = [];
+  walkDesign(svg, ident(), [], layer, frame, units, rects);
+  return rects;
+}
+
+/**
+ * A rectangle or image on one Inkscape layer, in toolbar meters. Y is up.
+ * `label` is the Inkscape label. `face` is `data-face`. `href` is an image
+ * href. `dataTexture` and `depth` are the `data-texture` and `data-depth`
+ * attributes. An image nested in a rectangle is that rectangle's texture,
+ * not a second shape.
+ */
+export type LayerShape = {
+  id: string;
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  label?: string;
+  face?: string;
+  href?: string;
+  dataTexture?: string;
+  /** `data-depth` in meters. Absent when the attribute is omitted. */
+  depth?: number;
+};
+
+export function readLayerShapes(svgText: string, layer: string): { found: boolean; shapes: LayerShape[] } {
+  const svg = parseXml(svgText);
+  const frame = pageFrame(svg);
+  const units = documentUnits(svg);
+  const shapes: LayerShape[] = [];
+  let found = false;
+  const visit = (el: XmlNode, parent: Mat, stack: string[]): void => {
+    const name = localName(el.name);
+    if (name === "defs" || name === "metadata" || name === "namedview") return;
+    const isLayer = name === "g" && attr(el, "groupmode") === "layer";
+    const nextStack = isLayer ? [...stack, attr(el, "label") ?? ""] : stack;
+    if (isLayer && attr(el, "label") === layer) found = true;
+    const matrix = mul(parent, parseTransform(attr(el, "transform")));
+    if (!nextStack.includes("ignore") && nextStack.includes(layer) && (name === "rect" || name === "image")) {
+      shapes.push(layerShape(el, matrix, frame, units));
+      return;
+    }
+    for (const child of el.children) visit(child, matrix, nextStack);
+  };
+  visit(svg, ident(), []);
+  return { found, shapes };
+}
+
+function layerShape(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined): LayerShape {
+  const id = attr(el, "id")?.trim() || localName(el.name);
+  const local = rectBounds(el, frame.meters, units);
+  if (!local) throw new PlanError(`element "${id}" has no size`);
+  const corners = [
+    [local.minX, local.minY],
+    [local.maxX, local.minY],
+    [local.maxX, local.maxY],
+    [local.minX, local.maxY],
+  ].map(([x, y]) => {
+    const [ux, uy] = apply(matrix, x!, y!);
+    const [wx, , wy] = svgPointToWorld(ux, uy, frame);
+    return [wx, wy] as [number, number];
+  });
+  const edge = (from: number, to: number): [number, number] => [
+    corners[to]![0] - corners[from]![0],
+    corners[to]![1] - corners[from]![1],
+  ];
+  if (!axisAligned(edge(0, 1)) || !axisAligned(edge(0, 3))) {
+    throw new PlanError(`element "${id}" is not axis-aligned`);
+  }
+  const xs = corners.map((corner) => corner[0]);
+  const ys = corners.map((corner) => corner[1]);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  if (!(maxX > minX) || !(maxY > minY)) throw new PlanError(`element "${id}" has no size`);
+  const label = attr(el, "label")?.trim();
+  const face = attr(el, "data-face")?.trim();
+  const dataTexture = attr(el, "data-texture")?.trim();
+  const href = localName(el.name) === "image" ? attr(el, "href")?.trim() : imageHref(el);
+  const depthRaw = attr(el, "data-depth");
+  const depth = depthRaw == null || depthRaw.trim() === "" ? undefined : depthMeters(depthRaw, frame, units);
+  return {
+    id,
+    minX,
+    minY,
+    maxX,
+    maxY,
+    ...(label ? { label } : {}),
+    ...(face ? { face } : {}),
+    ...(href ? { href } : {}),
+    ...(dataTexture ? { dataTexture } : {}),
+    ...(depth != null ? { depth } : {}),
+  };
+}
+
+function imageHref(el: XmlNode): string | undefined {
+  for (const child of el.children) {
+    if (localName(child.name) !== "image") continue;
+    const href = attr(child, "href")?.trim();
+    if (href) return href;
+  }
+  return undefined;
+}
+
+function depthMeters(raw: string, frame: PageFrame, units: string | undefined): number {
+  const user = userLength(raw, Number.NaN, frame.meters, units);
+  if (!Number.isFinite(user) || user <= 0) throw new PlanError(`data-depth "${raw}" is not a positive length`);
+  return user * frame.meters;
+}
+
+function walkDesign(
+  el: XmlNode,
+  parent: Mat,
+  stack: string[],
+  layer: string,
+  frame: PageFrame,
+  units: string | undefined,
+  out: DesignRect[],
+): void {
+  const name = localName(el.name);
+  if (name === "defs" || name === "metadata" || name === "namedview") return;
+  const isLayer = name === "g" && attr(el, "groupmode") === "layer";
+  const nextStack = isLayer ? [...stack, attr(el, "label") ?? ""] : stack;
+  const matrix = mul(parent, parseTransform(attr(el, "transform")));
+  if (!nextStack.includes("ignore") && nextStack.includes(layer) && (name === "rect" || name === "image")) {
+    out.push(designPart(el, matrix, frame, units));
+  }
+  for (const child of el.children) walkDesign(child, matrix, nextStack, layer, frame, units, out);
+}
+
+function designPart(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined): DesignRect {
+  const id = attr(el, "id")?.trim() || localName(el.name);
+  const part = PART_BY_ID[id];
+  if (!part) {
+    throw new PlanError(`element "${id}" id is not data-part-frame, data-part-door, data-part-hinge, or data-part-texture`);
+  }
+  const tag = localName(el.name);
+  if (part === "texture" && tag !== "image") throw new PlanError("data-part-texture must be an image");
+  if (part !== "texture" && tag !== "rect") throw new PlanError(`${id} must be a rectangle`);
+  const href = part === "texture" ? attr(el, "href")?.trim() : undefined;
+  if (part === "texture" && !href) throw new PlanError("data-part-texture has no image");
+  const local = rectBounds(el, frame.meters, units);
+  if (!local) throw new PlanError(`element "${id}" has no size`);
+  const corners = [
+    [local.minX, local.minY],
+    [local.maxX, local.minY],
+    [local.maxX, local.maxY],
+    [local.minX, local.maxY],
+  ].map(([x, y]) => {
+    const [ux, uy] = apply(matrix, x!, y!);
+    const [wx, , wy] = svgPointToWorld(ux, uy, frame);
+    return [wx, wy] as [number, number];
+  });
+  const edge = (from: number, to: number): [number, number] => [
+    corners[to]![0] - corners[from]![0],
+    corners[to]![1] - corners[from]![1],
+  ];
+  if (!axisAligned(edge(0, 1)) || !axisAligned(edge(0, 3))) {
+    throw new PlanError(`element "${id}" is not axis-aligned`);
+  }
+  const xs = corners.map((corner) => corner[0]);
+  const ys = corners.map((corner) => corner[1]);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  if (!(maxX > minX) || !(maxY > minY)) throw new PlanError(`element "${id}" has no size`);
+  return {
+    id,
+    minX,
+    minY,
+    maxX,
+    maxY,
+    part,
+    ...(href ? { href } : {}),
+  };
+}
+
+function axisAligned(edge: [number, number]): boolean {
+  const [dx, dy] = edge;
+  const length = Math.hypot(dx, dy);
+  if (length < 1e-6) return false;
+  return Math.min(Math.abs(dx), Math.abs(dy)) <= 1e-3 * length;
 }
 
 function pageFrame(svg: XmlNode): PageFrame {
@@ -232,6 +460,8 @@ type Collect = {
   propIds: Set<string>;
   spawns: SceneSpawn[];
   spawnIds: Set<string>;
+  doors: SceneDoor[];
+  doorIds: Set<string>;
   sawBoundsLayer: boolean;
   boundsRects: number;
   bounds?: XzBounds;
@@ -252,6 +482,7 @@ function walk(el: XmlNode, parent: Mat, stack: string[], collect: Collect): void
     takeBounds(el, matrix, collect);
   }
   if (!ignored && name === "rect" && layer === "props") takeProp(el, matrix, collect);
+  if (!ignored && name === "rect" && layer === "doors") takeDoor(el, matrix, collect);
   if (!ignored && (name === "text" || name === "path" || name === "rect") && layer === "spawn-points") {
     takeSpawn(el, matrix, collect);
   }
@@ -294,7 +525,9 @@ function taggedModel(el: XmlNode): { id: string; model: string } | undefined {
 }
 
 function claimPlacementId(collect: Collect, id: string): void {
-  if (collect.ids.has(id) || collect.propIds.has(id)) throw new PlanError(`duplicate placement id "${id}"`);
+  if (collect.ids.has(id) || collect.propIds.has(id) || collect.doorIds.has(id)) {
+    throw new PlanError(`duplicate placement id "${id}"`);
+  }
 }
 
 function measureTagged(
@@ -368,6 +601,69 @@ function takeProp(el: XmlNode, matrix: Mat, collect: Collect): void {
     ...(minY !== undefined ? { minY } : {}),
     ...(maxY !== undefined ? { maxY } : {}),
   });
+}
+
+function takeDoor(el: XmlNode, matrix: Mat, collect: Collect): void {
+  const id = requireId(el, "door");
+  const building = attr(el, "data-building")?.trim();
+  if (!building) throw new PlanError(`door "${id}" is missing data-building`);
+  if (!ID_RE.test(building)) throw new PlanError(`door "${id}" has invalid data-building "${building}"`);
+  const model = doorModel(el, id);
+  claimPlacementId(collect, id);
+  const local = rectBounds(el, collect.frame.meters, collect.units);
+  if (!local) throw new PlanError(`door "${id}" has no footprint`);
+  const box = worldAabb(local, matrix, collect.frame);
+  const [cx, cy] = apply(matrix, (local.minX + local.maxX) / 2, (local.minY + local.maxY) / 2);
+  const width = optionalPositive(attr(el, "data-width"), `door "${id}" data-width`);
+  const height = optionalPositive(attr(el, "data-height"), `door "${id}" data-height`);
+  const depth = optionalPositive(attr(el, "data-depth"), `door "${id}" data-depth`);
+  collect.doorIds.add(id);
+  collect.doors.push({
+    id,
+    model,
+    building,
+    center: svgPointToWorld(cx, cy, collect.frame),
+    minX: box.minX,
+    maxX: box.maxX,
+    minZ: box.minZ,
+    maxZ: box.maxZ,
+    hinge: parseHinge(el, id),
+    open: parseOpen(el, id),
+    ...(width !== undefined ? { width } : {}),
+    ...(height !== undefined ? { height } : {}),
+    ...(depth !== undefined ? { depth } : {}),
+  });
+}
+
+/**
+ * The same id a prop reads: `data-model` or the label `model:<id>`.
+ * A door with neither fails. There is no default model.
+ */
+function doorModel(el: XmlNode, id: string): string {
+  const tagged = taggedModel(el);
+  if (!tagged) throw new PlanError(`door "${id}" is missing a model`);
+  return tagged.model;
+}
+
+function parseHinge(el: XmlNode, id: string): DoorHinge {
+  const raw = attr(el, "data-hinge")?.trim();
+  if (!raw) return "left";
+  if (raw === "left" || raw === "right") return raw;
+  throw new PlanError(`door "${id}" data-hinge "${raw}" is not left or right`);
+}
+
+function parseOpen(el: XmlNode, id: string): boolean {
+  const raw = attr(el, "data-open")?.trim();
+  if (!raw || raw === "false") return false;
+  if (raw === "true") return true;
+  throw new PlanError(`door "${id}" data-open "${raw}" is not true or false`);
+}
+
+function optionalPositive(raw: string | undefined, what: string): number | undefined {
+  const value = optionalNumber(raw, what);
+  if (value === undefined) return undefined;
+  if (!(value > 0)) throw new PlanError(`${what} must be positive`);
+  return value;
 }
 
 function takeSpawn(el: XmlNode, matrix: Mat, collect: Collect): void {
@@ -453,9 +749,10 @@ function insideBounds(box: XzBounds, x: number, z: number): boolean {
 const PATH_TOKEN = /[MmLlHhVvCcSsQqTtAaZz]|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g;
 
 /** Endpoints and control points of an SVG path, in the element's local space. */
-function pathPoints(raw: string | undefined, id: string): Array<[number, number]> {
+function pathPoints(raw: string | undefined, id: string, kind = "spawn"): Array<[number, number]> {
+  const label = `${kind} "${id}"`;
   const tokens = raw?.match(PATH_TOKEN) ?? [];
-  if (tokens.length === 0) throw new PlanError(`spawn "${id}" has no position`);
+  if (tokens.length === 0) throw new PlanError(`${label} has no position`);
   const points: Array<[number, number]> = [];
   let index = 0;
   let cmd = "";
@@ -466,7 +763,7 @@ function pathPoints(raw: string | undefined, id: string): Array<[number, number]
   const isCommand = (token: string | undefined): boolean => token != null && /^[A-Za-z]$/.test(token);
   const read = (): number => {
     const token = tokens[index];
-    if (token == null || isCommand(token)) throw new PlanError(`spawn "${id}" has a bad path`);
+    if (token == null || isCommand(token)) throw new PlanError(`${label} has a bad path`);
     index += 1;
     return Number(token);
   };
@@ -475,7 +772,7 @@ function pathPoints(raw: string | undefined, id: string): Array<[number, number]
 
   while (index < tokens.length) {
     if (isCommand(tokens[index])) cmd = tokens[index++]!;
-    else if (!cmd) throw new PlanError(`spawn "${id}" has a bad path`);
+    else if (!cmd) throw new PlanError(`${label} has a bad path`);
     const rel = cmd === cmd.toLowerCase();
     const op = cmd.toUpperCase();
     if (op === "Z") {
@@ -538,9 +835,9 @@ function pathPoints(raw: string | undefined, id: string): Array<[number, number]
       cy = end[1];
       continue;
     }
-    throw new PlanError(`spawn "${id}" has a bad path`);
+    throw new PlanError(`${label} has a bad path`);
   }
-  if (points.length === 0) throw new PlanError(`spawn "${id}" has no position`);
+  if (points.length === 0) throw new PlanError(`${label} has no position`);
   return points;
 }
 
@@ -579,6 +876,24 @@ function mappedBounds(el: XmlNode, parent: Mat, meters: number, units: string | 
   if (name === "rect") {
     const raw = rectBounds(el, meters, units);
     return raw ? transformBounds(raw, matrix) : undefined;
+  }
+  if (name === "path") {
+    const raw = attr(el, "d");
+    if (raw == null || raw.trim() === "") return undefined;
+    const points = pathPoints(raw, attr(el, "id")?.trim() || "path", "path");
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const [x, y] of points) {
+      const [tx, ty] = apply(matrix, x, y);
+      if (tx < minX) minX = tx;
+      if (ty < minY) minY = ty;
+      if (tx > maxX) maxX = tx;
+      if (ty > maxY) maxY = ty;
+    }
+    if (!(maxX > minX) || !(maxY > minY)) return undefined;
+    return { minX, minY, maxX, maxY };
   }
   let box: Bounds2 | undefined;
   for (const child of el.children) box = unionBounds(box, mappedBounds(child, matrix, meters, units));

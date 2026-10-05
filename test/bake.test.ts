@@ -336,6 +336,10 @@ test("each layer is its own file, and a toolbar square at -24 stays at -24", () 
     const spawns = JSON.parse(readFileSync(path.join(dir, "spawn-points.json"), "utf8")) as Array<{
       id: string; x: number; y: number; z: number; yaw: number;
     }>;
+    const doors = JSON.parse(readFileSync(path.join(dir, "doors.placements.json"), "utf8")) as {
+      placements: unknown[];
+      obstacles: unknown[];
+    };
     assert.deepEqual(buildings, result.file);
     assert.equal("scene" in buildings, false);
     assert.equal("bounds" in buildings, false);
@@ -352,6 +356,8 @@ test("each layer is its own file, and a toolbar square at -24 stays at -24", () 
       id: "crate-box", kind: "aabb", min: [10, 0, 3], max: [12, 0, 7],
     }]);
     assert.equal("scene" in props, false);
+    assert.deepEqual(doors, { formatVersion: 1, units: "meters", placements: [], obstacles: [] });
+    assert.equal("scene" in doors, false);
     assert.deepEqual(spawns, [
       { id: "cross", x: -10, y: 0, z: -20, yaw: 0 },
       { id: "corner", x: -24, y: 0, z: -24, yaw: 0 },
@@ -435,6 +441,262 @@ test("bounds come from the one rectangle, and a missing layer writes nothing", (
     assert.deepEqual(turnedResult.props.obstacles[0], {
       id: "crate-box", kind: "aabb", min: [-1, 0, 7], max: [3, 0, 9],
     });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** Host rule: a pawn center inside an AABB expanded by its radius is blocked. */
+function pawnBlocked(x: number, z: number, obstacles: Obstacle[], radius: number): boolean {
+  return obstacles.some((box) => {
+    const minX = box.min[0] - radius;
+    const maxX = box.max[0] + radius;
+    const minZ = box.min[2] - radius;
+    const maxZ = box.max[2] + radius;
+    return x > minX && x < maxX && z > minZ && z < maxZ;
+  });
+}
+
+test("a 10 m wall and a 2 m door are two boxes and one hinged placement", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-"));
+  const svg = path.join(dir, "door.svg");
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  try {
+    writeFileSync(svg, `<?xml version="1.0"?><svg ${ns} width="20mm" height="20mm" viewBox="0 0 20 20">
+      <g inkscape:groupmode="layer" inkscape:label="bounds">
+        <rect id="room" x="0" y="0" width="20" height="20"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="buildings">
+        <rect id="hall" data-model="m" x="5" y="9.5" width="10" height="1"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="doors">
+        <rect id="front" data-building="hall" inkscape:label="model:door-1" x="9" y="9.5" width="2" height="1"/>
+      </g>
+    </svg>`);
+    const outPath = path.join(dir, "buildings.placements.json");
+    const result = bake({
+      svgPath: svg,
+      outPath,
+      collisionDir: path.join(dir, "buildings"),
+      walls: { m: trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]) },
+    });
+    assert.equal(result.file.obstacles.length, 2);
+    assert.equal(result.file.obstacles.some((box) => covers(box, [7, 1, 10]) && covers(box, [13, 1, 10])), false);
+    assert.equal(result.file.obstacles.some((box) => covers(box, [7, 1, 10])), true);
+    assert.equal(result.file.obstacles.some((box) => covers(box, [13, 1, 10])), true);
+    assert.equal(result.file.obstacles.some((box) => covers(box, [10, 1, 10])), false);
+    const gap = result.file.obstacles[1]!.min[0] - result.file.obstacles[0]!.max[0];
+    assert.ok(gap >= 2 && gap <= 2.5, `gap ${gap}`);
+    for (const box of result.file.obstacles) {
+      assert.ok(box.max[2] - box.min[2] <= 1.05, `wall thickness in z ${box.max[2] - box.min[2]}`);
+    }
+    for (let z = 8; z <= 12; z += 0.25) {
+      assert.equal(pawnBlocked(10, z, result.file.obstacles, 0.5), false, `z ${z}`);
+    }
+    assert.equal(pawnBlocked(7, 10, result.file.obstacles, 0.5), true);
+
+    const doors = JSON.parse(readFileSync(path.join(dir, "doors.placements.json"), "utf8")) as {
+      placements: Array<{ id: string; model: string; position: number[]; yaw: number; hinge: string; size: number[]; open: boolean }>;
+      obstacles: unknown[];
+    };
+    assert.deepEqual(doors, result.doors);
+    assert.deepEqual(doors.obstacles, []);
+    assert.equal(JSON.stringify(doors).includes("-box"), false);
+    assert.deepEqual(doors.placements, [{
+      id: "front",
+      model: "door-1",
+      position: [10, 0, 10.5],
+      yaw: 0,
+      hinge: "left",
+      size: [2, 2.1, 0.08],
+      open: false,
+    }]);
+    const modelCollision = JSON.parse(readFileSync(path.join(dir, "buildings", "m.collision.json"), "utf8")) as {
+      boxes: unknown[];
+    };
+    assert.equal(modelCollision.boxes.length, 1);
+
+    const unknown = path.join(dir, "unknown.svg");
+    writeFileSync(unknown, `<?xml version="1.0"?><svg ${ns} width="20mm" height="20mm" viewBox="0 0 20 20">
+      <g inkscape:groupmode="layer" inkscape:label="bounds">
+        <rect id="room" x="0" y="0" width="20" height="20"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="buildings">
+        <rect id="hall" data-model="m" x="5" y="9.5" width="10" height="1"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="doors">
+        <rect id="front" data-building="missing" inkscape:label="model:door-1" x="9" y="9.5" width="2" height="1"/>
+      </g>
+    </svg>`);
+    const missed = path.join(dir, "missed.placements.json");
+    assert.throws(
+      () => bake({
+        svgPath: unknown,
+        outPath: missed,
+        collisionDir: path.join(dir, "missed-buildings"),
+        walls: { m: trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]) },
+      }),
+      /door "front" data-building "missing" does not match a placement/,
+    );
+    assert.throws(() => readFileSync(missed));
+    assert.throws(() => readFileSync(path.join(dir, "missed-buildings", "m.collision.json")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a yaw 90 wall keeps the door on the turned face and a width marker still opens 2 m", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-yaw-"));
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  const shell = (buildings: string, doors: string) => `<?xml version="1.0"?><svg ${ns} width="20mm" height="20mm" viewBox="0 0 20 20">
+    <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="room" x="0" y="0" width="20" height="20"/></g>
+    <g inkscape:groupmode="layer" inkscape:label="buildings">${buildings}</g>
+    <g inkscape:groupmode="layer" inkscape:label="doors">${doors}</g>
+  </svg>`;
+  try {
+    const turned = path.join(dir, "turned.svg");
+    writeFileSync(turned, shell(
+      `<rect id="hall" data-model="m" x="5" y="9.5" width="10" height="1" transform="rotate(90 10 10)"/>`,
+      `<rect id="front" data-building="hall" data-hinge="right" data-open="true" inkscape:label="model:door-1" x="9.5" y="9" width="1" height="2"/>`,
+    ));
+    const turnedResult = bake({
+      svgPath: turned,
+      outPath: path.join(dir, "turned.placements.json"),
+      collisionDir: path.join(dir, "turned-buildings"),
+      walls: { m: trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]) },
+    });
+    assert.equal(turnedResult.file.obstacles.length, 2);
+    assert.equal(turnedResult.file.obstacles.some((box) => covers(box, [10, 1, 10])), false);
+    assert.equal(turnedResult.doors.obstacles.length, 0);
+    assert.deepEqual(turnedResult.doors.placements[0], {
+      id: "front",
+      model: "door-1",
+      position: [10.5, 0, 10],
+      yaw: 90,
+      hinge: "right",
+      size: [2, 2.1, 0.08],
+      open: true,
+    });
+    for (const box of turnedResult.file.obstacles) {
+      assert.ok(box.max[0] - box.min[0] <= 1.05, `turned wall thickness in x ${box.max[0] - box.min[0]}`);
+    }
+    for (let x = 8; x <= 12; x += 0.25) {
+      assert.equal(pawnBlocked(x, 10, turnedResult.file.obstacles, 0.5), false, `turned x ${x}`);
+    }
+    assert.equal(pawnBlocked(10, 7, turnedResult.file.obstacles, 0.5), true);
+
+    const marker = path.join(dir, "marker.svg");
+    writeFileSync(marker, shell(
+      `<rect id="hall" data-model="m" x="5" y="9.5" width="10" height="1"/>`,
+      `<rect id="front" data-building="hall" data-width="2" data-height="2.4" data-depth="0.1" data-model="door-1" x="9.9" y="9.9" width="0.2" height="0.2"/>`,
+    ));
+    const marked = bake({
+      svgPath: marker,
+      outPath: path.join(dir, "marker.placements.json"),
+      collisionDir: path.join(dir, "marker-buildings"),
+      walls: { m: trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]) },
+    });
+    assert.equal(marked.file.obstacles.length, 2);
+    assert.equal(marked.file.obstacles.some((box) => covers(box, [10, 1, 10])), false);
+    assert.deepEqual(marked.doors.placements[0]?.size, [2, 2.4, 0.1]);
+    assert.deepEqual(marked.doors.placements[0]?.position, [10, 0, 10.5]);
+    assert.deepEqual(marked.doors.obstacles, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a deep block keeps the door gap on the wall and the cell beside the jamb solid", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-deep-"));
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  const shell = (buildings: string, doors: string) => `<?xml version="1.0"?><svg ${ns} width="20mm" height="20mm" viewBox="0 0 20 20">
+    <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="room" x="0" y="0" width="20" height="20"/></g>
+    <g inkscape:groupmode="layer" inkscape:label="buildings">${buildings}</g>
+    <g inkscape:groupmode="layer" inkscape:label="doors">${doors}</g>
+  </svg>`;
+  const block = trianglesFromBox([-5, 0, -5], [5, 3, 5]);
+  try {
+    const alongX = path.join(dir, "along-x.svg");
+    writeFileSync(alongX, shell(
+      `<rect id="hall" data-model="m" x="5" y="5" width="10" height="10"/>`,
+      `<rect id="front" data-building="hall" inkscape:label="model:door-1" x="9" y="4.8" width="2" height="0.4"/>`,
+    ));
+    const yaw0 = bake({
+      svgPath: alongX,
+      outPath: path.join(dir, "along-x.placements.json"),
+      collisionDir: path.join(dir, "along-x-buildings"),
+      walls: { m: block },
+    });
+    assert.equal(yaw0.doors.placements[0]?.yaw, 0);
+    assert.equal(pawnBlocked(10, 14.5, yaw0.file.obstacles, 0.5), false);
+    assert.equal(pawnBlocked(8, 14.5, yaw0.file.obstacles, 0.5), true);
+    assert.equal(pawnBlocked(10, 11, yaw0.file.obstacles, 0.5), true);
+
+    const alongZ = path.join(dir, "along-z.svg");
+    writeFileSync(alongZ, shell(
+      `<rect id="hall" data-model="m" data-yaw="90" x="5" y="5" width="10" height="10"/>`,
+      `<rect id="front" data-building="hall" inkscape:label="model:door-1" x="14.8" y="9" width="0.4" height="2"/>`,
+    ));
+    const yaw90 = bake({
+      svgPath: alongZ,
+      outPath: path.join(dir, "along-z.placements.json"),
+      collisionDir: path.join(dir, "along-z-buildings"),
+      walls: { m: block },
+    });
+    assert.equal(yaw90.doors.placements[0]?.yaw, 90);
+    assert.equal(pawnBlocked(14.5, 10, yaw90.file.obstacles, 0.5), false);
+    assert.equal(pawnBlocked(14.5, 8, yaw90.file.obstacles, 0.5), true);
+    assert.equal(pawnBlocked(11, 10, yaw90.file.obstacles, 0.5), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("model:door-1 and model:door-2 are written, and a door with no model fails", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-models-"));
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  const shell = (doors: string) => `<?xml version="1.0"?><svg ${ns} width="20mm" height="20mm" viewBox="0 0 20 20">
+    <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="room" x="0" y="0" width="20" height="20"/></g>
+    <g inkscape:groupmode="layer" inkscape:label="buildings">
+      <rect id="hall" data-model="m" x="5" y="9.5" width="10" height="1"/>
+    </g>
+    <g inkscape:groupmode="layer" inkscape:label="doors">${doors}</g>
+  </svg>`;
+  const walls = { m: trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]) };
+  try {
+    const svg = path.join(dir, "two.svg");
+    writeFileSync(svg, shell(`
+      <rect id="door-north" data-building="hall" inkscape:label="model:door-1" x="8" y="9.5" width="2" height="1"/>
+      <rect id="door-south" data-building="hall" inkscape:label="model:door-2" x="12" y="9.5" width="2" height="1"/>
+    `));
+    const outPath = path.join(dir, "buildings.placements.json");
+    const result = bake({
+      svgPath: svg,
+      outPath,
+      collisionDir: path.join(dir, "buildings"),
+      walls,
+    });
+    assert.deepEqual(result.doors.placements.map((door) => door.model), ["door-1", "door-2"]);
+    assert.deepEqual(result.doors.placements.map((door) => door.id), ["door-north", "door-south"]);
+    assert.deepEqual(result.doors.obstacles, []);
+    const written = JSON.parse(readFileSync(path.join(dir, "doors.placements.json"), "utf8")) as {
+      placements: Array<{ model: string }>;
+    };
+    assert.deepEqual(written.placements.map((door) => door.model), ["door-1", "door-2"]);
+
+    const bare = path.join(dir, "bare.svg");
+    writeFileSync(bare, shell(`<rect id="front" data-building="hall" x="9" y="9.5" width="2" height="1"/>`));
+    const missed = path.join(dir, "missed.placements.json");
+    assert.throws(
+      () => bake({
+        svgPath: bare,
+        outPath: missed,
+        collisionDir: path.join(dir, "missed-buildings"),
+        walls,
+      }),
+      /door "front" is missing a model/,
+    );
+    assert.throws(() => readFileSync(missed));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

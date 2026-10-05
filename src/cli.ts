@@ -2,24 +2,50 @@ import { pathToFileURL } from "node:url";
 import { bake } from "./bake.ts";
 import { PlanError } from "./errors.ts";
 import { measure } from "./measure.ts";
+import { writeCrateProp } from "./crate.ts";
+import { writeDoorProp } from "./prop.ts";
 
 const USAGE = `blueprint-scene measure --glb model.glb --out buildings/<id>.json --svg buildings/<id>.svg
 blueprint-scene bake --svg plan.svg --models ./models --out web/game/buildings.placements.json
         [--mesh-prefix wall_]
+blueprint-scene prop --shape door --svg door.svg --out props/door.glb
+blueprint-scene prop --shape crate --svg crate.svg --out props/cover-crate.glb
 
 Inkscape drawing scale is 1 mm = 1 m. A rectangle 8 mm wide is an 8 m facade.
 The toolbar is the room: x → x and toolbar y → z. Yaw is snapped to 0, 90, 180, or 270.
 
-measure writes raw model bounds in meters and an SVG footprint group tagged
-data-model="<id>". Copy that group into a plan, then move and scale it.
+measure writes raw GLB bounds and an SVG footprint group tagged
+data-model="<id>". Units are "glb", not arena meters. The grid is 0.05 on
+the unscaled model. A run of one cell is kept. Copy that group into a plan,
+then move and scale it. Arena meters come from that scale.
 Scale must be uniform. A 2× enlarge is scale 2. Non-uniform scale fails the file.
 
-bake reads the buildings, bounds, props, and spawn-points layers. It writes
-four files and does not write arena.game.json or a scene object. --out is the
-buildings placements file. bounds.json, props.placements.json, and
-spawn-points.json are written in that same directory. Building scale is the
-SVG size relative to the measured stencil. Building obstacles are a 0.5 m XZ
-grid, at most 32 boxes. Doorway gaps stay gaps.`;
+bake reads the buildings, bounds, props, spawn-points, and doors layers. It
+writes five files and does not write arena.game.json or a scene object. --out
+is the buildings placements file. bounds.json, props.placements.json,
+spawn-points.json, and doors.placements.json are written in that same
+directory. Building scale is the SVG size relative to the measured stencil.
+Building obstacles are a 0.5 m XZ grid, at most 32 boxes. A doors rectangle
+with data-building="<placement id>" stamps a gap in that building and writes
+a hinged placement. Its model is data-model or the label model:<id>, the same
+as a prop. A door with no model id fails. The door file has no obstacle.
+
+prop --shape door reads a door-design layer. Part ids are data-part-frame,
+data-part-door, data-part-hinge, and data-part-texture. The texture image is
+the full face. The frame is four boxes around the door, each mapped to the
+strip of that image it covers. The door front and back use only the door
+rectangle. The frame node does not swing. The door origin is the hinge edge.
+There is no skin, no clip, and no obstacle.
+
+prop --shape crate reads rectangles on a crate-design layer. One unlabeled
+texture covers all six faces. Its width and height are the front, in meters,
+and the depth is that width unless data-depth is set. Labeled faces are
+front, back, left, right, top, and bottom. A missing opposite uses the given
+side. The front rectangle is the width and height. The depth is the left or
+right rectangle's width. Faces that disagree on a shared edge fail the file.
+The GLB is one mesh of 24 vertices. Its origin is the center of the bottom
+face. Each face uses its own texture. The same stem gets .collision.json
+with one AABB of that size. There is no skin and no collision in the GLB.`;
 
 export function main(argv: string[]): number {
   try {
@@ -40,6 +66,10 @@ export function main(argv: string[]): number {
       runBake(argv.slice(1));
       return 0;
     }
+    if (command === "prop") {
+      runProp(argv.slice(1));
+      return 0;
+    }
     throw new PlanError(`unknown command "${command}"\n${USAGE}`);
   } catch (err) {
     if (err instanceof PlanError) console.error(err.message);
@@ -54,13 +84,14 @@ function runMeasure(argv: string[]): void {
   if (!flags.glb) throw new PlanError(`missing --glb\n${USAGE}`);
   if (!flags.out) throw new PlanError(`missing --out\n${USAGE}`);
   if (!flags.svg) throw new PlanError(`missing --svg\n${USAGE}`);
-  measure({ glbPath: flags.glb, outPath: flags.out, svgPath: flags.svg });
+  const measured = measure({ glbPath: flags.glb, outPath: flags.out, svgPath: flags.svg });
+  console.log(`${flags.glb}: ${measured.vertexCount} vertices, ${measured.runCount} runs`);
   console.log(`wrote ${flags.out}`);
   console.log(`wrote ${flags.svg}`);
 }
 
 function runBake(argv: string[]): void {
-  const flags = parseFlags(argv, new Set(["svg", "models", "out", "mesh-prefix"]));
+  const flags = parseFlags(argv, new Set(["svg", "models", "out", "mesh-prefix", "collision-dir"]));
   if (!flags.svg) throw new PlanError(`missing --svg\n${USAGE}`);
   if (!flags.out) throw new PlanError(`missing --out\n${USAGE}`);
   const result = bake({
@@ -68,8 +99,28 @@ function runBake(argv: string[]): void {
     outPath: flags.out,
     modelsDir: flags.models,
     meshPrefix: flags["mesh-prefix"],
+    collisionDir: flags["collision-dir"],
   });
   for (const line of result.lines) console.log(line);
+}
+
+function runProp(argv: string[]): void {
+  const flags = parseFlags(argv, new Set(["shape", "out", "svg"]));
+  if (!flags.shape) throw new PlanError(`missing --shape\n${USAGE}`);
+  if (!flags.out) throw new PlanError(`missing --out\n${USAGE}`);
+  if (!flags.svg) throw new PlanError(`missing --svg\n${USAGE}`);
+  if (flags.shape === "door") {
+    writeDoorProp({ svgPath: flags.svg, outPath: flags.out });
+    console.log(`wrote ${flags.out}`);
+    return;
+  }
+  if (flags.shape === "crate") {
+    const written = writeCrateProp({ svgPath: flags.svg, outPath: flags.out });
+    console.log(`wrote ${written.glbPath}`);
+    console.log(`wrote ${written.collisionPath}`);
+    return;
+  }
+  throw new PlanError(`unknown prop shape "${flags.shape}"`);
 }
 
 function parseFlags(argv: string[], known: Set<string>): Record<string, string> {

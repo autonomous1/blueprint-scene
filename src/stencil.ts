@@ -33,7 +33,8 @@ export function boundsOfTriangles(triangles: Triangle[]): ModelBounds | undefine
 /**
  * One rectangle, the XZ extent plans are scaled against. Paper-thin
  * triangles are left out. A mesh with no thicker triangle uses the raw
- * bounds, so the stencil still has a shape.
+ * bounds, so a copied plan still has a scale. The measure SVG does not
+ * draw this rectangle; it draws the union of the collision runs.
  */
 export function stencilBoxes(triangles: Triangle[]): LocalBox[] {
   let minX = Infinity;
