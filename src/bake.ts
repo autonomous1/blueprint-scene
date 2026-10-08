@@ -1,11 +1,11 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PlanError } from "./errors.ts";
 import { openingInModel, situateDoor } from "./doors.ts";
 import { coarseFootprint, footprintFromTriangles, type XzRect } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
 import { readScene, type PlanPlacement } from "./plan.ts";
-import { stencilBoxes, stencilSize } from "./stencil.ts";
+import { boundsOfTriangles, stencilBoxes, stencilSize } from "./stencil.ts";
 import type { BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds } from "./types.ts";
 import { placeBox } from "./yaw.ts";
 
@@ -107,6 +107,11 @@ export function bake(options: BakeOptions): BakeResult {
     })),
     obstacles: [],
   };
+  const propBoxes = new Map<string, LocalBox | undefined>();
+  for (const prop of scene.props) {
+    if (propBoxes.has(prop.model)) continue;
+    propBoxes.set(prop.model, loadPropBox(options, modelsDir, prop.model));
+  }
   const props: PlacementsFile = {
     formatVersion: 1,
     units: "meters",
@@ -117,7 +122,7 @@ export function bake(options: BakeOptions): BakeResult {
       yaw: prop.yaw,
       scale: roundM(prop.scale),
     })),
-    obstacles: scene.props.map(propObstacle),
+    obstacles: scene.props.map((prop) => propObstacle(prop, propBoxes.get(prop.model))),
   };
   const spawns: SpawnPoint[] = scene.spawns.map((spawn) => ({
     id: spawn.id,
@@ -231,26 +236,71 @@ function layerPaths(outPath: string): { buildings: string; bounds: string; props
 }
 
 /**
- * One world AABB for a prop rectangle. XZ is the drawn size about the center,
- * turned by yaw. Y stays 0 unless the rectangle sets data-min-y / data-max-y.
+ * One world AABB for a prop. The box is the GLB bounds, origin at the bottom
+ * center, multiplied by the placement scale, then turned and moved.
+ * A model that was not loaded uses the SVG rectangle instead.
+ * Do not grow either box by the pawn radius. The solver already pushes a
+ * 0.5 m capsule out of the AABB, so padding here would double-count.
  */
-function propObstacle(prop: SceneProp): PlacementsFile["obstacles"][number] {
+function propObstacle(prop: SceneProp, modelBox: LocalBox | undefined): PlacementsFile["obstacles"][number] {
+  const local = modelBox ? scaleBox(modelBox, prop.scale) : rectangleBox(prop);
+  const placed = placeBox(local, prop.position, prop.yaw);
+  return {
+    id: `${prop.id}-box`,
+    kind: "aabb",
+    min: roundVec(placed.min),
+    max: roundVec(placed.max),
+  };
+}
+
+/** GLB bounds for a prop. A test stand-in wins. A missing file is no box. */
+function loadPropBox(options: BakeOptions, modelsDir: string, model: string): LocalBox | undefined {
+  if (!MODEL_RE.test(model)) throw new PlanError(`invalid model id "${model}"`);
+  if (options.walls && Object.prototype.hasOwnProperty.call(options.walls, model)) {
+    return boundsBox(model, geometryFor(options, modelsDir, model).triangles);
+  }
+  const glbPath = path.join(modelsDir, `${model}.glb`);
+  if (!existsSync(glbPath)) return undefined;
+  return boundsBox(model, loadGlb(modelsDir, model, undefined).triangles);
+}
+
+function boundsBox(model: string, triangles: Triangle[]): LocalBox {
+  const bounds = boundsOfTriangles(triangles);
+  if (!bounds) throw new PlanError(`${model}: no triangle position data`);
+  return {
+    minX: bounds.min[0],
+    maxX: bounds.max[0],
+    minY: bounds.min[1],
+    maxY: bounds.max[1],
+    minZ: bounds.min[2],
+    maxZ: bounds.max[2],
+  };
+}
+
+/** Scale about the model origin, the same scalar the mesh uses. */
+function scaleBox(box: LocalBox, scale: number): LocalBox {
+  return {
+    minX: box.minX * scale,
+    maxX: box.maxX * scale,
+    minY: box.minY * scale,
+    maxY: box.maxY * scale,
+    minZ: box.minZ * scale,
+    maxZ: box.maxZ * scale,
+  };
+}
+
+/** Drawn rectangle when the model file is absent. Width and depth already include its scale. */
+function rectangleBox(prop: SceneProp): LocalBox {
   const minY = prop.minY ?? 0;
   const maxY = prop.maxY ?? minY;
   if (maxY < minY) throw new PlanError(`prop "${prop.id}" maxY must exceed minY`);
-  const placed = placeBox({
+  return {
     minX: -prop.drawnWidth / 2,
     maxX: prop.drawnWidth / 2,
     minY,
     maxY,
     minZ: -prop.drawnDepth / 2,
     maxZ: prop.drawnDepth / 2,
-  }, prop.position, prop.yaw);
-  return {
-    id: `${prop.id}-box`,
-    kind: "aabb",
-    min: roundVec(placed.min),
-    max: roundVec(placed.max),
   };
 }
 

@@ -29,6 +29,9 @@ Building obstacles are a 0.5 m XZ grid, at most 32 boxes. A doors rectangle
 with data-building="<placement id>" stamps a gap in that building and writes
 a hinged placement. Its model is data-model or the label model:<id>, the same
 as a prop. A door with no model id fails. The door file has no obstacle.
+A props rectangle places the model. Its obstacle is the GLB bounds after
+that position, yaw, and scale, or the rectangle when the GLB is missing.
+The pawn radius is not added.
 
 prop --shape door reads a door-design layer. Part ids are data-part-frame,
 data-part-door, data-part-hinge, and data-part-texture. The texture image is

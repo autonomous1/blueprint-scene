@@ -446,6 +446,82 @@ test("bounds come from the one rectangle, and a missing layer writes nothing", (
   }
 });
 
+test("a prop AABB is the model box, not the rectangle plus the pawn radius", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-prop-box-"));
+  const svg = path.join(dir, "room.svg");
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  // The drawn rectangles are 2.2 by 1.8. The model is 1.2 × 0.8 × 0.8.
+  // Padding each horizontal side by 0.5 would write 2.2 × 0.8 × 1.8.
+  const page = `<?xml version="1.0"?><svg ${ns} width="48mm" height="48mm" viewBox="0 0 48 48">
+      <g inkscape:groupmode="layer" inkscape:label="bounds">
+        <rect id="room" x="-24" y="24" width="48" height="48"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="buildings">
+        <rect id="origin" data-model="m" x="-0.5" y="47.5" width="1" height="1"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="props">
+        <rect id="crate" data-model="crate" x="-1.1" y="47.1" width="2.2" height="1.8"/>
+        <rect id="turned" data-model="crate" x="8.9" y="43.1" width="2.2" height="1.8" data-yaw="90"/>
+        <rect id="grown" data-model="crate" x="-1.1" y="-0.9" width="2.2" height="1.8" transform="translate(6 20) scale(2)"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="spawn-points">
+        <text id="near" x="1.2" y="48">x</text>
+      </g>
+    </svg>`;
+  try {
+    writeFileSync(svg, page);
+    const result = bake({
+      svgPath: svg,
+      outPath: path.join(dir, "buildings.placements.json"),
+      collisionDir: path.join(dir, "buildings"),
+      walls: {
+        m: trianglesFromBox([-0.5, 0, -0.5], [0.5, 1, 0.5]),
+        crate: trianglesFromBox([-0.6, 0, -0.4], [0.6, 0.8, 0.4]),
+      },
+    });
+    const crate = result.props.obstacles.find((box) => box.id === "crate-box");
+    const turned = result.props.obstacles.find((box) => box.id === "turned-box");
+    const grown = result.props.obstacles.find((box) => box.id === "grown-box");
+    const grownPlace = result.props.placements.find((item) => item.id === "grown");
+    assert.ok(crate);
+    assert.ok(turned);
+    assert.ok(grown);
+    assert.ok(grownPlace);
+    assert.deepEqual(result.props.placements.find((item) => item.id === "crate")?.position, [0, 0, 0]);
+    assert.deepEqual(crate, {
+      id: "crate-box", kind: "aabb", min: [-0.6, 0, -0.4], max: [0.6, 0.8, 0.4],
+    });
+    assertSpan(turned, [0.8, 0.8, 1.2]);
+    const turnedPlace = result.props.placements.find((item) => item.id === "turned")!;
+    assertCenter(turned, [turnedPlace.position[0], 0.4, turnedPlace.position[2]]);
+    assert.equal(grownPlace.scale, 2);
+    assertSpan(grown, [2.4, 1.6, 1.6]);
+    assertCenter(grown, [grownPlace.position[0], 0.8, grownPlace.position[2]]);
+    assert.deepEqual(result.spawns.find((spawn) => spawn.id === "near"), { id: "near", x: 1.2, y: 0, z: 0, yaw: 0 });
+    // 0.6 m outside the face clears a 0.5 m pawn. 0.4 m does not.
+    assert.equal(pawnBlocked(1.2, 0, [crate], 0.5), false);
+    assert.equal(pawnBlocked(1.0, 0, [crate], 0.5), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function assertSpan(box: Obstacle, expected: [number, number, number]): void {
+  near(box.max[0] - box.min[0], expected[0]);
+  near(box.max[1] - box.min[1], expected[1]);
+  near(box.max[2] - box.min[2], expected[2]);
+}
+
+function assertCenter(box: Obstacle, expected: [number, number, number]): void {
+  near((box.min[0] + box.max[0]) / 2, expected[0]);
+  near((box.min[1] + box.max[1]) / 2, expected[1]);
+  near((box.min[2] + box.max[2]) / 2, expected[2]);
+}
+
+function near(actual: number, expected: number): void {
+  assert.ok(Math.abs(actual - expected) < 1e-6, `${actual} expected ${expected}`);
+}
+
 /** Host rule: a pawn center inside an AABB expanded by its radius is blocked. */
 function pawnBlocked(x: number, z: number, obstacles: Obstacle[], radius: number): boolean {
   return obstacles.some((box) => {

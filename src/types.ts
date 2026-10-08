@@ -45,7 +45,8 @@ export type BoundsFile = {
 /**
  * A tagged rectangle on the `props` layer. Position is the center.
  * `scale` is the uniform SVG scale (1 when the rectangle is not scaled).
- * The obstacle is the rectangle, not the model footprint.
+ * The obstacle is the model bounds when that GLB is loaded, otherwise this
+ * rectangle. Neither box is grown by the pawn radius.
  */
 export type SceneProp = {
   id: string;
