@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PlanError } from "./errors.ts";
 import { openingInModel, situateDoor } from "./doors.ts";
-import { coarseFootprint, footprintFromTriangles, type XzRect } from "./footprint.ts";
+import { coarseFootprint, footprintDetail, type XzRect } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
 import { readScene, type PlanPlacement } from "./plan.ts";
 import { boundsOfTriangles, stencilBoxes, stencilSize } from "./stencil.ts";
@@ -136,7 +136,7 @@ export function bake(options: BakeOptions): BakeResult {
   for (const [model, baked] of boxesByModel) {
     if (baked.fromGlb) lines.push(meshLine(model, baked));
   }
-  const scaledGrids = new Map<string, { triangles: Triangle[]; boxes: LocalBox[]; cellSize: number }>();
+  const scaledGrids = new Map<string, { triangles: Triangle[]; boxes: LocalBox[]; cellSize: number; facetsDropped: number }>();
   for (const placement of file.placements) {
     const model = boxesByModel.get(placement.model)!;
     const key = `${placement.model}\0${placement.scale}`;
@@ -144,11 +144,12 @@ export function bake(options: BakeOptions): BakeResult {
     if (!grid) {
       const triangles = scaleTriangles(model.triangles, placement.scale);
       const uncut = coarseFootprint(triangles);
-      grid = { triangles, boxes: uncut.boxes, cellSize: uncut.cellSize };
+      grid = { triangles, boxes: uncut.boxes, cellSize: uncut.cellSize, facetsDropped: uncut.facetsDropped };
       scaledGrids.set(key, grid);
     }
     const mine = scene.doors.filter((door) => door.building === placement.id);
     let boxes = grid.boxes;
+    let facetsDropped = grid.facetsDropped;
     if (mine.length > 0) {
       const worldBoxes = grid.boxes.map((box) => placeBox(box, placement.position, placement.yaw));
       const openings: XzRect[] = [];
@@ -157,7 +158,9 @@ export function bake(options: BakeOptions): BakeResult {
         openings.push(openingInModel(situated.opening, placement.position, placement.yaw));
         doorPlacements.push(roundDoor(situated.placement));
       }
-      boxes = footprintFromTriangles(grid.triangles, grid.cellSize, openings);
+      const cut = footprintDetail(grid.triangles, grid.cellSize, openings);
+      boxes = cut.boxes;
+      facetsDropped = cut.facetsDropped;
     }
     boxes.forEach((box, index) => {
       const placed = placeBox(box, placement.position, placement.yaw);
@@ -168,7 +171,7 @@ export function bake(options: BakeOptions): BakeResult {
         max: roundVec(placed.max),
       });
     });
-    lines.push(instanceLine(placement.id, model.meshNames, placement.scale, grid.cellSize, boxes.length));
+    lines.push(instanceLine(placement.id, model.meshNames, placement.scale, grid.cellSize, boxes.length, facetsDropped));
   }
   const doors: DoorsFile = {
     formatVersion: 1,
@@ -372,8 +375,8 @@ function meshLine(model: string, baked: ModelBake): string {
   return `${model}: meshes ${meshNames(baked.meshNames)}; ${baked.vertexCount} vertices`;
 }
 
-function instanceLine(id: string, names: string[], scale: number, cellSize: number, count: number): string {
-  return `${id}: meshes ${meshNames(names)}; scale ${roundM(scale)}; cell ${cellSize} m; ${count} boxes`;
+function instanceLine(id: string, names: string[], scale: number, cellSize: number, count: number, facetsDropped: number): string {
+  return `${id}: meshes ${meshNames(names)}; scale ${roundM(scale)}; cell ${cellSize} m; ${count} boxes; ${facetsDropped} facets dropped`;
 }
 
 function loadGlb(modelsDir: string, model: string, meshPrefix: string | undefined): GlbLoad {

@@ -166,7 +166,7 @@ There is no CLI flag for the collision directory. Each model also writes `buildi
 
 ```text
 brutalist-urban-1: meshes <mesh name>; <vertex count> vertices
-south-facade: meshes <mesh name>; scale 2; cell 0.5 m; 4 boxes
+south-facade: meshes <mesh name>; scale 2; cell 0.5 m; 4 boxes; 12 facets dropped
 wrote web/game/buildings.placements.json
 wrote web/game/bounds.json
 wrote web/game/props.placements.json
@@ -175,7 +175,7 @@ wrote web/game/doors.placements.json
 wrote buildings/brutalist-urban-1.collision.json
 ```
 
-The model line is the GLB: mesh names and vertex count. The instance line is the mesh name, the scale, the cell size, and the world run count. The cell is 0.5 m, or 1 m when the 0.5 m grid still produced more than 32 runs. `--mesh-prefix wall_` on a mesh whose name does not start with `wall_` selects nothing, so the counts are 0.
+The model line is the GLB: mesh names and vertex count. The instance line is the mesh name, the scale, the cell size, the world run count, and how many facet boxes were dropped. The cell is 0.5 m, or 1 m when the 0.5 m grid still produced more than 32 runs. `--mesh-prefix wall_` on a mesh whose name does not start with `wall_` selects nothing, so the counts are 0.
 
 ### Placements file
 
@@ -258,10 +258,11 @@ A single room face can still carry its own pose. A face written as the string `"
 
 Scale is applied first. Triangles are then projected onto XZ, and yaw and translation happen after the runs exist.
 
-- A triangle whose highest vertex is under 0.5 m is floor debris and is dropped. Other Y values are ignored until a run takes its height from the triangles that overlap it.
-- The grid cell is 0.5 m. A cell is solid when any remaining triangle covers its center. A tessellated wall is made of smaller triangles; those still paint a center they cover.
-- Solid cells merge into horizontal and vertical runs. One run is one AABB. Overlapping corners stay two runs, so an L does not become one box over the room.
-- A run thinner than 0.4 m or shorter than 1 m is dropped. A 0.2 m mullion does not appear.
+- A triangle whose highest vertex is under 0.5 m is floor debris and is dropped. A band whose top is under 0.5 m is dropped the same way.
+- The grid cell is 0.5 m on XZ. A cell is solid when any remaining triangle covers its center. A tessellated wall is made of smaller triangles; those still paint a center they cover.
+- Each solid cell is split into vertical bands of 0.5 m. A band is solid only where a triangle overlaps that slice inside the cell. A face on a shared cell edge paints the cell its volume sits in. A wall thinner than the cell still paints the cells its polygon crosses. An interior cell inherits a neighbor's band only between its own underside and lid, so a thick solid stays one box. A span does not fill the cells under it, including a span that starts above 2 m over a 1.8 m pawn.
+- Cells the mesh covers anywhere from y = 0 to 2 m are merged into runs before any run is dropped. A run at least 1 m long and 0.4 m thick stays. That is the wall. Each band above 2 m uses that same split: a cell at least 0.1 m thick is the wall, and a thinner skin joins a parallel skin only when the gap is at most 0.5 m. A sheet of exactly 1 m across a doorway, or a 2 cm sliver in the next cell, does not change the wall's footprint, so the band stacks onto it. The box's min Y and max Y are the mesh in those bands, not the building's max height. Overlapping corners stay two runs, so an L does not become one box over the room.
+- A run shorter than 1 m is dropped. A run at least 1 m long and 0.4 m thick stays. A shell from 0.1 m to 0.4 m thick also stays when it is at least 1 m long and at least 0.5 m³. A surface thinner than 0.1 m stays when it is longer than 1 m, because the building facades are about a centimetre thick and a pawn would walk through the gap. A sheet of exactly 1 m that is thinner than 5 cm stays absent, so it does not seal a doorway. A 1 m run at least 5 cm thick stays; that is the piece a 1 m cell leaves between piers. A 0.3 m mullion, shorter than 1 m on its long side, does not appear. Anything else whose longest XZ side is under 1 m, or whose volume is under 0.5 m³, is a facet and is dropped after the runs exist. A pawn-height box longer than 1 m is not a facet. The instance line reports how many of those facets were dropped.
 - An empty cell is a doorway. A gap wider than 0.5 m is not filled.
 - At most 32 obstacles are kept per instance. If the 0.5 m grid still exceeds that, the cell doubles to 1 m and the grid runs once more.
 - The check is in world metres, after that instance's scale. The collision file is the same grid before scale.

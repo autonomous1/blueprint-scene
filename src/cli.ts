@@ -25,7 +25,7 @@ writes five files and does not write arena.game.json or a scene object. --out
 is the buildings placements file. bounds.json, props.placements.json,
 spawn-points.json, and doors.placements.json are written in that same
 directory. Building scale is the SVG size relative to the measured stencil.
-Building obstacles are a 0.5 m XZ grid, at most 32 boxes. A doors rectangle
+Building obstacles are a 0.5 m XZ grid. Cells the mesh covers from y = 0 to 2 m merge into wall runs before short ones are dropped. A box under 1 m on its long side, or under 0.5 m³, is dropped. A facade longer than 1 m stays even when the mesh is about a centimetre thick. At most 32 boxes. A doors rectangle
 with data-building="<placement id>" stamps a gap in that building and writes
 a hinged placement. Its model is data-model or the label model:<id>, the same
 as a prop. A door with no model id fails. The door file has no obstacle.

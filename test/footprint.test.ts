@@ -112,6 +112,83 @@ test("measure keeps a sub-metre run that bake drops", () => {
   assert.equal(boxes[0]!.maxZ, 0.3);
 });
 
+test("a solid 10 m wall from the ground to 3 m is one box a pawn hits", () => {
+  const boxes = footprintFromTriangles(trianglesFromBox([0, 0, 0], [10, 3, 0.5]));
+  assert.equal(boxes.length, 1);
+  assert.equal(boxes[0]!.minY, 0);
+  assert.equal(boxes[0]!.maxY, 3);
+  assert.equal(boxes.some((box) => covers(box, [5, 1, 0.25])), true);
+});
+
+test("a 0.3 m mullion writes nothing", () => {
+  const boxes = footprintFromTriangles(trianglesFromBox([0, 0, 0], [0.3, 3, 0.3]));
+  assert.equal(boxes.length, 0);
+});
+
+test("a 10 m shell 0.25 m thick is one box a pawn hits", () => {
+  const boxes = footprintFromTriangles(trianglesFromBox([0, 0, 0], [10, 3, 0.25]));
+  assert.equal(boxes.length, 1);
+  assert.equal(boxes[0]!.minY, 0);
+  assert.equal(boxes[0]!.maxY, 3);
+  assert.equal(boxes.some((box) => covers(box, [5, 1, 0.12])), true);
+});
+
+test("two thin skins merge into the wall between them", () => {
+  const boxes = footprintFromTriangles([
+    ...trianglesFromBox([0, 0, 0], [10, 3, 0.02]),
+    ...trianglesFromBox([0, 0, 0.48], [10, 3, 0.5]),
+  ]);
+  assert.equal(boxes.length, 1);
+  assert.equal(boxes.some((box) => covers(box, [5, 1, 0.25])), true);
+  assert.ok(boxes[0]!.maxZ - boxes[0]!.minZ >= 0.4);
+});
+
+test("trim under half a cubic metre is dropped", () => {
+  const boxes = footprintFromTriangles([
+    ...trianglesFromBox([0, 0, 0], [10, 3, 0.5]),
+    ...trianglesFromBox([20, 4, 0], [22, 4.4, 0.4]),
+  ]);
+  assert.equal(boxes.length, 1);
+  assert.equal(boxes.some((box) => covers(box, [5, 1, 0.25])), true);
+  assert.equal(boxes.some((box) => covers(box, [21, 4.2, 0.2])), false);
+});
+
+test("a bridge stays at its own height and the opening under it stays empty", () => {
+  const boxes = footprintFromTriangles([
+    ...trianglesFromBox([0, 0, 0], [3, 3, 0.5]),
+    ...trianglesFromBox([7, 0, 0], [10, 3, 0.5]),
+    ...trianglesFromBox([3, 3, 0], [7, 4, 0.5]),
+  ]);
+  const ground = boxes.filter((box) => box.minY < 1);
+  const bridge = boxes.filter((box) => box.minY >= 3);
+  assert.equal(ground.length, 2);
+  assert.equal(bridge.length, 1);
+  assert.equal(bridge[0]!.minY, 3);
+  assert.equal(bridge[0]!.maxY, 4);
+  assert.ok(bridge[0]!.minX >= 3 - 1e-6 && bridge[0]!.maxX <= 7 + 1e-6);
+  assert.equal(boxes.some((box) => covers(box, [5, 1, 0.25])), false);
+  assert.equal(boxes.some((box) => covers(box, [5, 2.9, 0.25])), false);
+  assert.equal(boxes.some((box) => covers(box, [5, 3.5, 0.25])), true);
+  assert.equal(boxes.some((box) => covers(box, [1, 1, 0.25])), true);
+  assert.equal(ground.every((box) => box.maxY === 3), true);
+});
+
+test("a solid 3 m wall keeps its own top when another part of the mesh is taller", () => {
+  const boxes = footprintFromTriangles([
+    ...trianglesFromBox([0, 0, 0], [4, 3, 0.5]),
+    ...trianglesFromBox([8, 0, 0], [10, 9, 0.5]),
+    [[0, 3, 0.2], [0.2, 3, 0.2], [0, 9, 4]],
+  ]);
+  const wall = boxes.find((box) => covers(box, [2, 1, 0.25]));
+  assert.ok(wall);
+  assert.equal(wall.maxY, 3);
+  assert.equal(wall.minY, 0);
+  assert.equal(boxes.some((box) => covers(box, [2, 5, 0.25])), false);
+  const tower = boxes.find((box) => covers(box, [9, 5, 0.25]));
+  assert.ok(tower);
+  assert.equal(tower.maxY, 9);
+});
+
 test("more than 32 runs doubles the cell once", () => {
   const triangles: Triangle[] = [];
   const count = MAX_OBSTACLES + 8;

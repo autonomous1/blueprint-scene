@@ -63,8 +63,8 @@ test("bake writes placements and keeps the rotated doorway open", () => {
     assert.deepEqual(
       result.lines.slice(0, 2),
       [
-        "bldg-south: meshes (none); scale 1; cell 0.5 m; 5 boxes",
-        "bldg-north: meshes (none); scale 1; cell 0.5 m; 5 boxes",
+        "bldg-south: meshes (none); scale 1; cell 0.5 m; 5 boxes; 0 facets dropped",
+        "bldg-north: meshes (none); scale 1; cell 0.5 m; 5 boxes; 0 facets dropped",
       ],
     );
 
@@ -141,7 +141,7 @@ test("180 and 270 yaw swap the model box without a second formula", () => {
   }
 });
 
-test("svg scale is applied before runs thinner than 0.4 m are dropped", () => {
+test("svg scale is applied before a short sheet is dropped", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-scale-"));
   const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
   const sheet = trianglesFromBox([0, 0, 0], [1, 3, 0.02]);
@@ -172,7 +172,9 @@ test("svg scale is applied before runs thinner than 0.4 m are dropped", () => {
       walls: { m: sheet },
     });
     assert.equal(thin.file.placements[0]?.scale, 4);
-    assert.equal(thin.file.obstacles.length, 0);
+    assert.equal(thin.file.obstacles.length, 1);
+    assert.equal(thin.file.obstacles[0]!.max[0]! - thin.file.obstacles[0]!.min[0]!, 4);
+    assert.ok(Math.abs((thin.file.obstacles[0]!.max[2]! - thin.file.obstacles[0]!.min[2]!) - 0.08) < 1e-9);
 
     const scaledSvg = path.join(dir, "scaled.svg");
     writeFileSync(scaledSvg, svgFor(`transform="scale(20)"`));
