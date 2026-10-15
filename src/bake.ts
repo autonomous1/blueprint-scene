@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { readAssetTypes, stampPlacement } from "./asset-type.ts";
 import { PlanError } from "./errors.ts";
 import { openingInModel, situateDoor } from "./doors.ts";
 import { coarseFootprint, footprintDetail, type XzRect } from "./footprint.ts";
@@ -29,6 +30,12 @@ export type BakeOptions = {
    * or when `extras.collision` is true. Omit it to use every triangle mesh.
    */
   meshPrefix?: string;
+  /**
+   * `arena.game.json`. Each placement `type` is that asset's `type`.
+   * An asset with no type omits the field. Omit the path and no placement gets one.
+   * Type is not read from the SVG.
+   */
+  gamePath?: string;
 };
 
 type ModelBake = {
@@ -64,6 +71,7 @@ const RESERVED_OUTPUTS = new Set([
 
 export function bake(options: BakeOptions): BakeResult {
   const svgText = readText(options.svgPath);
+  const assetTypes = options.gamePath ? readAssetTypes(readText(options.gamePath), options.gamePath) : new Map();
   const scene = readScene(svgText);
   if (!scene.sawBoundsLayer) throw new PlanError("bounds layer is missing");
   if (!scene.bounds) throw new PlanError("bounds layer has no rectangle");
@@ -98,13 +106,13 @@ export function bake(options: BakeOptions): BakeResult {
   const file: PlacementsFile = {
     formatVersion: 1,
     units: "meters",
-    placements: placements.map((placement) => ({
+    placements: placements.map((placement) => stampPlacement({
       id: placement.id,
       model: placement.model,
       position: roundVec(placement.position),
       yaw: placement.yaw,
       scale: roundM(scales.get(placement.id)!),
-    })),
+    }, assetTypes)),
     obstacles: [],
   };
   const propBoxes = new Map<string, LocalBox | undefined>();
@@ -115,13 +123,13 @@ export function bake(options: BakeOptions): BakeResult {
   const props: PlacementsFile = {
     formatVersion: 1,
     units: "meters",
-    placements: scene.props.map((prop) => ({
+    placements: scene.props.map((prop) => stampPlacement({
       id: prop.id,
       model: prop.model,
       position: roundVec(prop.position),
       yaw: prop.yaw,
       scale: roundM(prop.scale),
-    })),
+    }, assetTypes)),
     obstacles: scene.props.map((prop) => propObstacle(prop, propBoxes.get(prop.model))),
   };
   const spawns: SpawnPoint[] = scene.spawns.map((spawn) => ({
@@ -156,7 +164,7 @@ export function bake(options: BakeOptions): BakeResult {
       for (const door of mine) {
         const situated = situateDoor(door, worldBoxes);
         openings.push(openingInModel(situated.opening, placement.position, placement.yaw));
-        doorPlacements.push(roundDoor(situated.placement));
+        doorPlacements.push(stampPlacement(roundDoor(situated.placement), assetTypes));
       }
       const cut = footprintDetail(grid.triangles, grid.cellSize, openings);
       boxes = cut.boxes;

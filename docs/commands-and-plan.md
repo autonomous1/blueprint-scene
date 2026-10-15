@@ -139,7 +139,7 @@ Put the copies on the `buildings` layer. The stencil file itself is not a layout
 
 ```text
 blueprint-scene bake --svg plan.svg --models ./models --out web/game/buildings.placements.json
-        [--mesh-prefix wall_]
+        [--mesh-prefix wall_] [--game web/game/arena.game.json]
 ```
 
 | Flag | Required | Meaning |
@@ -148,6 +148,7 @@ blueprint-scene bake --svg plan.svg --models ./models --out web/game/buildings.p
 | `--out` | yes | Buildings placements JSON. `bounds.json`, `props.placements.json`, `spawn-points.json`, and `doors.placements.json` are written in the same directory. |
 | `--models` | no | Directory of `<id>.glb`. Default is `web/assets/models` relative to the working directory. |
 | `--mesh-prefix` | no | When set, keep a mesh whose mesh or node name starts with this prefix, or whose mesh or node `extras.collision` is `true`. Omit it to use every triangle mesh. |
+| `--game` | no | `arena.game.json`. Each placement `type` is copied from that asset's `type`. An asset with no type omits the field. Type is not an Inkscape label. When omitted, `web/game/arena.game.json` is used if that file is in the working directory. The bake does not write this file. A second bake writes the same type. |
 
 From the arena repo, the default directory is the folder that holds `brutalist-urban-1.glb`:
 
@@ -155,6 +156,7 @@ From the arena repo, the default directory is the folder that holds `brutalist-u
 ./bin/blueprint-scene bake \
   --svg plan.svg \
   --models web/assets/models \
+  --game web/game/arena.game.json \
   --out web/game/buildings.placements.json
 ```
 

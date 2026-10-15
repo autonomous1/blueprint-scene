@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { bake } from "./bake.ts";
 import { PlanError } from "./errors.ts";
@@ -7,7 +9,7 @@ import { writeDoorProp } from "./prop.ts";
 
 const USAGE = `blueprint-scene measure --glb model.glb --out buildings/<id>.json --svg buildings/<id>.svg
 blueprint-scene bake --svg plan.svg --models ./models --out web/game/buildings.placements.json
-        [--mesh-prefix wall_]
+        [--mesh-prefix wall_] [--game web/game/arena.game.json]
 blueprint-scene prop --shape door --svg door.svg --out props/door.glb
 blueprint-scene prop --shape crate --svg crate.svg --out props/cover-crate.glb
 
@@ -32,6 +34,10 @@ as a prop. A door with no model id fails. The door file has no obstacle.
 A props rectangle places the model. Its obstacle is the GLB bounds after
 that position, yaw, and scale, or the rectangle when the GLB is missing.
 The pawn radius is not added.
+Each placement type is copied from that asset in the game file. It is not an
+Inkscape label. An asset with no type omits the field. With no --game, a
+web/game/arena.game.json in the working directory is used when it exists.
+A second bake writes the same type. The game file itself is not written.
 
 prop --shape door reads a door-design layer. Part ids are data-part-frame,
 data-part-door, data-part-hinge, and data-part-texture. The texture image is
@@ -94,7 +100,7 @@ function runMeasure(argv: string[]): void {
 }
 
 function runBake(argv: string[]): void {
-  const flags = parseFlags(argv, new Set(["svg", "models", "out", "mesh-prefix", "collision-dir"]));
+  const flags = parseFlags(argv, new Set(["svg", "models", "out", "mesh-prefix", "collision-dir", "game"]));
   if (!flags.svg) throw new PlanError(`missing --svg\n${USAGE}`);
   if (!flags.out) throw new PlanError(`missing --out\n${USAGE}`);
   const result = bake({
@@ -103,8 +109,15 @@ function runBake(argv: string[]): void {
     modelsDir: flags.models,
     meshPrefix: flags["mesh-prefix"],
     collisionDir: flags["collision-dir"],
+    gamePath: flags.game ?? defaultGamePath(),
   });
   for (const line of result.lines) console.log(line);
+}
+
+/** Arena checkouts keep the asset catalog here. Other working directories omit type. */
+function defaultGamePath(): string | undefined {
+  const candidate = path.join("web", "game", "arena.game.json");
+  return existsSync(candidate) ? candidate : undefined;
 }
 
 function runProp(argv: string[]): void {

@@ -3,9 +3,30 @@ export type Vec3 = [number, number, number];
 /** Quarter-turn about +Y, in degrees. See `transformXz`. */
 export type Yaw = 0 | 90 | 180 | 270;
 
+/**
+ * `type` on an asset in `arena.game.json`. `kind` on that asset stays
+ * `model` or `texture`. This list is not read from an Inkscape label.
+ */
+export const ASSET_TYPES = [
+  "sky",
+  "background",
+  "floor",
+  "building",
+  "door",
+  "character",
+  "ammo",
+  "health",
+  "crate",
+  "weapon",
+] as const;
+
+export type AssetType = (typeof ASSET_TYPES)[number];
+
 export type Placement = {
   id: string;
   model: string;
+  /** Copied from the asset. Omitted when that asset has no type. */
+  type?: AssetType;
   position: Vec3;
   yaw: Yaw;
   /** Uniform scale of the stencil. A 2× enlarge in Inkscape is 2. */
@@ -99,6 +120,8 @@ export type DoorPlacement = {
   id: string;
   /** Asset id, the same string a prop writes. Not a default of "door". */
   model: string;
+  /** Copied from the asset. Omitted when that asset has no type. */
+  type?: AssetType;
   position: Vec3;
   yaw: Yaw;
   hinge: DoorHinge;

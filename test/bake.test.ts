@@ -508,6 +508,84 @@ test("a prop AABB is the model box, not the rectangle plus the pawn radius", () 
   }
 });
 
+test("placement type is copied from the asset, and a rebake keeps it", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-type-"));
+  const svg = path.join(dir, "room.svg");
+  const gamePath = path.join(dir, "arena.game.json");
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  // No type label. The crate label says weapon; the asset says crate.
+  const page = `<?xml version="1.0"?><svg ${ns} width="48mm" height="48mm" viewBox="0 0 48 48">
+      <g inkscape:groupmode="layer" inkscape:label="bounds">
+        <rect id="room" x="-24" y="24" width="48" height="48"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="buildings">
+        <rect id="hall" data-model="hall" x="-0.5" y="47.5" width="1" height="1"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="props">
+        <rect id="ammo-1" data-model="ammo-box" x="-8.6" y="35.9" width="1" height="1"/>
+        <rect id="crate-1" data-model="cover-crate" inkscape:label="type:weapon" x="10" y="41" width="2" height="4"/>
+        <rect id="plain-1" data-model="plain" inkscape:label="type:ammo" x="0" y="40" width="1" height="1"/>
+      </g>
+    </svg>`;
+  const game = {
+    assets: [
+      { id: "ammo-box", kind: "model", type: "ammo" },
+      { id: "cover-crate", kind: "model", type: "crate" },
+      { id: "plain", kind: "model" },
+      { id: "hall", kind: "model", type: "building" },
+    ],
+  };
+  const walls = {
+    hall: trianglesFromBox([-0.5, 0, -0.5], [0.5, 1, 0.5]),
+    "ammo-box": trianglesFromBox([-0.26, 0, -0.24], [0.26, 0.48, 0.24]),
+    "cover-crate": trianglesFromBox([-0.6, 0, -0.4], [0.6, 0.8, 0.4]),
+    plain: trianglesFromBox([-0.5, 0, -0.5], [0.5, 0.5, 0.5]),
+  };
+  try {
+    writeFileSync(svg, page);
+    writeFileSync(gamePath, `${JSON.stringify(game, null, 2)}\n`);
+    const outPath = path.join(dir, "buildings.placements.json");
+    const bakeOnce = () => bake({
+      svgPath: svg,
+      outPath,
+      collisionDir: path.join(dir, "buildings"),
+      gamePath,
+      walls,
+    });
+    const first = bakeOnce();
+    const ammo = first.props.placements.find((item) => item.id === "ammo-1");
+    const crate = first.props.placements.find((item) => item.id === "crate-1");
+    const plain = first.props.placements.find((item) => item.id === "plain-1");
+    const hall = first.file.placements.find((item) => item.id === "hall");
+    assert.ok(ammo && crate && plain && hall);
+    assert.equal(ammo.model, "ammo-box");
+    assert.equal(ammo.type, "ammo");
+    assert.equal("kind" in ammo, false);
+    assert.deepEqual(Object.keys(ammo), ["id", "model", "type", "position", "yaw", "scale"]);
+    assert.equal(crate.type, "crate");
+    assert.equal("kind" in crate, false);
+    assert.equal("type" in plain, false);
+    assert.equal("kind" in plain, false);
+    assert.equal(hall.type, "building");
+    assert.equal("kind" in hall, false);
+    for (const placement of [...first.file.placements, ...first.props.placements, ...first.doors.placements]) {
+      assert.equal("kind" in placement, false);
+    }
+    assert.equal(first.props.obstacles[0]?.kind, "aabb");
+    assert.equal(readFileSync(gamePath, "utf8"), `${JSON.stringify(game, null, 2)}\n`);
+
+    const again = bakeOnce();
+    assert.deepEqual(again.props.placements, first.props.placements);
+    assert.deepEqual(again.file.placements, first.file.placements);
+    const written = JSON.parse(readFileSync(path.join(dir, "props.placements.json"), "utf8")) as PlacementsFile;
+    assert.equal(written.placements.find((item) => item.id === "ammo-1")?.type, "ammo");
+    assert.equal(written.placements.find((item) => item.id === "crate-1")?.type, "crate");
+    assert.equal("type" in (written.placements.find((item) => item.id === "plain-1") ?? {}), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function assertSpan(box: Obstacle, expected: [number, number, number]): void {
   near(box.max[0] - box.min[0], expected[0]);
   near(box.max[1] - box.min[1], expected[1]);
