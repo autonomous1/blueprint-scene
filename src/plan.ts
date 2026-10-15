@@ -62,9 +62,9 @@ function apply(m: Mat, x: number, y: number): [number, number] {
  * The page height is not added again, toolbar y is not negated, and the
  * bounds rectangle is not subtracted.
  */
-export function svgPointToWorld(svgX: number, svgY: number, frame: PageFrame): Vec3 {
+export function svgPointToWorld(svgX: number, svgY: number, svgZ: number,frame: PageFrame): Vec3 {
   const toolbarY = frame.pageMaxY - svgY;
-  return [svgX * frame.meters, 0, toolbarY * frame.meters];
+  return [svgX * frame.meters, svgZ, toolbarY * frame.meters];
 }
 
 /** SVG user units, plus the SVG y of the page bottom (toolbar y = 0). */
@@ -250,7 +250,7 @@ function layerShape(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | 
     [local.minX, local.maxY],
   ].map(([x, y]) => {
     const [ux, uy] = apply(matrix, x!, y!);
-    const [wx, , wy] = svgPointToWorld(ux, uy, frame);
+    const [wx, , wy] = svgPointToWorld(ux, uy, 0, frame);
     return [wx, wy] as [number, number];
   });
   const edge = (from: number, to: number): [number, number] => [
@@ -342,7 +342,7 @@ function designPart(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | 
     [local.minX, local.maxY],
   ].map(([x, y]) => {
     const [ux, uy] = apply(matrix, x!, y!);
-    const [wx, , wy] = svgPointToWorld(ux, uy, frame);
+    const [wx, , wy] = svgPointToWorld(ux, uy, 0, frame);
     return [wx, wy] as [number, number];
   });
   const edge = (from: number, to: number): [number, number] => [
@@ -546,8 +546,9 @@ function measureTagged(
   const lenX = Math.hypot(matrix[0], matrix[1]);
   const lenY = Math.hypot(matrix[2], matrix[3]);
   const [cx, cy] = apply(matrix, (local.minX + local.maxX) / 2, (local.minY + local.maxY) / 2);
+  const z = (el.attrs["z"]) ? Number(el.attrs["z"]) : 0;
   return {
-    position: svgPointToWorld(cx, cy, frame),
+    position: svgPointToWorld(cx, cy, z, frame),
     yaw: yawOf(el, matrix, id),
     drawnWidth: (local.maxX - local.minX) * lenX * frame.meters,
     drawnDepth: (local.maxY - local.minY) * lenY * frame.meters,
@@ -622,7 +623,7 @@ function takeDoor(el: XmlNode, matrix: Mat, collect: Collect): void {
     id,
     model,
     building,
-    center: svgPointToWorld(cx, cy, collect.frame),
+    center: svgPointToWorld(cx, cy, 0, collect.frame),
     minX: box.minX,
     maxX: box.maxX,
     minZ: box.minZ,
@@ -673,7 +674,7 @@ function takeSpawn(el: XmlNode, matrix: Mat, collect: Collect): void {
   collect.spawnIds.add(id);
   collect.spawns.push({
     id,
-    position: svgPointToWorld(sx, sy, collect.frame),
+    position: svgPointToWorld(sx, sy, 0, collect.frame),
     yaw: yawOf(el, matrix, id),
   });
 }
@@ -727,7 +728,7 @@ function worldAabb(box: Bounds2, matrix: Mat, frame: PageFrame): XzBounds {
     apply(matrix, box.maxX, box.minY),
     apply(matrix, box.minX, box.maxY),
     apply(matrix, box.maxX, box.maxY),
-  ].map(([x, y]) => svgPointToWorld(x, y, frame));
+  ].map(([x, y]) => svgPointToWorld(x, y, 0, frame));
   const xs = corners.map((corner) => corner[0]);
   const zs = corners.map((corner) => corner[2]);
   return { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) };
