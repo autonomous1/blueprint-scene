@@ -930,6 +930,11 @@ function modelFromLabel(label: string | undefined): string | undefined {
   return match?.[1];
 }
 
+/**
+ * Rectangle yaw for a building and for a prop. Both call this from
+ * `measureTagged`. The same transform writes the same yaw. There is no
+ * extra quarter turn and no width/height swap on either path.
+ */
 function yawOf(el: XmlNode, matrix: Mat, id: string): Yaw {
   const raw = attr(el, "data-yaw");
   if (raw != null && raw.trim() !== "") return snapYaw(parseYawText(raw, id), id);

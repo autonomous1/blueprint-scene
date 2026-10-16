@@ -50,8 +50,10 @@ prop --shape crate reads rectangles on a crate-design layer. One unlabeled
 texture covers all six faces. Its width and height are the front, in meters,
 and the depth is that width unless data-depth is set. Labeled faces are
 front, back, left, right, top, and bottom. A missing opposite uses the given
-side. The front rectangle is the width and height. The depth is the left or
-right rectangle's width. Faces that disagree on a shared edge fail the file.
+side. Width and height are read after rotate() or matrix(). The front face
+is the box width and height. A side face's width matches that height, and
+its height is the depth. The top matches the front width and that depth.
+Faces that disagree on a shared edge fail the file.
 The GLB is one mesh of 24 vertices. Its origin is the center of the bottom
 face. Each face uses its own texture. The same stem gets .collision.json
 with one AABB of that size. There is no skin and no collision in the GLB.`;

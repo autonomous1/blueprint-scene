@@ -128,8 +128,8 @@ test("front, top, and right are copied onto the opposite faces", () => {
     const outPath = path.join(dir, "props", "cover-crate.glb");
     writeFileSync(svgPath, page(`
       <rect id="face-front" data-face="Front" x="0" y="0" width="2" height="1" data-texture="${dataUri(frontPng)}"/>
-      <rect id="side" inkscape:label="right" x="3" y="0" width="0.5" height="1">
-        <image href="${dataUri(rightPng)}" x="3" y="0" width="0.5" height="1"/>
+      <rect id="side" inkscape:label="right" x="3" y="0" width="1" height="0.5">
+        <image href="${dataUri(rightPng)}" x="3" y="0" width="1" height="0.5"/>
       </rect>
       <image id="top" x="0" y="2" width="2" height="0.5" xlink:href="${dataUri(topPng)}"/>`));
     writeCrateProp({ svgPath, outPath });
@@ -178,7 +178,7 @@ test("a shared edge that disagrees fails and writes nothing", () => {
       <rect id="top" data-face="top" x="0" y="2" width="2" height="0.5" data-texture="${dataUri(markedPng(3))}"/>`));
     assert.throws(
       () => writeCrateProp({ svgPath, outPath }),
-      (err: unknown) => err instanceof PlanError && /crate face "right" height/.test((err as Error).message),
+      (err: unknown) => err instanceof PlanError && /crate face "right" width 0\.5 does not match front height/.test((err as Error).message),
     );
     assert.equal(existsSync(outPath), false);
     assert.equal(existsSync(path.join(dir, "cover-crate.collision.json")), false);
@@ -201,6 +201,72 @@ test("labeled faces without a front fail and write nothing", () => {
     );
     assert.equal(existsSync(outPath), false);
     assert.equal(existsSync(path.join(dir, "cover-crate.collision.json")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a rotated right face matches its transformed width to the front height", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-crate-"));
+  try {
+    const svgPath = path.join(dir, "crate.svg");
+    const outPath = path.join(dir, "step.glb");
+    writeFileSync(svgPath, page(`
+      <image id="front" inkscape:label="front" x="0" y="0" width="1.5" height="0.25" href="${dataUri(markedPng(1))}"/>
+      <image id="right" inkscape:label="right" x="2" y="1" width="0.4" height="0.25" transform="rotate(-90 4 5)" href="${dataUri(markedPng(2))}"/>
+      <image id="top" inkscape:label="top" x="0" y="2" width="1.5" height="0.4" transform="scale(1,-1)" href="${dataUri(markedPng(3))}"/>`));
+    writeCrateProp({ svgPath, outPath });
+    const { doc, bin } = readGlb(readFileSync(outPath));
+    const box = bounds(meshCorners(doc, bin, "crate").map((corner) => corner.position));
+    assertNear(box.minX, -0.75);
+    assertNear(box.maxX, 0.75);
+    assertNear(box.minY, 0);
+    assertNear(box.maxY, 0.25);
+    assertNear(box.minZ, -0.2);
+    assertNear(box.maxZ, 0.2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a matrix rotation is applied before the face edges are read", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-crate-"));
+  try {
+    const svgPath = path.join(dir, "crate.svg");
+    const outPath = path.join(dir, "step.glb");
+    // matrix(0 -1 1 0 0 0) is rotate(-90). Raw width 0.25 becomes the height.
+    writeFileSync(svgPath, page(`
+      <image id="front" inkscape:label="front" x="0" y="0" width="0.25" height="1.5" transform="matrix(0 -1 1 0 0 0)" href="${dataUri(markedPng(1))}"/>
+      <image id="right" inkscape:label="right" x="0" y="0" width="0.4" height="0.25" transform="matrix(0 -1 1 0 3 1)" href="${dataUri(markedPng(2))}"/>
+      <image id="top" inkscape:label="top" x="0" y="0" width="1.5" height="0.4" href="${dataUri(markedPng(3))}"/>`));
+    writeCrateProp({ svgPath, outPath });
+    const { doc, bin } = readGlb(readFileSync(outPath));
+    const box = bounds(meshCorners(doc, bin, "crate").map((corner) => corner.position));
+    assertNear(box.maxX - box.minX, 1.5);
+    assertNear(box.maxY - box.minY, 0.25);
+    assertNear(box.maxZ - box.minZ, 0.4);
+    assertNear(box.minY, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a right face whose transformed width is not the front height fails", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-crate-"));
+  try {
+    const svgPath = path.join(dir, "crate.svg");
+    const outPath = path.join(dir, "step.glb");
+    // rotate(-90) turns raw height 0.4 into the width. Raw width 0.25 is not the check.
+    writeFileSync(svgPath, page(`
+      <image id="front" inkscape:label="front" x="0" y="0" width="1.5" height="0.25" href="${dataUri(markedPng(1))}"/>
+      <image id="right" inkscape:label="right" x="0" y="0" width="0.25" height="0.4" transform="rotate(-90)" href="${dataUri(markedPng(2))}"/>
+      <image id="top" inkscape:label="top" x="0" y="0" width="1.5" height="0.4" href="${dataUri(markedPng(3))}"/>`));
+    assert.throws(
+      () => writeCrateProp({ svgPath, outPath }),
+      (err: unknown) => err instanceof PlanError && /crate face "right" width/.test((err as Error).message),
+    );
+    assert.equal(existsSync(outPath), false);
+    assert.equal(existsSync(path.join(dir, "step.collision.json")), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

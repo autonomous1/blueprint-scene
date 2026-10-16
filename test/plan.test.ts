@@ -78,6 +78,29 @@ test("data-yaw overrides the transform", () => {
   assert.deepEqual(placed.position, [1, 0, 9]);
 });
 
+test("a props rectangle keeps yaw 0, and rotate(90) matches a building", () => {
+  const scene = readScene(`<?xml version="1.0"?><svg ${NS} width="10mm" height="10mm" viewBox="0 0 10 10">
+    <g inkscape:groupmode="layer" inkscape:label="buildings">
+      <rect id="flat" data-model="m" x="0" y="0" width="4" height="1"/>
+      <rect id="turned" data-model="m" x="0" y="2" width="4" height="1" transform="rotate(90 2 2.5)"/>
+    </g>
+    <g inkscape:groupmode="layer" inkscape:label="props">
+      <rect id="prop-flat" data-model="crate" x="0" y="0" width="4" height="1"/>
+      <rect id="prop-turned" data-model="crate" x="0" y="2" width="4" height="1" transform="rotate(90 2 2.5)"/>
+    </g>
+  </svg>`);
+  const byId = (id: string) => {
+    const found = [...scene.placements, ...scene.props].find((item) => item.id === id);
+    assert.ok(found);
+    return found;
+  };
+  assert.equal(byId("prop-flat").yaw, 0);
+  assert.equal(byId("flat").yaw, 0);
+  assert.equal(byId("prop-turned").yaw, byId("turned").yaw);
+  assert.equal(byId("turned").yaw, 90);
+  assert.deepEqual(byId("prop-turned").position, byId("turned").position);
+});
+
 test("an Inkscape label model:id is a placement", () => {
   const [placed] = readPlacements(plan(
     `<rect id="b1" inkscape:label="model:building-a" x="0" y="0" width="2" height="4"/>`,

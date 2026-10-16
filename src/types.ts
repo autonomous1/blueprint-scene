@@ -18,6 +18,8 @@ export const ASSET_TYPES = [
   "health",
   "crate",
   "weapon",
+  "projectile",
+  "key",
 ] as const;
 
 export type AssetType = (typeof ASSET_TYPES)[number];

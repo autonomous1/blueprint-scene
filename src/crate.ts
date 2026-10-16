@@ -119,6 +119,8 @@ function labeledDesign(faces: Map<Face, LayerShape>): CrateDesign {
   }
   const front = faces.get("front");
   if (!front) throw new PlanError("crate-design layer is missing front");
+  // Spans are the face after rotate() or matrix(), so a quarter-turn swaps
+  // the width and height attributes. Shared edges are not the same attribute.
   const width = spanX(front);
   const height = spanY(front);
   const back = faces.get("back");
@@ -129,10 +131,10 @@ function labeledDesign(faces: Map<Face, LayerShape>): CrateDesign {
   const left = faces.get("left");
   const right = faces.get("right");
   if (!left && !right) throw new PlanError("crate-design layer is missing left and right");
-  if (left && right) expectEdge("right", spanX(right), spanX(left), "width", "left width");
-  const depth = spanX((left ?? right)!);
-  if (left) expectEdge("left", spanY(left), height, "height", "front height");
-  if (right) expectEdge("right", spanY(right), height, "height", "front height");
+  if (left) expectEdge("left", spanX(left), height, "width", "front height");
+  if (right) expectEdge("right", spanX(right), height, "width", "front height");
+  if (left && right) expectEdge("right", spanY(right), spanY(left), "height", "left height");
+  const depth = spanY((left ?? right)!);
   const top = faces.get("top");
   const bottom = faces.get("bottom");
   if (!top && !bottom) throw new PlanError("crate-design layer is missing top and bottom");

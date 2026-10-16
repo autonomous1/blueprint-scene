@@ -448,6 +448,45 @@ test("bounds come from the one rectangle, and a missing layer writes nothing", (
   }
 });
 
+test("a rectangle at 0° bakes yaw 0 for a building and a prop, and 90° bakes the same yaw", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-shared-yaw-"));
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  const svg = path.join(dir, "plan.svg");
+  writeFileSync(svg, `<?xml version="1.0"?><svg ${ns} width="10mm" height="10mm" viewBox="0 0 10 10">
+    <g inkscape:groupmode="layer" inkscape:label="bounds">
+      <rect id="room" x="0" y="0" width="10" height="10"/>
+    </g>
+    <g inkscape:groupmode="layer" inkscape:label="buildings">
+      <rect id="flat" data-model="m" x="0" y="0" width="4" height="1"/>
+      <rect id="turned" data-model="m" x="0" y="2" width="4" height="1" transform="rotate(90 2 2.5)"/>
+    </g>
+    <g inkscape:groupmode="layer" inkscape:label="props">
+      <rect id="prop-flat" data-model="crate" x="0" y="0" width="4" height="1"/>
+      <rect id="prop-turned" data-model="crate" x="0" y="2" width="4" height="1" transform="rotate(90 2 2.5)"/>
+    </g>
+  </svg>`);
+  try {
+    const result = bake({
+      svgPath: svg,
+      outPath: path.join(dir, "buildings.placements.json"),
+      collisionDir: path.join(dir, "buildings"),
+      walls: { m: trianglesFromBox([0, 0, 0], [1, 1, 1]) },
+    });
+    const yawOf = (placements: { id: string; yaw: number }[], id: string): number => {
+      const found = placements.find((item) => item.id === id);
+      assert.ok(found, id);
+      return found.yaw;
+    };
+    assert.equal(yawOf(result.file.placements, "flat"), 0);
+    assert.equal(yawOf(result.props.placements, "prop-flat"), 0);
+    const turned = yawOf(result.file.placements, "turned");
+    assert.equal(yawOf(result.props.placements, "prop-turned"), turned);
+    assert.equal(turned, 90);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("a prop AABB is the model box, not the rectangle plus the pawn radius", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-prop-box-"));
   const svg = path.join(dir, "room.svg");
