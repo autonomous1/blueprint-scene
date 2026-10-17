@@ -1,16 +1,15 @@
 {
   "name": "blueprint-scene",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Bake Inkscape building plans and GLB meshes into placement JSON.",
   "bin": {
     "blueprint-scene": "./bin/blueprint-scene"
   },
   "scripts": {
-    "test": "NODE_NO_WARNINGS=1 node --experimental-strip-types --test test/*.test.ts",
+    "test": "NODE_NO_WARNINGS=1 node --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "bake": "node --experimental-strip-types src/cli.ts"
+    "bake": "node src/cli.ts"
   },
   "engines": {
     "node": ">=22"
