@@ -84,9 +84,12 @@ export function measure(options: MeasureOptions): MeasureResult {
 }
 
 /**
- * Model X → SVG x, model Z → SVG −y, so toolbar +y (world +z) follows model +Z.
- * One filled path: the union of the runs. A courtyard that is fully enclosed
- * stays a hole (`fill-rule="evenodd"`). This is not the outer bounds rectangle.
+ * Model Z → SVG −y, so +Z stays at the top of the page. Model X is reflected
+ * inside that footprint (`x = minX + maxX − x`), so +X sits on the left.
+ * The viewBox is the unflipped box, so the center and the scale extents do
+ * not move. One filled path: the union of the runs. A courtyard that is
+ * fully enclosed stays a hole (`fill-rule="evenodd"`). This is not the outer
+ * bounds rectangle.
  */
 export function stencilSvg(id: string, boxes: readonly LocalBox[]): string {
   const rings = unionAabbs(boxes);
@@ -96,6 +99,7 @@ export function stencilSvg(id: string, boxes: readonly LocalBox[]): string {
   let minY = 0;
   let maxX = 1;
   let maxY = 1;
+  let xSum = 0;
   if (boxes.length > 0) {
     minX = Math.min(...boxes.map((box) => box.minX));
     maxX = Math.max(...boxes.map((box) => box.maxX));
@@ -103,10 +107,11 @@ export function stencilSvg(id: string, boxes: readonly LocalBox[]): string {
     const maxZ = Math.max(...boxes.map((box) => box.maxZ));
     minY = -maxZ;
     maxY = -minZ;
+    xSum = minX + maxX;
   }
   const viewW = Math.max(maxX - minX, 1e-6);
   const viewH = Math.max(maxY - minY, 1e-6);
-  const body = rings.length === 0 ? "" : `    <path fill-rule="evenodd" d="${pathData(rings)}"/>`;
+  const body = rings.length === 0 ? "" : `    <path fill-rule="evenodd" d="${pathData(rings, xSum)}"/>`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${fmt(viewW)}mm" height="${fmt(viewH)}mm" viewBox="${fmt(minX)} ${fmt(minY)} ${fmt(viewW)} ${fmt(viewH)}">
   <g id="${id}" data-model="${id}" inkscape:label="model:${id}">
@@ -116,11 +121,11 @@ ${body}
 `;
 }
 
-/** XZ rings, model +Z stored as SVG −y. Outers and holes are subpaths of one path. */
-function pathData(rings: readonly Ring[]): string {
+function pathData(rings: readonly Ring[], xSum: number): string {
   return rings.map((ring) => {
     const commands = ring.points.map((point, index) => {
       const head = index === 0 ? "M" : "L";
+      // no X mirror — model +X stays on the right
       return `${head} ${fmt(point.x)} ${fmt(-point.z)}`;
     });
     return `${commands.join(" ")} Z`;

@@ -24,7 +24,7 @@ test("a 10 m wall with a 2 m gap writes a path with that gap", () => {
     assert.equal(measured.file.footprint.length, 2);
     const shape = onlyPath(measured.svg);
     assert.equal(shape.model, "gap");
-    assert.equal(shape.d, "M 0 0 L 4 0 L 4 -0.5 L 0 -0.5 Z M 6 0 L 10 0 L 10 -0.5 L 6 -0.5 Z");
+    assert.equal(shape.d, "M 10 0 L 6 0 L 6 -0.5 L 10 -0.5 Z M 4 0 L 0 0 L 0 -0.5 L 4 -0.5 Z");
     assert.equal(shape.subs.length, 2);
     assert.equal(evenOdd(shape.subs, 2, -0.25), true);
     assert.equal(evenOdd(shape.subs, 8, -0.25), true);
@@ -39,6 +39,8 @@ test("a 10 m wall with a 2 m gap writes a path with that gap", () => {
       collisionDir: path.join(dir, "collision"),
     });
     assert.equal(baked.file.placements[0]?.scale, 1);
+    // The X flip stays inside the footprint, so the baked center does not move.
+    assert.deepEqual(baked.file.placements[0]?.position, [5, 0, 1.25]);
     assert.equal(baked.file.obstacles.length, 2);
     const spans = baked.file.obstacles.map((box) => [box.min[0], box.max[0]]).sort((a, b) => a[0]! - b[0]!);
     assert.ok(spans[1]![0]! - spans[0]![1]! >= 1.5);
@@ -191,6 +193,32 @@ function containsBox(
 ): boolean {
   return inner.minX > outer.minX && inner.maxX < outer.maxX && inner.minY > outer.minY && inner.maxY < outer.maxY;
 }
+
+test("positive X is the left of the stencil and Z is not mirrored", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-flip-"));
+  try {
+    const measured = measureWalls(dir, "ell", [
+      [[1, 0, 0], [5, 2, 0.5]],
+      [[-2, 0, 0], [-0.5, 2, 2]],
+    ]);
+    const span = xzSpan(measured.file.footprint);
+    assert.equal(span.minX, -2);
+    assert.equal(span.maxX, 5);
+    assert.equal(span.minZ, 0);
+    assert.equal(span.maxZ, 2);
+    const shape = onlyPath(measured.svg);
+    assert.equal(shape.subs.length, 2);
+    const long = shape.subs.find((ring) => ringBox(ring).maxY - ringBox(ring).minY < 1)!;
+    const tall = shape.subs.find((ring) => ringBox(ring).maxY - ringBox(ring).minY > 1)!;
+    const longBox = ringBox(long);
+    const tallBox = ringBox(tall);
+    assert.ok(longBox.minX < tallBox.minX, `long minX ${longBox.minX} tall minX ${tallBox.minX}`);
+    assert.ok(tallBox.minY < longBox.minY, `tall minY ${tallBox.minY} long minY ${longBox.minY}`);
+    assert.equal(attr(parseXml(measured.svg), "viewBox"), "-2 -2 7 2");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("a 1 m by 0.4 m box writes a footprint and a path with those bounds", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-small-"));

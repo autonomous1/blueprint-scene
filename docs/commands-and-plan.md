@@ -110,18 +110,18 @@ wrote buildings/brutalist-urban-1.svg
 
 ### Stencil SVG
 
-The stencil is one group. Its origin is the model origin. Model +X becomes SVG +x. Model +Z becomes SVG −y, which is toolbar +y and world +z. One GLB unit is 1 mm on the page. The group holds one filled `path`, the union of the footprint runs. Overlapping and edge-adjacent runs are united the way Inkscape Path → Union does: one closed outline, and a hole where a courtyard is fully enclosed. Disjoint walls are separate subpaths of that same path. `fill-rule` is `evenodd`. The group is tagged `data-model`. The path is a stencil, not a collider, and it is not the outer bounds rectangle. The page `viewBox` is the footprint, so a model of about one unit is a page of about 1 mm, not a 1 mm canvas with an empty group.
+The stencil is one group. Its origin is the model origin. Model +Z becomes SVG −y, so it points up the page. Model +X is reflected inside that same footprint, so it sits on the left. The viewBox is the unflipped box, so the center and the scale extents do not move. One GLB unit is 1 mm on the page. The group holds one filled `path`, the union of the footprint runs. Overlapping and edge-adjacent runs are united the way Inkscape Path → Union does: one closed outline, and a hole where a courtyard is fully enclosed. Disjoint walls are separate subpaths of that same path. `fill-rule` is `evenodd`. The group is tagged `data-model`. The path is a stencil, not a collider, and it is not the outer bounds rectangle. The page `viewBox` is the footprint, so a model of about one unit is a page of about 1 mm, not a 1 mm canvas with an empty group.
 
 A 10-unit wall with a 2-unit gap is two outlines. The gap is empty. Two parallel walls are two outlines. Four walls that close a court are one outline with a hole. That wall is a page 10 mm wide.
 
 ```xml
 <g id="gap" data-model="gap" inkscape:label="model:gap">
   <path fill-rule="evenodd"
-        d="M 0 0 L 4 0 L 4 -0.5 L 0 -0.5 Z M 6 0 L 10 0 L 10 -0.5 L 6 -0.5 Z"/>
+        d="M 10 0 L 6 0 L 6 -0.5 L 10 -0.5 Z M 4 0 L 0 0 L 0 -0.5 L 4 -0.5 Z"/>
 </g>
 ```
 
-Model +Z is stored as SVG −y, so it points up the page. The path has no `data-model` of its own. The group is the placement. `brutalist-urban-1` is about one GLB unit across and its SVG contains that path. Scale still uses the separate XZ extent of triangles at least 0.05 on both axes (or the raw bounds when every triangle is thinner than that), so a plan already drawn around that extent does not move. Bake obstacles stay on the 0.5 m grid after that scale. The measure path is not the collider.
+Model +X points to the left of the page. Z is not mirrored. The path has no `data-model` of its own. The group is the placement. `brutalist-urban-1` is about one GLB unit across and its SVG contains that path. Scale still uses the separate XZ extent of triangles at least 0.05 on both axes (or the raw bounds when every triangle is thinner than that), so a plan already drawn around that extent does not move. Bake obstacles stay on the 0.5 m grid after that scale. The measure path is not the collider.
 
 Copy this group into a plan. The group's box is the run union. Bake divides that drawn size by the 5 cm extent.
 
