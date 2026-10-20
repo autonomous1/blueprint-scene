@@ -1,6 +1,6 @@
 {
   "name": "blueprint-scene",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "Bake Inkscape building plans and GLB meshes into placement JSON.",
   "bin": {
