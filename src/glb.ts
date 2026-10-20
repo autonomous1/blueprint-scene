@@ -81,6 +81,11 @@ export type GlbLoadOptions = {
    * prefix, or when `extras.collision` is true. Omit it to use every triangle mesh.
    */
   meshPrefix?: string;
+  /**
+   * When set, keep a mesh only when this returns true for its node and mesh
+   * names. Applied after `meshPrefix`.
+   */
+  meshFilter?: (nodeName: string | undefined, meshName: string | undefined) => boolean;
 };
 
 /**
@@ -109,7 +114,9 @@ export function trianglesFromGlb(bytes: Uint8Array, options?: GlbLoadOptions): G
       if (!mesh) throw new PlanError(`glb mesh ${node.mesh} is missing`);
       const extracted = meshTriangles(doc, bin, mesh, world);
       if (extracted.vertexCount > 0) hasTrianglePositions = true;
-      if (extracted.vertexCount > 0 && isSelected(node, mesh, options?.meshPrefix)) {
+      const keep = isSelected(node, mesh, options?.meshPrefix)
+        && (!options?.meshFilter || options.meshFilter(node.name, mesh.name));
+      if (extracted.vertexCount > 0 && keep) {
         triangles.push(...extracted.triangles);
         meshNames.push(meshLabel(node, mesh));
         vertexCount += extracted.vertexCount;

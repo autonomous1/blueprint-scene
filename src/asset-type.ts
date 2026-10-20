@@ -41,6 +41,34 @@ export function readAssetTypes(text: string, filePath: string): Map<string, Asse
 }
 
 /**
+ * Asset id to the file name its `uri` ends in, from `arena.game.json`.
+ * `door-1` declared with `"uri": "/assets/models/door1.glb"` maps to `door1.glb`.
+ * Assets with no string `uri` are absent. Types are not checked here.
+ */
+export function readAssetFiles(text: string, filePath: string): Map<string, string> {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(text);
+  } catch (err) {
+    throw new PlanError(`${filePath}: invalid json: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const assets = doc && typeof doc === "object" && !Array.isArray(doc) ? (doc as { assets?: unknown }).assets : undefined;
+  const entries: Array<[string, unknown]> = Array.isArray(assets)
+    ? assets.map((item) => ["", item] as [string, unknown])
+    : assets && typeof assets === "object" ? Object.entries(assets) : [];
+  const files = new Map<string, string>();
+  for (const [key, item] of entries) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const rec = item as { id?: unknown; uri?: unknown };
+    const id = typeof rec.id === "string" && rec.id.length > 0 ? rec.id : key;
+    if (!id || typeof rec.uri !== "string") continue;
+    const base = rec.uri.split(/[\\/]/).pop();
+    if (base) files.set(id, base);
+  }
+  return files;
+}
+
+/**
  * Copy the asset type onto a placement, after `model`.
  * No asset type leaves the field off. A leftover `kind` is not written.
  */

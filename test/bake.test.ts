@@ -42,6 +42,10 @@ function covers(box: Obstacle, point: Vec3): boolean {
   return x > box.min[0] && x < box.max[0] && y > box.min[1] && y < box.max[1] && z > box.min[2] && z < box.max[2];
 }
 
+function solidAt(obstacles: readonly Obstacle[], point: Vec3): boolean {
+  return obstacles.some((box) => covers(box, point));
+}
+
 test("bake writes placements and keeps the rotated doorway open", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-"));
   try {
@@ -128,13 +132,16 @@ test("180 and 270 yaw swap the model box without a second formula", () => {
       collisionDir: path.join(dir, "buildings"),
       walls: { m: walls },
     });
+    // The model box is x 0..2, z 0..2: its center is (1, 1), not the origin. The drawn
+    // rectangle is x 0..2, z 8..10, so the origin moves by the turned offset and the
+    // turned box lands back on the drawn rectangle at either yaw.
     assert.deepEqual(result.file.placements, [
-      { id: "spin", model: "m", position: [1, 0, 9], yaw: 180, scale: 1 },
-      { id: "override", model: "m", position: [1, 0, 9], yaw: 270, scale: 1 },
+      { id: "spin", model: "m", position: [2, 0, 10], yaw: 180, scale: 1 },
+      { id: "override", model: "m", position: [2, 0, 8], yaw: 270, scale: 1 },
     ]);
     assert.deepEqual(result.file.obstacles, [
-      { id: "spin-wall-0", kind: "aabb", min: [-1, 0, 7], max: [1, 3, 9] },
-      { id: "override-wall-0", kind: "aabb", min: [-1, 0, 9], max: [1, 3, 11] },
+      { id: "spin-wall-0", kind: "aabb", min: [0, 0, 8], max: [2, 3, 10] },
+      { id: "override-wall-0", kind: "aabb", min: [0, 0, 8], max: [2, 3, 10] },
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -641,9 +648,23 @@ function near(actual: number, expected: number): void {
   assert.ok(Math.abs(actual - expected) < 1e-6, `${actual} expected ${expected}`);
 }
 
-/** Host rule: a pawn center inside an AABB expanded by its radius is blocked. */
-function pawnBlocked(x: number, z: number, obstacles: Obstacle[], radius: number): boolean {
+/**
+ * Host rule: a pawn center inside an AABB expanded by its radius is blocked.
+ * Feet at `feet` and a head at `feet + height` miss a box that is entirely
+ * above the head or entirely below the feet. A lintel above 1.8 m does not
+ * stop a pawn standing on the floor.
+ */
+function pawnBlocked(
+  x: number,
+  z: number,
+  obstacles: Obstacle[],
+  radius: number,
+  feet = 0,
+  height = 1.8,
+): boolean {
+  const head = feet + height;
   return obstacles.some((box) => {
+    if (feet >= box.max[1] || head <= box.min[1]) return false;
     const minX = box.min[0] - radius;
     const maxX = box.max[0] + radius;
     const minZ = box.min[2] - radius;
@@ -652,7 +673,7 @@ function pawnBlocked(x: number, z: number, obstacles: Obstacle[], radius: number
   });
 }
 
-test("a 10 m wall and a 2 m door are two boxes and one hinged placement", () => {
+test("a 10 m wall and a 2 m left hinge keep the lintel and open the drawn rectangle", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-"));
   const svg = path.join(dir, "door.svg");
   const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
@@ -673,22 +694,40 @@ test("a 10 m wall and a 2 m door are two boxes and one hinged placement", () => 
       svgPath: svg,
       outPath,
       collisionDir: path.join(dir, "buildings"),
+      modelsDir: dir,
       walls: { m: trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]) },
     });
-    assert.equal(result.file.obstacles.length, 2);
-    assert.equal(result.file.obstacles.some((box) => covers(box, [7, 1, 10]) && covers(box, [13, 1, 10])), false);
-    assert.equal(result.file.obstacles.some((box) => covers(box, [7, 1, 10])), true);
-    assert.equal(result.file.obstacles.some((box) => covers(box, [13, 1, 10])), true);
-    assert.equal(result.file.obstacles.some((box) => covers(box, [10, 1, 10])), false);
-    const gap = result.file.obstacles[1]!.min[0] - result.file.obstacles[0]!.max[0];
-    assert.ok(gap >= 2 && gap <= 2.5, `gap ${gap}`);
-    for (const box of result.file.obstacles) {
-      assert.ok(box.max[2] - box.min[2] <= 1.05, `wall thickness in z ${box.max[2] - box.min[2]}`);
+    assert.equal(result.file.obstacles.length, 3);
+    const obstacles = result.file.obstacles;
+    // Hinge on the drawn left edge, x = 9. The panel and the opening are the drawn x 9..11.
+    assert.equal(solidAt(obstacles, [8.5, 1, 10]), true);
+    assert.equal(solidAt(obstacles, [9.5, 1, 10]), false);
+    assert.equal(solidAt(obstacles, [10, 1, 10]), false);
+    assert.equal(solidAt(obstacles, [10.5, 1, 10]), false);
+    assert.equal(solidAt(obstacles, [11.5, 1, 10]), true);
+    assert.equal(solidAt(obstacles, [13, 1, 10]), true);
+    assert.equal(solidAt(obstacles, [7, 1, 10]), true);
+    assert.equal(solidAt(obstacles, [10, 2.05, 10]), false);
+    assert.equal(solidAt(obstacles, [10, 2.5, 10]), true);
+    assert.equal(solidAt(obstacles, [7, 2.5, 10]), true);
+    const fullHeight = obstacles
+      .filter((box) => Math.abs(box.min[1]) < 1e-6 && Math.abs(box.max[1] - 3) < 1e-6)
+      .sort((a, b) => a.min[0] - b.min[0]);
+    assert.equal(fullHeight.length, 2);
+    near(fullHeight[0]!.max[0], 9);
+    near(fullHeight[1]!.min[0], 11);
+    near(fullHeight[1]!.min[0] - fullHeight[0]!.max[0], 2);
+    for (const box of obstacles) {
+      near(box.min[2], 9.5);
+      near(box.max[2], 10.5);
+      assert.ok(box.min[0] >= 5 - 1e-6 && box.max[0] <= 15 + 1e-6);
     }
     for (let z = 8; z <= 12; z += 0.25) {
-      assert.equal(pawnBlocked(10, z, result.file.obstacles, 0.5), false, `z ${z}`);
+      assert.equal(pawnBlocked(10, z, obstacles, 0.5), false, `z ${z}`);
     }
-    assert.equal(pawnBlocked(7, 10, result.file.obstacles, 0.5), true);
+    assert.equal(pawnBlocked(7, 10, obstacles, 0.5), true);
+    assert.equal(pawnBlocked(8.75, 10, obstacles, 0.5), true);
+    assert.equal(pawnBlocked(11.25, 10, obstacles, 0.5), true);
 
     const doors = JSON.parse(readFileSync(path.join(dir, "doors.placements.json"), "utf8")) as {
       placements: Array<{ id: string; model: string; position: number[]; yaw: number; hinge: string; size: number[]; open: boolean }>;
@@ -700,7 +739,7 @@ test("a 10 m wall and a 2 m door are two boxes and one hinged placement", () => 
     assert.deepEqual(doors.placements, [{
       id: "front",
       model: "door-1",
-      position: [10, 0, 10.5],
+      position: [9, 0, 10.5],
       yaw: 0,
       hinge: "left",
       size: [2, 2.1, 0.08],
@@ -758,27 +797,39 @@ test("a yaw 90 wall keeps the door on the turned face and a width marker still o
       svgPath: turned,
       outPath: path.join(dir, "turned.placements.json"),
       collisionDir: path.join(dir, "turned-buildings"),
+      modelsDir: dir,
       walls: { m: trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]) },
     });
-    assert.equal(turnedResult.file.obstacles.length, 2);
-    assert.equal(turnedResult.file.obstacles.some((box) => covers(box, [10, 1, 10])), false);
+    assert.equal(turnedResult.file.obstacles.length, 3);
+    const turnedBoxes = turnedResult.file.obstacles;
+    // Yaw 90 sends local +X to world −Z, so the right hinge is the drawn z = 9 edge
+    // and the panel and the opening are the drawn z 9..11.
+    assert.equal(solidAt(turnedBoxes, [10, 1, 8.5]), true);
+    assert.equal(solidAt(turnedBoxes, [10, 1, 9.5]), false);
+    assert.equal(solidAt(turnedBoxes, [10, 1, 10.5]), false);
+    assert.equal(solidAt(turnedBoxes, [10, 1, 11.5]), true);
+    assert.equal(solidAt(turnedBoxes, [10, 1, 13]), true);
+    assert.equal(solidAt(turnedBoxes, [10, 1, 7]), true);
+    assert.equal(solidAt(turnedBoxes, [10, 2.5, 10]), true);
+    assert.equal(solidAt(turnedBoxes, [10, 2.05, 10]), false);
+    for (const box of turnedBoxes) {
+      near(box.min[0], 9.5);
+      near(box.max[0], 10.5);
+    }
     assert.equal(turnedResult.doors.obstacles.length, 0);
     assert.deepEqual(turnedResult.doors.placements[0], {
       id: "front",
       model: "door-1",
-      position: [10.5, 0, 10],
+      position: [10.5, 0, 9],
       yaw: 90,
       hinge: "right",
       size: [2, 2.1, 0.08],
       open: true,
     });
-    for (const box of turnedResult.file.obstacles) {
-      assert.ok(box.max[0] - box.min[0] <= 1.05, `turned wall thickness in x ${box.max[0] - box.min[0]}`);
-    }
     for (let x = 8; x <= 12; x += 0.25) {
-      assert.equal(pawnBlocked(x, 10, turnedResult.file.obstacles, 0.5), false, `turned x ${x}`);
+      assert.equal(pawnBlocked(x, 10, turnedBoxes, 0.5), false, `turned x ${x}`);
     }
-    assert.equal(pawnBlocked(10, 7, turnedResult.file.obstacles, 0.5), true);
+    assert.equal(pawnBlocked(10, 7, turnedBoxes, 0.5), true);
 
     const marker = path.join(dir, "marker.svg");
     writeFileSync(marker, shell(
@@ -789,12 +840,18 @@ test("a yaw 90 wall keeps the door on the turned face and a width marker still o
       svgPath: marker,
       outPath: path.join(dir, "marker.placements.json"),
       collisionDir: path.join(dir, "marker-buildings"),
+      modelsDir: dir,
       walls: { m: trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]) },
     });
-    assert.equal(marked.file.obstacles.length, 2);
-    assert.equal(marked.file.obstacles.some((box) => covers(box, [10, 1, 10])), false);
+    assert.equal(marked.file.obstacles.length, 3);
+    // data-width 2 is centered on the marker: hinge x 9, opening x 9..11.
+    assert.equal(solidAt(marked.file.obstacles, [10, 1, 10]), false);
+    assert.equal(solidAt(marked.file.obstacles, [8.5, 1, 10]), true);
+    assert.equal(solidAt(marked.file.obstacles, [11.5, 1, 10]), true);
+    assert.equal(solidAt(marked.file.obstacles, [10, 2.2, 10]), false);
+    assert.equal(solidAt(marked.file.obstacles, [10, 2.7, 10]), true);
     assert.deepEqual(marked.doors.placements[0]?.size, [2, 2.4, 0.1]);
-    assert.deepEqual(marked.doors.placements[0]?.position, [10, 0, 10.5]);
+    assert.deepEqual(marked.doors.placements[0]?.position, [9, 0, 10.5]);
     assert.deepEqual(marked.doors.obstacles, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -820,12 +877,21 @@ test("a deep block keeps the door gap on the wall and the cell beside the jamb s
       svgPath: alongX,
       outPath: path.join(dir, "along-x.placements.json"),
       collisionDir: path.join(dir, "along-x-buildings"),
+      modelsDir: dir,
       walls: { m: block },
     });
     assert.equal(yaw0.doors.placements[0]?.yaw, 0);
+    assert.ok(yaw0.file.obstacles.length <= 4, `yaw 0 pieces ${yaw0.file.obstacles.length}`);
+    // Left hinge on the drawn x = 9 edge: the gap is the drawn x 9..11.
     assert.equal(pawnBlocked(10, 14.5, yaw0.file.obstacles, 0.5), false);
     assert.equal(pawnBlocked(8, 14.5, yaw0.file.obstacles, 0.5), true);
     assert.equal(pawnBlocked(10, 11, yaw0.file.obstacles, 0.5), true);
+    assert.equal(solidAt(yaw0.file.obstacles, [10, 1, 14.5]), false);
+    assert.equal(solidAt(yaw0.file.obstacles, [8.5, 1, 14.5]), true);
+    assert.equal(solidAt(yaw0.file.obstacles, [10.5, 1, 14.5]), false);
+    assert.equal(solidAt(yaw0.file.obstacles, [11.5, 1, 14.5]), true);
+    assert.equal(solidAt(yaw0.file.obstacles, [10, 2.5, 14.5]), true);
+    assert.equal(solidAt(yaw0.file.obstacles, [10, 1, 12]), true);
 
     const alongZ = path.join(dir, "along-z.svg");
     writeFileSync(alongZ, shell(
@@ -836,12 +902,21 @@ test("a deep block keeps the door gap on the wall and the cell beside the jamb s
       svgPath: alongZ,
       outPath: path.join(dir, "along-z.placements.json"),
       collisionDir: path.join(dir, "along-z-buildings"),
+      modelsDir: dir,
       walls: { m: block },
     });
     assert.equal(yaw90.doors.placements[0]?.yaw, 90);
+    assert.ok(yaw90.file.obstacles.length <= 4, `yaw 90 pieces ${yaw90.file.obstacles.length}`);
+    // Yaw 90 sends local +X to world −Z: the left hinge is the drawn z = 11 edge, gap z 9..11.
     assert.equal(pawnBlocked(14.5, 10, yaw90.file.obstacles, 0.5), false);
-    assert.equal(pawnBlocked(14.5, 8, yaw90.file.obstacles, 0.5), true);
+    assert.equal(pawnBlocked(14.5, 7, yaw90.file.obstacles, 0.5), true);
     assert.equal(pawnBlocked(11, 10, yaw90.file.obstacles, 0.5), true);
+    assert.equal(solidAt(yaw90.file.obstacles, [14.5, 1, 10]), false);
+    assert.equal(solidAt(yaw90.file.obstacles, [14.5, 1, 9.5]), false);
+    assert.equal(solidAt(yaw90.file.obstacles, [14.5, 1, 8.5]), true);
+    assert.equal(solidAt(yaw90.file.obstacles, [14.5, 1, 11.5]), true);
+    assert.equal(solidAt(yaw90.file.obstacles, [14.5, 2.5, 10]), true);
+    assert.equal(solidAt(yaw90.file.obstacles, [12, 1, 10]), true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -869,11 +944,21 @@ test("model:door-1 and model:door-2 are written, and a door with no model fails"
       svgPath: svg,
       outPath,
       collisionDir: path.join(dir, "buildings"),
+      modelsDir: dir,
       walls,
     });
     assert.deepEqual(result.doors.placements.map((door) => door.model), ["door-1", "door-2"]);
     assert.deepEqual(result.doors.placements.map((door) => door.id), ["door-north", "door-south"]);
     assert.deepEqual(result.doors.obstacles, []);
+    assert.ok(result.file.obstacles.length <= 6, `two doors produced ${result.file.obstacles.length} boxes`);
+    // Each opening is its drawn rectangle: x 8..10 and x 12..14, wall between.
+    assert.equal(solidAt(result.file.obstacles, [9, 1, 10]), false);
+    assert.equal(solidAt(result.file.obstacles, [13, 1, 10]), false);
+    assert.equal(solidAt(result.file.obstacles, [11, 1, 10]), true);
+    assert.equal(solidAt(result.file.obstacles, [7.5, 1, 10]), true);
+    assert.equal(solidAt(result.file.obstacles, [14.5, 1, 10]), true);
+    assert.equal(solidAt(result.file.obstacles, [9, 2.5, 10]), true);
+    assert.equal(solidAt(result.file.obstacles, [13, 2.5, 10]), true);
     const written = JSON.parse(readFileSync(path.join(dir, "doors.placements.json"), "utf8")) as {
       placements: Array<{ model: string }>;
     };

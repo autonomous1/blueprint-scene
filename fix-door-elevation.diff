@@ -1,0 +1,205 @@
+diff --git a/src/cli.ts b/src/cli.ts
+index ec8e625..e7f53b1 100644
+--- a/src/cli.ts
++++ b/src/cli.ts
+@@ -32,7 +32,9 @@ A rectangle's scale is its size relative to the measured stencil extent, and it
+ is centered on that extent; a rectangle out of proportion prints a warning.
+ Building obstacles are a 0.5 m XZ grid. Cells the mesh covers from y = 0 to 2 m merge into wall runs before short ones are dropped. A box under 1 m on its long side, or under 0.5 m³, is dropped. A facade longer than 1 m stays even when the mesh is about a centimetre thick. At most 32 boxes. A doors rectangle
+ with data-building="<placement id>" cuts a hinge-aligned opening out of every
+-wall box it overlaps, up to the door height. The hinge is the drawn
++wall box it overlaps, from its sill to sill + door height. The sill is the
++rectangle's own z in meters (world y, like a prop z; not inherited from a
++group; absent is 0); wall below the sill and above the head stays. The hinge is the drawn
+ rectangle's hinge edge. The opening is as wide as the door GLB's panel
+ (its door mesh) from --models: <id>.glb, or the file its --game asset uri
+ names (door-1 -> door1.glb). With no GLB or no panel mesh it prints a warning
+diff --git a/src/doors.ts b/src/doors.ts
+index ae8c10d..120fd7b 100644
+--- a/src/doors.ts
++++ b/src/doors.ts
+@@ -277,6 +277,7 @@ function nearestFace(x: number, y: number, z: number, boxes: readonly WorldBox[]
+         fallbackDistance = distance;
+       }
+       if (covered(face, x, y, z, boxes)) continue;
++      if (!reachesHeight(face.box, y)) continue;
+       if (!best || closer(distance, face, bestDistance, best)) {
+         best = face;
+         bestDistance = distance;
+@@ -301,6 +302,17 @@ function covered(face: WallFace, x: number, y: number, z: number, boxes: readonl
+     && pz > box.min[2] + BOX_EPS && pz < box.max[2] - BOX_EPS);
+ }
+ 
++/**
++ * The face's box stands at the door's height: it spans the probe height above
++ * the sill (`y + FACE_PROBE_Y_M`). A step or plinth below an elevated door, or
++ * a cornice above a ground door, is not its wall. Used for the preferred face;
++ * the nearest face of any box stays the fallback.
++ */
++function reachesHeight(box: WorldBox, y: number): boolean {
++  const py = y + FACE_PROBE_Y_M;
++  return py > box.min[1] + BOX_EPS && py < box.max[1] - BOX_EPS;
++}
++
+ /** Smaller distance wins. A tie prefers the max side, then a Z face (yaw 0). */
+ function closer(distance: number, face: WallFace, bestDistance: number, best: WallFace): boolean {
+   if (distance < bestDistance - 1e-6) return true;
+diff --git a/src/plan.ts b/src/plan.ts
+index 2a5b86b..ceaec86 100644
+--- a/src/plan.ts
++++ b/src/plan.ts
+@@ -645,12 +645,13 @@ function takeDoor(el: XmlNode, matrix: Mat, collect: Collect): void {
+   const width = optionalPositive(attr(el, "data-width"), `door "${id}" data-width`);
+   const height = optionalPositive(attr(el, "data-height"), `door "${id}" data-height`);
+   const depth = optionalPositive(attr(el, "data-depth"), `door "${id}" data-depth`);
++  const elevation = doorElevation(el, id);
+   collect.doorIds.add(id);
+   collect.doors.push({
+     id,
+     model,
+     building,
+-    center: svgPointToWorld(cx, cy, 0, collect.frame),
++    center: svgPointToWorld(cx, cy, elevation, collect.frame),
+     minX: box.minX,
+     maxX: box.maxX,
+     minZ: box.minZ,
+@@ -673,6 +674,20 @@ function doorModel(el: XmlNode, id: string): string {
+   return tagged.model;
+ }
+ 
++/**
++ * Door sill height: the rectangle's own `z`, in world meters (world y), read
++ * the way a prop or building reads it. It is not a page length, it is not
++ * scaled, and a `z` on a parent group is not inherited. Absent is 0.
++ * Unlike a prop, a value that is not a finite number fails.
++ */
++function doorElevation(el: XmlNode, id: string): number {
++  const raw = el.attrs["z"];
++  if (raw == null || raw.trim() === "") return 0;
++  const value = Number(raw);
++  if (!Number.isFinite(value)) throw new PlanError(`door "${id}" z "${raw}" is not a number`);
++  return value;
++}
++
+ function parseHinge(el: XmlNode, id: string): DoorHinge {
+   const raw = attr(el, "data-hinge")?.trim();
+   if (!raw) return "left";
+diff --git a/test/door-elevation.test.ts b/test/door-elevation.test.ts
+new file mode 100644
+index 0000000..22fa41b
+--- /dev/null
++++ b/test/door-elevation.test.ts
+@@ -0,0 +1,114 @@
++import assert from "node:assert/strict";
++import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import test from "node:test";
++import { bake } from "../src/bake.ts";
++import { cutDoorFromBoxes, situateDoor } from "../src/doors.ts";
++import { readScene } from "../src/plan.ts";
++import type { LocalBox, SceneDoor, Vec3 } from "../src/types.ts";
++import { trianglesFromBox } from "./boxes.ts";
++
++const NS = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
++
++/** A 10 m hall, wall 1 m thick and 0..8 m tall; doors are drawn over its south face. */
++function plan(doors: string, props = ""): string {
++  return `<?xml version="1.0"?><svg ${NS} width="20mm" height="20mm" viewBox="0 0 20 20">
++    <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="room" x="0" y="0" width="20" height="20"/></g>
++    <g inkscape:groupmode="layer" inkscape:label="buildings">
++      <rect id="hall" data-model="m" x="5" y="9.5" width="10" height="1"/>
++    </g>
++    <g inkscape:groupmode="layer" inkscape:label="props">${props}</g>
++    <g inkscape:groupmode="layer" inkscape:label="doors">${doors}</g>
++  </svg>`;
++}
++
++function bakeIn(svgText: string) {
++  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-z-"));
++  try {
++    const svg = path.join(dir, "plan.svg");
++    writeFileSync(svg, svgText);
++    return bake({
++      svgPath: svg,
++      outPath: path.join(dir, "buildings.placements.json"),
++      collisionDir: path.join(dir, "buildings"),
++      walls: { m: trianglesFromBox([-5, 0, -0.5], [5, 8, 0.5]) },
++    });
++  } finally {
++    rmSync(dir, { recursive: true, force: true });
++  }
++}
++
++type Box = { min: Vec3; max: Vec3 };
++function solidAt(boxes: readonly Box[], x: number, y: number, z: number): boolean {
++  return boxes.some((b) => x > b.min[0] && x < b.max[0] && y > b.min[1] && y < b.max[1] && z > b.min[2] && z < b.max[2]);
++}
++
++const DOOR = (id: string, x: number, extra = "") =>
++  `<rect id="${id}" data-building="hall" inkscape:label="model:door-1" x="${x}" y="9.5" width="2" height="1" ${extra}/>`;
++
++test("a door with z is placed at y = z; z absent or 0 stays on the ground", () => {
++  const result = bakeIn(plan(DOOR("high", 6, `z="2.75"`) + DOOR("zero", 9, `z="0"`) + DOOR("plain", 12)));
++  const at = (id: string) => result.doors.placements.find((d) => d.id === id)!;
++  assert.equal(at("high").position[1], 2.75);
++  assert.equal(at("zero").position[1], 0);
++  assert.equal(at("plain").position[1], 0);
++  assert.deepEqual(at("high").size, at("plain").size, "z does not change the size");
++  assert.equal(at("high").position[0], at("plain").position[0] - 6, "z does not move the door in XZ");
++  assert.equal(at("high").position[2], at("plain").position[2]);
++});
++
++test("an elevated door opens y z..z+height, with wall below the sill and a lintel above", () => {
++  const result = bakeIn(plan(DOOR("high", 6, `z="2.75"`) + DOOR("plain", 12)));
++  const boxes = result.file.obstacles;
++  const high = result.doors.placements.find((d) => d.id === "high")!;
++  const plain = result.doors.placements.find((d) => d.id === "plain")!;
++  const h = high.size[1];
++  const mid = (d: typeof high) => d.position[0] + d.size[0] / 2;
++  const z = 10; // inside the 1 m wall
++  // Elevated door.
++  assert.equal(solidAt(boxes, mid(high), 1, z), true, "solid below the sill");
++  assert.equal(solidAt(boxes, mid(high), 2.7, z), true, "solid just under the sill");
++  assert.equal(solidAt(boxes, mid(high), 2.8, z), false, "open just over the sill");
++  assert.equal(solidAt(boxes, mid(high), 2.75 + h - 0.05, z), false, "open just under the head");
++  assert.equal(solidAt(boxes, mid(high), 2.75 + h + 0.05, z), true, "lintel above");
++  const sill = boxes.find((b) => b.min[0] < mid(high) && b.max[0] > mid(high) && b.max[1] > 0 && b.max[1] <= 2.75 + 1e-9 && b.min[2] < z && b.max[2] > z);
++  assert.ok(sill && Math.abs(sill.max[1] - 2.75) < 1e-9, "the sill box tops out at z");
++  // Ground door, unchanged.
++  assert.equal(solidAt(boxes, mid(plain), 0.05, z), false, "ground door open at the floor");
++  assert.equal(solidAt(boxes, mid(plain), h - 0.05, z), false);
++  assert.equal(solidAt(boxes, mid(plain), h + 0.05, z), true, "ground door lintel");
++});
++
++test("door z is read like a prop z: the element's own attribute in meters, not inherited from a <g>", () => {
++  const svg = plan(
++    `<g z="3">${DOOR("grouped", 6)}</g>` + DOOR("own", 12, `z="1.5"`),
++    `<g z="3"><rect id="crate-g" inkscape:label="model:crate" x="2" y="2" width="1" height="1"/></g>`
++      + `<rect id="crate-own" inkscape:label="model:crate" x="4" y="2" width="1" height="1" z="1.5"/>`,
++  );
++  const scene = readScene(svg);
++  const door = (id: string) => scene.doors.find((d) => d.id === id)!;
++  const prop = (id: string) => scene.props.find((p) => p.id === id)!;
++  assert.equal(door("grouped").center[1], prop("crate-g").position[1], "a group z is ignored for both");
++  assert.equal(door("grouped").center[1], 0);
++  assert.equal(door("own").center[1], prop("crate-own").position[1], "same units as a prop");
++  assert.equal(door("own").center[1], 1.5);
++  assert.throws(() => readScene(plan(DOOR("bad", 6, `z="high"`))), /door "bad" z "high" is not a number/);
++});
++
++test("the wall face is chosen among boxes that stand at the door's height", () => {
++  // A low plinth (y 0..2) sticks out in front of the wall; the wall (y 0..6) is behind it.
++  const plinth: Box = { min: [-5, 0, 0], max: [5, 2, 1] };
++  const wall: Box = { min: [-5, 0, -1], max: [5, 6, 0] };
++  const door = (y: number): SceneDoor => ({
++    id: `d${y}`, model: "door-1", building: "b", hinge: "left", open: false,
++    center: [0, y, 1.1], minX: -0.5, maxX: 0.5, minZ: 1, maxZ: 1.2,
++  });
++  const high = situateDoor(door(3), [plinth, wall], 1);
++  assert.equal(high.placement.position[2], 0, "elevated door sits on the wall face above the plinth");
++  assert.equal(high.placement.position[1], 3);
++  const local: LocalBox[] = [{ minX: -5, maxX: 5, minY: 0, maxY: 6, minZ: -1, maxZ: 0 }];
++  const cut = cutDoorFromBoxes(local, high, [0, 0, 0], 0);
++  const spans = cut.filter((b) => b.minX < 0 && b.maxX > 0).map((b) => [b.minY, b.maxY]).sort((a, b) => a[0]! - b[0]!);
++  assert.deepEqual(spans, [[0, 3], [3 + high.placement.size[1], 6]], "sill box under, lintel over");
++});

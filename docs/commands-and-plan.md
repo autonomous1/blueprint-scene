@@ -268,7 +268,7 @@ Scale is applied first. Triangles are then projected onto XZ, and yaw and transl
 - An empty cell is a doorway. A gap wider than 0.5 m is not filled.
 - At most 32 obstacles are kept per instance. If the 0.5 m grid still exceeds that, the cell doubles to 1 m and the grid runs once more.
 - The check is in world metres, after that instance's scale. The collision file is the same grid before scale.
-- A `doors` rectangle is stamped after that fill, on that instance's grid only. Cells the opening overlaps are cleared, then the runs are merged again. The model collision file and the GLB stay whole.
+- A `doors` rectangle cuts the one wall box it sits on after that fill. The cut is the hinged panel, not a full-height column. The model collision file and the GLB stay whole.
 
 ## Doors
 
@@ -276,7 +276,7 @@ A door is a rectangle on the `doors` layer. It overlaps the building it opens. `
 
 `data-hinge` is `left` or `right`. The default is `left`, as seen from outside the building. `data-open="true"` starts the panel open. The default is `false`. `data-width` is the opening width in metres when the rectangle is only a marker. `data-height` and `data-depth` replace the panel size. Otherwise the panel is `[width, 2.1, 0.08]`, and `width` is the rectangle's extent along the wall.
 
-The gap is that door's own rectangle: the width along its local X, and 2 m inward along local −Z. It is rotated by the door yaw, the same yaw as the visual, and then stamped into the building grid. It does not take the footprint's extent, so a wall along X at yaw 0 loses about 2 m of X and only its own thickness in Z. A yaw of 90 swaps those axes. The door file has no obstacle. `position` is the rectangle center pushed onto the nearest wall face. `yaw` matches that face: maxZ is 0, minZ is 180, maxX is 90, minX is 270. A tie prefers the max side, then a Z face.
+`position` is the rectangle center pushed onto the nearest wall face, and that point is the hinge. `yaw` matches that face: maxZ is 0, minZ is 180, maxX is 90, minX is 270. A tie prefers the max side, then a Z face. The clear opening uses the door frame, not a width centered on the mark. A left hinge runs from the hinge along local +X for `size[0]`. A right hinge runs along local −X. Local −Z is 2 m inward. Height is `size[1]` (default 2.1 m) above the placement, so the lintel above that stays solid, and a sill stays when the wall extends below the placement. The bake splits that one wall box into the jambs, the lintel, an optional sill, and the plug behind a thicker solid. A door that hits no wall box, or more than one, fails the file. The door file has no obstacle.
 
 ```json
 {

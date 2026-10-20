@@ -1,14 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { readAssetTypes, stampPlacement } from "./asset-type.ts";
+import { readAssetFiles, readAssetTypes, stampPlacement } from "./asset-type.ts";
 import { PlanError } from "./errors.ts";
-import { openingInModel, situateDoor } from "./doors.ts";
-import { coarseFootprint, footprintDetail, type XzRect } from "./footprint.ts";
+import { cutDoorFromBoxes, doorPanelWidth, situateDoor } from "./doors.ts";
+import { coarseFootprint } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
 import { readScene, type PlanPlacement } from "./plan.ts";
 import { boundsOfTriangles, stencilBoxes, stencilSize } from "./stencil.ts";
 import type { BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds } from "./types.ts";
-import { placeBox } from "./yaw.ts";
+import { placeBox, transformXz } from "./yaw.ts";
 
 const DEFAULT_MODELS = path.join("web", "assets", "models");
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
@@ -49,6 +49,9 @@ type ModelBake = {
   /** XZ size of the stencil the SVG scale is measured against. */
   stencilWidth: number;
   stencilDepth: number;
+  /** XZ center of that stencil extent, in model units. A drawn rectangle is centered on it. */
+  stencilCenterX: number;
+  stencilCenterZ: number;
 };
 
 export type BakeResult = {
@@ -86,6 +89,7 @@ export function bake(options: BakeOptions): BakeResult {
     const geometry = geometryFor(options, modelsDir, model);
     const stencil = stencilBoxes(geometry.triangles);
     const size = stencilSize(stencil);
+    const center = stencilCenter(stencil);
     boxesByModel.set(model, {
       triangles: geometry.triangles,
       boxes: coarseFootprint(geometry.triangles).boxes,
@@ -94,13 +98,19 @@ export function bake(options: BakeOptions): BakeResult {
       fromGlb: geometry.fromGlb,
       stencilWidth: size.width,
       stencilDepth: size.depth,
+      stencilCenterX: center.x,
+      stencilCenterZ: center.z,
     });
   }
 
   const scales = new Map<string, number>();
+  const positions = new Map<string, Vec3>();
+  const warnings: string[] = [];
   for (const placement of placements) {
     const model = boxesByModel.get(placement.model)!;
-    scales.set(placement.id, scaleForPlacement(placement, model.stencilWidth, model.stencilDepth));
+    const pose = poseForPlacement(placement, model, warnings);
+    scales.set(placement.id, pose.scale);
+    positions.set(placement.id, pose.position);
   }
 
   const file: PlacementsFile = {
@@ -109,7 +119,7 @@ export function bake(options: BakeOptions): BakeResult {
     placements: placements.map((placement) => stampPlacement({
       id: placement.id,
       model: placement.model,
-      position: roundVec(placement.position),
+      position: roundVec(positions.get(placement.id)!),
       yaw: placement.yaw,
       scale: roundM(scales.get(placement.id)!),
     }, assetTypes)),
@@ -140,7 +150,12 @@ export function bake(options: BakeOptions): BakeResult {
     yaw: spawn.yaw,
   }));
   const doorPlacements: DoorPlacement[] = [];
-  const lines: string[] = [];
+  const doorWidths = new Map<string, number | undefined>();
+  const assetFiles = options.gamePath ? readAssetFiles(readText(options.gamePath), options.gamePath) : new Map<string, string>();
+  for (const door of scene.doors) {
+    if (!doorWidths.has(door.model)) doorWidths.set(door.model, loadDoorPanelWidth(modelsDir, door.model, assetFiles, warnings));
+  }
+  const lines: string[] = [...warnings];
   for (const [model, baked] of boxesByModel) {
     if (baked.fromGlb) lines.push(meshLine(model, baked));
   }
@@ -157,18 +172,14 @@ export function bake(options: BakeOptions): BakeResult {
     }
     const mine = scene.doors.filter((door) => door.building === placement.id);
     let boxes = grid.boxes;
-    let facetsDropped = grid.facetsDropped;
+    const facetsDropped = grid.facetsDropped;
     if (mine.length > 0) {
       const worldBoxes = grid.boxes.map((box) => placeBox(box, placement.position, placement.yaw));
-      const openings: XzRect[] = [];
-      for (const door of mine) {
-        const situated = situateDoor(door, worldBoxes);
-        openings.push(openingInModel(situated.opening, placement.position, placement.yaw));
-        doorPlacements.push(stampPlacement(roundDoor(situated.placement), assetTypes));
+      const situated = mine.map((door) => situateDoor(door, worldBoxes, doorWidths.get(door.model)));
+      for (const door of situated) {
+        boxes = cutDoorFromBoxes(boxes, door, placement.position, placement.yaw);
+        doorPlacements.push(stampPlacement(roundDoor(door.placement), assetTypes));
       }
-      const cut = footprintDetail(grid.triangles, grid.cellSize, openings);
-      boxes = cut.boxes;
-      facetsDropped = cut.facetsDropped;
     }
     boxes.forEach((box, index) => {
       const placed = placeBox(box, placement.position, placement.yaw);
@@ -275,6 +286,87 @@ function loadPropBox(options: BakeOptions, modelsDir: string, model: string): Lo
   return boundsBox(model, loadGlb(modelsDir, model, undefined).triangles);
 }
 
+/** A mesh that may be the swinging panel when no mesh is named exactly `door`. */
+const PANEL_NAME_RE = /door|panel|leaf/i;
+const FRAME_NAME_RE = /frame|jamb|stile|rail|lintel|sill/i;
+
+/**
+ * Panel width of a door model, from its GLB in `modelsDir`. The arena mounts
+ * that GLB unscaled, so the opening takes this width, not the drawn rectangle.
+ *
+ * The file is `<model>.glb`, else the file named by that asset's `uri` in
+ * `arena.game.json` (`door-1` → `door1.glb`). The panel is the mesh named
+ * `door` (what `prop --shape door` writes), else meshes whose node or mesh
+ * name has door/panel/leaf and not frame/jamb/stile/rail/lintel/sill.
+ *
+ * Undefined when no GLB or no panel is found. Then the drawn rectangle (or
+ * `data-width`) is used, and a `warning:` line says why and where it looked.
+ */
+function loadDoorPanelWidth(
+  modelsDir: string,
+  model: string,
+  assetFiles: ReadonlyMap<string, string>,
+  lines: string[],
+): number | undefined {
+  if (!MODEL_RE.test(model)) throw new PlanError(`invalid model id "${model}"`);
+  const names = [`${model}.glb`];
+  const declared = assetFiles.get(model);
+  if (declared && !names.includes(declared)) names.push(declared);
+  const found = names.find((name) => existsSync(path.join(modelsDir, name)));
+  const where = path.resolve(modelsDir);
+  if (!found) {
+    lines.push(
+      `warning: door model "${model}": no GLB in ${where} (tried ${names.join(", ")}); `
+      + "openings use the drawn rectangle width. Pass --models <dir with the door GLB>"
+      + (declared ? "" : " or --game <arena.game.json> so its asset uri is used"),
+    );
+    return undefined;
+  }
+  const glbPath = path.join(modelsDir, found);
+  const bytes = readGlbBytes(model, glbPath);
+  const exact = panelTriangles(model, bytes, (node, mesh) => node === "door" || mesh === "door");
+  if (exact.triangles.length > 0) {
+    const width = doorPanelWidth(exact.triangles);
+    if (width !== undefined) {
+      lines.push(`door model "${model}": panel ${roundM(width)} m from ${glbPath}`);
+      return width;
+    }
+  }
+  const named = (name: string | undefined) => typeof name === "string" && PANEL_NAME_RE.test(name) && !FRAME_NAME_RE.test(name);
+  const loose = panelTriangles(model, bytes, (node, mesh) => named(node) || named(mesh));
+  const width = loose.triangles.length > 0 ? doorPanelWidth(loose.triangles) : undefined;
+  if (width !== undefined) {
+    lines.push(`door model "${model}": panel ${roundM(width)} m from ${glbPath} (meshes ${loose.meshNames.join(", ")}; no mesh named "door")`);
+    return width;
+  }
+  lines.push(
+    `warning: door model "${model}": ${glbPath} has no panel mesh (named "door", or door/panel/leaf); `
+    + "openings use the drawn rectangle width",
+  );
+  return undefined;
+}
+
+function readGlbBytes(model: string, glbPath: string): Buffer {
+  try {
+    return readFileSync(glbPath);
+  } catch {
+    throw new PlanError(`${model}: cannot read ${glbPath}`);
+  }
+}
+
+function panelTriangles(
+  model: string,
+  bytes: Buffer,
+  meshFilter: (nodeName: string | undefined, meshName: string | undefined) => boolean,
+): GlbLoad {
+  try {
+    return trianglesFromGlb(bytes, { meshFilter });
+  } catch (err) {
+    if (err instanceof PlanError) throw new PlanError(`${model}: ${err.message}`);
+    throw err;
+  }
+}
+
 function boundsBox(model: string, triangles: Triangle[]): LocalBox {
   const bounds = boundsOfTriangles(triangles);
   if (!bounds) throw new PlanError(`${model}: no triangle position data`);
@@ -339,26 +431,58 @@ function geometryFor(options: BakeOptions, modelsDir: string, model: string): Gl
 }
 
 /**
- * Drawn SVG size over the measured stencil. Both axes must agree, so a
- * stretched rect cannot override the model's proportions.
+ * Where the GLB origin goes and its uniform scale.
+ *
+ * A copied stencil group (`placement.stencil`) carries both: its local origin
+ * is the model origin and its transform scale is the model scale. Nothing is
+ * divided by a footprint, so the mesh and the walls land on the drawn stencil.
+ *
+ * Any other placement (a rectangle, or a group of rectangles) is drawn around
+ * the stencil extent. The scale is drawn size over that extent, the average of
+ * the two axes. The drawn center is the extent's center, so the origin is the
+ * drawn center minus the turned, scaled offset of that center from the origin.
+ * Axes that disagree by more than 1% add a warning line; the average is used.
+ *
+ * Check: a 2 m rectangle centered at x 10 for a 1 m stencil whose extent is
+ * x 0..1 (center 0.5) at yaw 0: scale 2, origin x 10 − 2 × 0.5 = 9.
  */
-function scaleForPlacement(placement: PlanPlacement, stencilWidth: number, stencilDepth: number): number {
-  if (stencilWidth < 1e-9 || stencilDepth < 1e-9) return 1;
-  const sx = placement.drawnWidth / stencilWidth;
-  const sz = placement.drawnDepth / stencilDepth;
+function poseForPlacement(
+  placement: PlanPlacement,
+  model: Pick<ModelBake, "stencilWidth" | "stencilDepth" | "stencilCenterX" | "stencilCenterZ">,
+  warnings: string[],
+): { position: Vec3; scale: number } {
+  if (placement.stencil) {
+    const scale = placement.stencil.scale;
+    if (!Number.isFinite(scale) || scale <= 0) throw new PlanError(`placement "${placement.id}" scale is not positive`);
+    return { position: placement.stencil.origin, scale };
+  }
+  if (model.stencilWidth < 1e-9 || model.stencilDepth < 1e-9) return { position: placement.position, scale: 1 };
+  const sx = placement.drawnWidth / model.stencilWidth;
+  const sz = placement.drawnDepth / model.stencilDepth;
   if (!Number.isFinite(sx) || !Number.isFinite(sz) || sx <= 0 || sz <= 0) {
     throw new PlanError(`placement "${placement.id}" scale is not positive`);
   }
   const scale = (sx + sz) / 2;
-  // TODO: fix minor scale errors
-  /*
-  if (Math.abs(sx - sz) > 1e-3 * scale) {
-    throw new PlanError(
-      `placement "${placement.id}" scale is not uniform (${trimNum(sx)} vs ${trimNum(sz)})`,
+  if (Math.abs(sx - sz) > 0.01 * scale) {
+    warnings.push(
+      `warning: placement "${placement.id}" drawn size is not the model's proportions `
+      + `(scale x ${trimNum(sx)} vs z ${trimNum(sz)}); using ${trimNum(scale)}`,
     );
   }
-  */
-  return scale;
+  const offset = transformXz(model.stencilCenterX * scale, model.stencilCenterZ * scale, placement.yaw);
+  return {
+    position: [placement.position[0] - offset.x, placement.position[1], placement.position[2] - offset.z],
+    scale,
+  };
+}
+
+function stencilCenter(boxes: readonly LocalBox[]): { x: number; z: number } {
+  if (boxes.length === 0) return { x: 0, z: 0 };
+  const minX = Math.min(...boxes.map((box) => box.minX));
+  const maxX = Math.max(...boxes.map((box) => box.maxX));
+  const minZ = Math.min(...boxes.map((box) => box.minZ));
+  const maxZ = Math.max(...boxes.map((box) => box.maxZ));
+  return { x: (minX + maxX) / 2, z: (minZ + maxZ) / 2 };
 }
 
 function trimNum(n: number): string {

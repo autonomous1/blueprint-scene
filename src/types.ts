@@ -112,11 +112,22 @@ export type SceneDoor = {
   height?: number;
   depth?: number;
   open: boolean;
+  /** `data-locked="true"`. The arena starts the leaf shut until `key` is used. */
+  locked?: boolean;
+  /** Pickup placement id from `data-key`. Read when `locked` is set. */
+  key?: string;
 };
 
 /**
- * One hinged panel. `position` is the rectangle center on the wall face.
- * `size` is `[width, height, depth]` in meters. There is no obstacle.
+ * One hinged panel. `position` is the hinge on the wall face: the hinge
+ * edge of the plan rectangle (left hinge: its local −X end, right hinge: its
+ * +X end), pushed onto that face. The arena mounts the GLB origin, which is
+ * the hinge, there, so the mesh and the opening start at the drawn
+ * rectangle's hinge edge. `size` is `[width, height, depth]` in meters.
+ * The width is `data-width`, else the door GLB's panel width, else the
+ * drawn span. There is no obstacle.
+ * The clear opening is not centered on `position`. A left hinge occupies
+ * local x 0..width and a right hinge local x −width..0, from y 0 to `size[1]`.
  */
 export type DoorPlacement = {
   id: string;
@@ -129,6 +140,10 @@ export type DoorPlacement = {
   hinge: DoorHinge;
   size: Vec3;
   open: boolean;
+  /** When true, the arena starts this leaf shut until `key` is used. */
+  locked?: boolean;
+  /** Pickup placement id that unlocks a locked door. */
+  key?: string;
 };
 
 export type DoorsFile = {

@@ -278,3 +278,23 @@ test("two bounds rectangles fail, and a model: label selects a prop", () => {
   assert.equal(scene.props[0]?.scale, 2);
   assert.equal(scene.sawBoundsLayer, false);
 });
+
+test("data-locked and data-key stay on the door", () => {
+  const page = (doorAttrs: string) => `<?xml version="1.0"?><svg ${NS} width="10mm" height="10mm" viewBox="0 0 10 10">
+    <g inkscape:groupmode="layer" inkscape:label="buildings">
+      <rect id="bldg" data-model="m" x="0" y="0" width="4" height="1"/>
+    </g>
+    <g inkscape:groupmode="layer" inkscape:label="doors">
+      <rect id="gate" data-building="bldg" ${doorAttrs} inkscape:label="model:door-1" x="1" y="0" width="1" height="1"/>
+    </g>
+  </svg>`;
+  const scene = readScene(page(`data-locked="true" data-key="key"`));
+  assert.equal(scene.doors[0]?.locked, true);
+  assert.equal(scene.doors[0]?.key, "key");
+  assert.equal(scene.doors[0]?.open, false);
+  const open = readScene(page(`data-open="true"`));
+  assert.equal("locked" in (open.doors[0] ?? {}), false);
+  assert.equal("key" in (open.doors[0] ?? {}), false);
+  assert.throws(() => readScene(page(`data-locked="yes"`)), /data-locked/);
+  assert.throws(() => readScene(page(`data-key="not a key"`)), /data-key/);
+});

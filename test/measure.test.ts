@@ -24,7 +24,7 @@ test("a 10 m wall with a 2 m gap writes a path with that gap", () => {
     assert.equal(measured.file.footprint.length, 2);
     const shape = onlyPath(measured.svg);
     assert.equal(shape.model, "gap");
-    assert.equal(shape.d, "M 10 0 L 6 0 L 6 -0.5 L 10 -0.5 Z M 4 0 L 0 0 L 0 -0.5 L 4 -0.5 Z");
+    assert.equal(shape.d, "M 0 0 L 4 0 L 4 -0.5 L 0 -0.5 Z M 6 0 L 10 0 L 10 -0.5 L 6 -0.5 Z");
     assert.equal(shape.subs.length, 2);
     assert.equal(evenOdd(shape.subs, 2, -0.25), true);
     assert.equal(evenOdd(shape.subs, 8, -0.25), true);
@@ -39,8 +39,11 @@ test("a 10 m wall with a 2 m gap writes a path with that gap", () => {
       collisionDir: path.join(dir, "collision"),
     });
     assert.equal(baked.file.placements[0]?.scale, 1);
-    // The X flip stays inside the footprint, so the baked center does not move.
-    assert.deepEqual(baked.file.placements[0]?.position, [5, 0, 1.25]);
+    // A copied stencil group is placed by its origin: model (0, 0) is page (0, 0),
+    // toolbar y 1 on this page. The walls then sit on the drawn path, x 0..10.
+    assert.deepEqual(baked.file.placements[0]?.position, [0, 0, 1]);
+    assert.equal(Math.min(...baked.file.obstacles.map((box) => box.min[0])), 0);
+    assert.equal(Math.max(...baked.file.obstacles.map((box) => box.max[0])), 10);
     assert.equal(baked.file.obstacles.length, 2);
     const spans = baked.file.obstacles.map((box) => [box.min[0], box.max[0]]).sort((a, b) => a[0]! - b[0]!);
     assert.ok(spans[1]![0]! - spans[0]![1]! >= 1.5);
@@ -194,7 +197,7 @@ function containsBox(
   return inner.minX > outer.minX && inner.maxX < outer.maxX && inner.minY > outer.minY && inner.maxY < outer.maxY;
 }
 
-test("positive X is the left of the stencil and Z is not mirrored", () => {
+test("positive X is the right of the stencil and Z is not mirrored", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-flip-"));
   try {
     const measured = measureWalls(dir, "ell", [
@@ -212,7 +215,12 @@ test("positive X is the left of the stencil and Z is not mirrored", () => {
     const tall = shape.subs.find((ring) => ringBox(ring).maxY - ringBox(ring).minY > 1)!;
     const longBox = ringBox(long);
     const tallBox = ringBox(tall);
-    assert.ok(longBox.minX < tallBox.minX, `long minX ${longBox.minX} tall minX ${tallBox.minX}`);
+    // The long wall is model x 1..5 and the tall one x −2..−0.5: page X is model X.
+    assert.equal(longBox.minX, 1);
+    assert.equal(longBox.maxX, 5);
+    assert.equal(tallBox.minX, -2);
+    assert.equal(tallBox.maxX, -0.5);
+    assert.ok(tallBox.maxX < longBox.minX, `tall maxX ${tallBox.maxX} long minX ${longBox.minX}`);
     assert.ok(tallBox.minY < longBox.minY, `tall minY ${tallBox.minY} long minY ${longBox.minY}`);
     assert.equal(attr(parseXml(measured.svg), "viewBox"), "-2 -2 7 2");
   } finally {
@@ -295,4 +303,40 @@ test("cli help states the drawing scale once", () => {
   const help = spawnSync(bin, ["--help"], { encoding: "utf8" });
   assert.equal(help.status, 0, help.stderr);
   assert.deepEqual(help.stdout.match(/1 mm = 1 m/g), ["1 mm = 1 m"]);
+});
+
+test("a stencil copied into a plan draws an asymmetric wing where the bake puts it", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-wing-"));
+  try {
+    // A long wall x −4..4 with a wing on its +X end, x 2..4.
+    const measured = measureWalls(dir, "wing", [
+      [[-4, 0, 0], [4, 3, 1]],
+      [[2, 0, 1], [4, 3, 5]],
+    ]);
+    const shape = onlyPath(measured.svg);
+    const xs = shape.subs.flat().filter(([, y]) => y < -1.5).map(([x]) => x);
+    assert.equal(Math.min(...xs), 2);
+    assert.equal(Math.max(...xs), 4);
+    const group = measured.svg.slice(measured.svg.indexOf("<g "), measured.svg.indexOf("</g>") + 4)
+      .replace("<g ", '<g transform="translate(50 50)" ');
+    const plan = path.join(dir, "wing-plan.svg");
+    writeFileSync(plan, `<?xml version="1.0"?><svg ${ns} width="100mm" height="100mm" viewBox="0 0 100 100">
+      <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="room" x="0" y="0" width="100" height="100"/></g>
+      <g inkscape:groupmode="layer" inkscape:label="buildings">${group}</g>
+    </svg>`);
+    const baked = bake({
+      svgPath: plan,
+      modelsDir: path.join(dir, "models"),
+      outPath: path.join(dir, "wing.placements.json"),
+      collisionDir: path.join(dir, "collision"),
+    });
+    assert.equal(baked.file.placements[0]?.yaw, 0);
+    // Drawn wing: page x 50 + 2..4. The baked wing (the box deeper than 1 m) is the same world x.
+    const wing = baked.file.obstacles.find((box) => box.max[2] - box.min[2] > 2)!;
+    assert.ok(wing, "wing obstacle");
+    assert.equal(wing.min[0], 52);
+    assert.equal(wing.max[0], 54);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

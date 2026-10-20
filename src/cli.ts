@@ -26,10 +26,19 @@ bake reads the buildings, bounds, props, spawn-points, and doors layers. It
 writes five files and does not write arena.game.json or a scene object. --out
 is the buildings placements file. bounds.json, props.placements.json,
 spawn-points.json, and doors.placements.json are written in that same
-directory. Building scale is the SVG size relative to the measured stencil.
+directory. A copied measure stencil (a group holding the stencil path) is
+placed by its group origin, the model origin, at its transform's uniform scale.
+A rectangle's scale is its size relative to the measured stencil extent, and it
+is centered on that extent; a rectangle out of proportion prints a warning.
 Building obstacles are a 0.5 m XZ grid. Cells the mesh covers from y = 0 to 2 m merge into wall runs before short ones are dropped. A box under 1 m on its long side, or under 0.5 m³, is dropped. A facade longer than 1 m stays even when the mesh is about a centimetre thick. At most 32 boxes. A doors rectangle
-with data-building="<placement id>" stamps a gap in that building and writes
-a hinged placement. Its model is data-model or the label model:<id>, the same
+with data-building="<placement id>" cuts a hinge-aligned opening out of every
+wall box it overlaps, from its sill to sill + door height. The sill is the
+rectangle's own z in meters (world y, like a prop z; not inherited from a
+group; absent is 0); wall below the sill and above the head stays. The hinge is the drawn
+rectangle's hinge edge. The opening is as wide as the door GLB's panel
+(its door mesh) from --models: <id>.glb, or the file its --game asset uri
+names (door-1 -> door1.glb). With no GLB or no panel mesh it prints a warning
+and uses the rectangle; data-width overrides both. It writes a hinged placement. Its model is data-model or the label model:<id>, the same
 as a prop. A door with no model id fails. The door file has no obstacle.
 A props rectangle places the model. Its obstacle is the GLB bounds after
 that position, yaw, and scale, or the rectangle when the GLB is missing.

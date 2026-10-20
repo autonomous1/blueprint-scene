@@ -1,7 +1,6 @@
 import { PlanError } from "./errors.ts";
-import type { DoorPlacement, SceneDoor, Vec3, Yaw } from "./types.ts";
-import type { XzRect } from "./footprint.ts";
-import { inverseYaw, transformXz } from "./yaw.ts";
+import type { DoorPlacement, LocalBox, SceneDoor, Triangle, Vec3, Yaw } from "./types.ts";
+import { inverseYaw, placeBox, transformXz } from "./yaw.ts";
 
 /** Panel height when the rectangle does not set `data-height`. */
 export const DOOR_HEIGHT_M = 2.1;
@@ -14,6 +13,13 @@ export const DOOR_DEPTH_M = 0.08;
  * the wall's outer skin, so the stamp is at least this deep.
  */
 export const DOOR_GAP_DEPTH_M = 2;
+
+/**
+ * A wall box is on the door's wall when its outer side is within this of the
+ * face the hinge sits on. A box whose outside is deeper (an interior or
+ * opposite wall the 2 m stamp reaches) is left whole.
+ */
+export const DOOR_FACE_TOL_M = 0.5;
 
 type WorldBox = { min: Vec3; max: Vec3 };
 
@@ -34,52 +40,211 @@ type WallFace = {
 
 export type SituatedDoor = {
   placement: DoorPlacement;
-  /** World rectangle cleared in the occupancy grid, before the inverse yaw. */
-  opening: XzRect;
+  /**
+   * Clear opening in the door's local frame. The hinge is the origin.
+   * +X runs along the wall for a left hinge. −Z is inward. Y is 0 at the
+   * placement, up to the door height.
+   */
+  opening: LocalBox;
 };
 
+const BOX_EPS = 1e-6;
+
 /**
- * Push the rectangle center onto the nearest wall face and build the hole.
- * The hole is the door width along the wall and 2 m in from that face.
- * It is not the rest of the footprint. The door itself is not an obstacle.
+ * Put the hinge on the hinge edge of the drawn rectangle, on the nearest
+ * exposed wall face. The door GLB's origin is its hinge (the arena mounts
+ * that origin at `position`), and the clear opening runs one width from it,
+ * so the mesh, the opening, and the drawn rectangle share one span.
+ * Local +X is `transformXz(1, 0, yaw)`. A left hinge sits on the
+ * rectangle's local −X edge, a right hinge on its +X edge.
+ *
+ * The width, in order:
+ * - `data-width`, centered on the rectangle (the hinge sits half that width
+ *   from the center);
+ * - `modelWidth`, the door GLB's panel width, measured from the hinge edge of
+ *   the drawn rectangle, so a rectangle drawn wider than the model does not
+ *   widen the hole;
+ * - the drawn rectangle's span along the wall.
+ * The door itself is not an obstacle.
+ *
+ * Check: a 2 m rectangle centered at x 10 on a yaw-0 face, left hinge:
+ * position x 9, opening world x 9..11. Right hinge: position x 11, same span.
+ * With `modelWidth` 1.05: left hinge x 9, opening 9..10.05; right hinge x 11,
+ * opening 9.95..11.
  */
-export function situateDoor(door: SceneDoor, boxes: readonly WorldBox[]): SituatedDoor {
-  const face = nearestFace(door.center[0], door.center[2], boxes);
+export function situateDoor(door: SceneDoor, boxes: readonly WorldBox[], modelWidth?: number): SituatedDoor {
+  const face = nearestFace(door.center[0], door.center[1], door.center[2], boxes);
   if (!face) throw new PlanError(`door "${door.id}" has no wall on "${door.building}"`);
-  const width = door.width ?? spanAlong(door, face.axis);
+  if (modelWidth !== undefined && !(modelWidth > 0)) {
+    throw new PlanError(`door "${door.id}" model "${door.model}" panel width must be positive`);
+  }
+  const drawn = spanAlong(door, face.axis);
+  const width = door.width ?? modelWidth ?? drawn;
   if (!(width > 0)) throw new PlanError(`door "${door.id}" width must be positive`);
-  const point = projectToFace(door.center[0], door.center[2], face);
+  const point = hingeOnFace(door, face, door.width ?? drawn);
+  const placement: DoorPlacement = {
+    id: door.id,
+    model: door.model,
+    position: [point.x, point.y, point.z],
+    yaw: face.yaw,
+    hinge: door.hinge,
+    size: [width, door.height ?? DOOR_HEIGHT_M, door.depth ?? DOOR_DEPTH_M],
+    open: door.open,
+    ...(door.locked ? { locked: true } : {}),
+    ...(door.key ? { key: door.key } : {}),
+  };
+  return { placement, opening: doorClearLocal(placement) };
+}
+
+/**
+ * Hinge edge of a span centered on the rectangle, with the normal coordinate
+ * on `face`. `span` is the drawn span, or `data-width`. Not clamped to one box.
+ */
+function hingeOnFace(door: SceneDoor, face: WallFace, span: number): { x: number; y: number; z: number } {
+  const alongX = transformXz(1, 0, face.yaw);
+  const half = door.hinge === "left" ? -span / 2 : span / 2;
+  const x = door.center[0] + alongX.x * half;
+  const z = door.center[2] + alongX.z * half;
+  if (face.axis === "x") return { x: face.coord, y: door.center[1], z };
+  return { x, y: door.center[1], z: face.coord };
+}
+
+/**
+ * Panel width of a door GLB: the X extent of its `door` mesh (the swinging
+ * panel `prop --shape door` writes), in model meters. The frame stiles are
+ * left out; they overlap the jambs. Undefined when there is no panel mesh.
+ */
+export function doorPanelWidth(triangles: readonly Triangle[]): number | undefined {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const tri of triangles) {
+    for (const v of tri) {
+      if (v[0] < minX) minX = v[0];
+      if (v[0] > maxX) maxX = v[0];
+    }
+  }
+  const width = maxX - minX;
+  return Number.isFinite(width) && width > 0 ? width : undefined;
+}
+
+/**
+ * Hinge-aligned opening in the door GLB's local frame.
+ * A left hinge occupies x 0..width. A right hinge occupies x −width..0.
+ * Y is the clear height above the placement: the frame bottom sits on that
+ * y, so the hole is 0..height, not the GLB's mid-height origin.
+ * −Z is inward. The stamp is `DOOR_GAP_DEPTH_M`, deeper than the panel, so a
+ * pawn clears the skin. A thicker host keeps the solid behind that depth.
+ *
+ * Check: left hinge, width 2, height 2.1. The box is x 0..2, y 0..2.1, z −2..0.
+ * A right hinge is x −2..0. It is not x −1..1.
+ */
+export function doorClearLocal(placement: DoorPlacement): LocalBox {
+  const [width, height] = placement.size;
+  const minX = placement.hinge === "left" ? 0 : -width;
+  const maxX = placement.hinge === "left" ? width : 0;
   return {
-    placement: {
-      id: door.id,
-      model: door.model,
-      position: [point.x, 0, point.z],
-      yaw: face.yaw,
-      hinge: door.hinge,
-      size: [width, door.height ?? DOOR_HEIGHT_M, door.depth ?? DOOR_DEPTH_M],
-      open: door.open,
-    },
-    opening: openingFor(point.x, point.z, face, width),
+    minX,
+    maxX,
+    minY: 0,
+    maxY: height,
+    minZ: -DOOR_GAP_DEPTH_M,
+    maxZ: 0,
   };
 }
 
-/** World opening into the scaled model grid. Cardinal yaw keeps it axis-aligned. */
-export function openingInModel(opening: XzRect, position: Vec3, yaw: Yaw): XzRect {
-  const inv = inverseYaw(yaw);
-  const corners = [
-    [opening.minX, opening.minZ],
-    [opening.maxX, opening.minZ],
-    [opening.minX, opening.maxZ],
-    [opening.maxX, opening.maxZ],
-  ].map(([x, z]) => transformXz(x - position[0], z - position[2], inv));
-  const xs = corners.map((corner) => corner.x);
-  const zs = corners.map((corner) => corner.z);
-  return {
-    minX: Math.min(...xs),
-    maxX: Math.max(...xs),
-    minZ: Math.min(...zs),
-    maxZ: Math.max(...zs),
-  };
+/**
+ * Replace one wall AABB with the solid that remains around a door opening.
+ * Both boxes are in the same frame: X along the wall, Y up, Z through the
+ * thickness. A through-wall door is the two jambs, the lintel, and a sill
+ * when the wall extends below the opening. A host thicker than the opening
+ * also keeps the plug behind it. Pieces stay inside the wall.
+ */
+export function subtractDoorOpening(wall: LocalBox, opening: LocalBox): LocalBox[] {
+  const hole = intersectBox(wall, opening);
+  if (!hole) return [wall];
+  const parts: LocalBox[] = [];
+  if (hole.minX > wall.minX + BOX_EPS) parts.push({ ...wall, maxX: hole.minX });
+  if (hole.maxX < wall.maxX - BOX_EPS) parts.push({ ...wall, minX: hole.maxX });
+  if (hole.maxY < wall.maxY - BOX_EPS) {
+    parts.push({
+      ...wall,
+      minX: hole.minX,
+      maxX: hole.maxX,
+      minY: hole.maxY,
+      minZ: hole.minZ,
+      maxZ: hole.maxZ,
+    });
+  }
+  if (hole.minY > wall.minY + BOX_EPS) {
+    parts.push({
+      ...wall,
+      minX: hole.minX,
+      maxX: hole.maxX,
+      maxY: hole.minY,
+      minZ: hole.minZ,
+      maxZ: hole.maxZ,
+    });
+  }
+  if (hole.minZ > wall.minZ + BOX_EPS) {
+    parts.push({ ...wall, minX: hole.minX, maxX: hole.maxX, maxZ: hole.minZ });
+  }
+  if (hole.maxZ < wall.maxZ - BOX_EPS) {
+    parts.push({ ...wall, minX: hole.minX, maxX: hole.maxX, minZ: hole.maxZ });
+  }
+  return parts.filter(positiveBox);
+}
+
+/**
+ * Cut `situated.opening` out of every model-space wall box it overlaps.
+ * A facade is often several boxes with vertical seams, so the opening can
+ * straddle two or more of them. Each one is split around its share of the
+ * hole: jambs, lintel, and sill, clipped to that box. Untouched boxes keep
+ * their place in the list and are not re-transformed.
+ * Only boxes on the door's own wall count: the box must reach the face
+ * (outer side within `DOOR_FACE_TOL_M`) and extend inward. A box that only
+ * touches the opening along an edge or face is not a hit. A face skin that
+ * stands proud of the hinge face is cut through too, so no sliver seals the
+ * doorway. No hit at all is a plan error.
+ */
+export function cutDoorFromBoxes(
+  modelBoxes: readonly LocalBox[],
+  situated: SituatedDoor,
+  buildingPosition: Vec3,
+  buildingYaw: Yaw,
+): LocalBox[] {
+  const { placement, opening } = situated;
+  const out: LocalBox[] = [];
+  let hits = 0;
+  for (const box of modelBoxes) {
+    const wallWorld = placeBox(box, buildingPosition, buildingYaw);
+    const wallLocal = toLocalBox(wallWorld, placement.position, placement.yaw);
+    if (!onDoorWall(wallLocal)) {
+      out.push(box);
+      continue;
+    }
+    const through: LocalBox = { ...opening, maxZ: Math.max(opening.maxZ, wallLocal.maxZ) };
+    if (!intersectBox(wallLocal, through)) {
+      out.push(box);
+      continue;
+    }
+    hits += 1;
+    for (const part of subtractDoorOpening(wallLocal, through)) {
+      out.push(toLocalBox(placeBox(part, placement.position, placement.yaw), buildingPosition, buildingYaw));
+    }
+  }
+  if (hits === 0) {
+    throw new PlanError(`door "${placement.id}" does not hit a wall box`);
+  }
+  return out;
+}
+
+/**
+ * Door frame: the face is z = 0 and −Z is inward. The box's outer side is
+ * within `DOOR_FACE_TOL_M` of the face, and the box reaches the face plane
+ * (a skin standing proud of it counts, a column in front of it does not).
+ */
+function onDoorWall(wall: LocalBox): boolean {
+  return wall.maxZ > -DOOR_FACE_TOL_M && wall.minZ < BOX_EPS;
 }
 
 function spanAlong(door: SceneDoor, axis: "x" | "z"): number {
@@ -95,19 +260,59 @@ function facesOf(box: WorldBox): WallFace[] {
   ];
 }
 
-function nearestFace(x: number, z: number, boxes: readonly WorldBox[]): WallFace | undefined {
+/**
+ * Nearest exposed face. A face whose foot point is inside a neighbouring box
+ * (the seam between two boxes of one wall, or a skin behind a proud one) is
+ * not the outside of the wall and is skipped. If every face is covered, the
+ * nearest face of any box is used, as before.
+ */
+function nearestFace(x: number, y: number, z: number, boxes: readonly WorldBox[]): WallFace | undefined {
   let best: WallFace | undefined;
   let bestDistance = Infinity;
+  let fallback: WallFace | undefined;
+  let fallbackDistance = Infinity;
   for (const box of boxes) {
     for (const face of facesOf(box)) {
       const distance = distanceToFace(x, z, face);
+      if (!fallback || closer(distance, face, fallbackDistance, fallback)) {
+        fallback = face;
+        fallbackDistance = distance;
+      }
+      if (covered(face, x, y, z, boxes)) continue;
+      if (!reachesHeight(face.box, y)) continue;
       if (!best || closer(distance, face, bestDistance, best)) {
         best = face;
         bestDistance = distance;
       }
     }
   }
-  return best;
+  return best ?? fallback;
+}
+
+/** Probe a little outside the face, at mid door height. */
+const FACE_PROBE_M = 1e-3;
+const FACE_PROBE_Y_M = 1;
+
+function covered(face: WallFace, x: number, y: number, z: number, boxes: readonly WorldBox[]): boolean {
+  const foot = projectToFace(x, y, z, face);
+  const px = face.axis === "x" ? face.coord + face.sign * FACE_PROBE_M : foot.x;
+  const pz = face.axis === "z" ? face.coord + face.sign * FACE_PROBE_M : foot.z;
+  const py = y + FACE_PROBE_Y_M;
+  return boxes.some((box) => box !== face.box
+    && px > box.min[0] + BOX_EPS && px < box.max[0] - BOX_EPS
+    && py > box.min[1] + BOX_EPS && py < box.max[1] - BOX_EPS
+    && pz > box.min[2] + BOX_EPS && pz < box.max[2] - BOX_EPS);
+}
+
+/**
+ * The face's box stands at the door's height: it spans the probe height above
+ * the sill (`y + FACE_PROBE_Y_M`). A step or plinth below an elevated door, or
+ * a cornice above a ground door, is not its wall. Used for the preferred face;
+ * the nearest face of any box stays the fallback.
+ */
+function reachesHeight(box: WorldBox, y: number): boolean {
+  const py = y + FACE_PROBE_Y_M;
+  return py > box.min[1] + BOX_EPS && py < box.max[1] - BOX_EPS;
 }
 
 /** Smaller distance wins. A tie prefers the max side, then a Z face (yaw 0). */
@@ -126,38 +331,53 @@ function distanceToFace(x: number, z: number, face: WallFace): number {
   return Math.hypot(normal - face.coord, along - clamped);
 }
 
-function projectToFace(x: number, z: number, face: WallFace): { x: number; z: number } {
+function projectToFace(x: number, y: number, z: number, face: WallFace): { x: number; y: number; z: number } {
   const along = face.axis === "x" ? z : x;
   const clamped = Math.min(face.along1, Math.max(face.along0, along));
-  if (face.axis === "x") return { x: face.coord, z: clamped };
-  return { x: clamped, z: face.coord };
+  if (face.axis === "x") return { x: face.coord,  y:y, z: clamped };
+  return { x: clamped, y: y, z: face.coord };
 }
 
-/**
- * The door's own rectangle, then the door yaw. Local +X is the width along
- * the wall. Local −Z is inward, and the gap is 2 m along that normal, not
- * the building footprint. The yaw is the face yaw the visual already uses.
- *
- * Check: face point (10, 10.5), yaw 0, width 2. The corners stay
- * x 9..11 and z 8.5..10.5, so a wall along X loses 2 m of X. Yaw 90 sends
- * local +X to world −Z, so that 2 m lies along Z.
- */
-function openingFor(x: number, z: number, face: WallFace, width: number): XzRect {
-  const corners = [
-    [-width / 2, -DOOR_GAP_DEPTH_M],
-    [width / 2, -DOOR_GAP_DEPTH_M],
-    [-width / 2, 0],
-    [width / 2, 0],
-  ].map(([localX, localZ]) => {
-    const turned = transformXz(localX!, localZ!, face.yaw);
-    return { x: x + turned.x, z: z + turned.z };
-  });
-  const xs = corners.map((corner) => corner.x);
-  const zs = corners.map((corner) => corner.z);
+function positiveBox(box: LocalBox): boolean {
+  return box.maxX > box.minX + BOX_EPS
+    && box.maxY > box.minY + BOX_EPS
+    && box.maxZ > box.minZ + BOX_EPS;
+}
+
+function intersectBox(wall: LocalBox, opening: LocalBox): LocalBox | undefined {
+  const box: LocalBox = {
+    minX: Math.max(wall.minX, opening.minX),
+    maxX: Math.min(wall.maxX, opening.maxX),
+    minY: Math.max(wall.minY, opening.minY),
+    maxY: Math.min(wall.maxY, opening.maxY),
+    minZ: Math.max(wall.minZ, opening.minZ),
+    maxZ: Math.min(wall.maxZ, opening.maxZ),
+  };
+  return positiveBox(box) ? box : undefined;
+}
+
+/** World AABB into the frame whose origin and yaw are `origin` / `yaw`. Cardinal yaw stays an AABB. */
+function toLocalBox(world: WorldBox, origin: Vec3, yaw: Yaw): LocalBox {
+  const inv = inverseYaw(yaw);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const x of [world.min[0], world.max[0]]) {
+    for (const z of [world.min[2], world.max[2]]) {
+      const local = transformXz(x - origin[0], z - origin[2], inv);
+      if (local.x < minX) minX = local.x;
+      if (local.x > maxX) maxX = local.x;
+      if (local.z < minZ) minZ = local.z;
+      if (local.z > maxZ) maxZ = local.z;
+    }
+  }
   return {
-    minX: Math.min(...xs),
-    maxX: Math.max(...xs),
-    minZ: Math.min(...zs),
-    maxZ: Math.max(...zs),
+    minX,
+    maxX,
+    minY: world.min[1] - origin[1],
+    maxY: world.max[1] - origin[1],
+    minZ,
+    maxZ,
   };
 }

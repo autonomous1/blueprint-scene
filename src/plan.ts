@@ -13,6 +13,14 @@ export type PlanPlacement = {
   yaw: Yaw;
   drawnWidth: number;
   drawnDepth: number;
+  /**
+   * Set when the placement is a copied `measure` stencil: a group holding the
+   * stencil path. Its local origin is the model origin, so `origin` is where
+   * the GLB origin goes, and `scale` is the group's uniform transform scale in
+   * world meters per model unit. Bake uses these instead of the drawn center
+   * and the drawn size over the stencil extent.
+   */
+  stencil?: { origin: Vec3; scale: number };
 };
 
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
@@ -505,8 +513,27 @@ function consider(el: XmlNode, matrix: Mat, stack: string[], collect: Collect): 
   const { id, model } = tagged;
   claimPlacementId(collect, id);
   const measured = measureTagged(el, matrix, collect, id);
+  const stencil = stencilPose(el, matrix, collect.frame);
   collect.ids.add(id);
-  collect.placements.push({ id, model, ...measured });
+  collect.placements.push({ id, model, ...measured, ...(stencil ? { stencil } : {}) });
+}
+
+/**
+ * A copied `measure` stencil is a group with a `path` child. Its local (0, 0)
+ * is the model origin and its local unit is one model unit. A group of
+ * rectangles, or a bare rectangle, is not a stencil and keeps the drawn-box rule.
+ * Check: `matrix(30 0 0 30 10 90)` on a 100-unit page at 1 m per unit puts the
+ * origin at world (10, 0, 10) with scale 30.
+ */
+function stencilPose(el: XmlNode, matrix: Mat, frame: PageFrame): { origin: Vec3; scale: number } | undefined {
+  if (localName(el.name) !== "g") return undefined;
+  if (!el.children.some((child) => localName(child.name) === "path")) return undefined;
+  const [ox, oy] = apply(matrix, 0, 0);
+  const z = el.attrs["z"] ? Number(el.attrs["z"]) : 0;
+  return {
+    origin: svgPointToWorld(ox, oy, z, frame),
+    scale: Math.hypot(matrix[0], matrix[1]) * frame.meters,
+  };
 }
 
 function taggedModel(el: XmlNode): { id: string; model: string } | undefined {
@@ -618,18 +645,23 @@ function takeDoor(el: XmlNode, matrix: Mat, collect: Collect): void {
   const width = optionalPositive(attr(el, "data-width"), `door "${id}" data-width`);
   const height = optionalPositive(attr(el, "data-height"), `door "${id}" data-height`);
   const depth = optionalPositive(attr(el, "data-depth"), `door "${id}" data-depth`);
+  const elevation = doorElevation(el, id);
+  const locked = parseLocked(el, id);
+  const key = parseKey(el, id);
   collect.doorIds.add(id);
   collect.doors.push({
     id,
     model,
     building,
-    center: svgPointToWorld(cx, cy, 0, collect.frame),
+    center: svgPointToWorld(cx, cy, elevation, collect.frame),
     minX: box.minX,
     maxX: box.maxX,
     minZ: box.minZ,
     maxZ: box.maxZ,
     hinge: parseHinge(el, id),
     open: parseOpen(el, id),
+    ...(locked ? { locked: true } : {}),
+    ...(key ? { key } : {}),
     ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
     ...(depth !== undefined ? { depth } : {}),
@@ -646,6 +678,20 @@ function doorModel(el: XmlNode, id: string): string {
   return tagged.model;
 }
 
+/**
+ * Door sill height: the rectangle's own `z`, in world meters (world y), read
+ * the way a prop or building reads it. It is not a page length, it is not
+ * scaled, and a `z` on a parent group is not inherited. Absent is 0.
+ * Unlike a prop, a value that is not a finite number fails.
+ */
+function doorElevation(el: XmlNode, id: string): number {
+  const raw = el.attrs["z"];
+  if (raw == null || raw.trim() === "") return 0;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) throw new PlanError(`door "${id}" z "${raw}" is not a number`);
+  return value;
+}
+
 function parseHinge(el: XmlNode, id: string): DoorHinge {
   const raw = attr(el, "data-hinge")?.trim();
   if (!raw) return "left";
@@ -658,6 +704,21 @@ function parseOpen(el: XmlNode, id: string): boolean {
   if (!raw || raw === "false") return false;
   if (raw === "true") return true;
   throw new PlanError(`door "${id}" data-open "${raw}" is not true or false`);
+}
+
+function parseLocked(el: XmlNode, id: string): boolean {
+  const raw = attr(el, "data-locked")?.trim();
+  if (!raw || raw === "false") return false;
+  if (raw === "true") return true;
+  throw new PlanError(`door "${id}" data-locked "${raw}" is not true or false`);
+}
+
+/** Pickup placement id. Omitted when the door has no `data-key`. */
+function parseKey(el: XmlNode, id: string): string | undefined {
+  const raw = attr(el, "data-key")?.trim();
+  if (!raw) return undefined;
+  if (!ID_RE.test(raw)) throw new PlanError(`door "${id}" data-key "${raw}" is not an id`);
+  return raw;
 }
 
 function optionalPositive(raw: string | undefined, what: string): number | undefined {
