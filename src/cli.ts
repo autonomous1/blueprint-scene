@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+#!/usr/bin/env node
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { bake } from "./bake.ts";
@@ -6,6 +6,7 @@ import { PlanError } from "./errors.ts";
 import { measure } from "./measure.ts";
 import { writeCrateProp } from "./crate.ts";
 import { writeDoorProp } from "./prop.ts";
+import { existsSync, realpathSync } from "node:fs";
 
 const USAGE = `blueprint-scene measure --glb model.glb --out buildings/<id>.json --svg buildings/<id>.svg
 blueprint-scene bake --svg plan.svg --models ./models --out web/game/buildings.placements.json
@@ -176,6 +177,6 @@ function parseFlags(argv: string[], known: Set<string>): Record<string, string> 
 }
 
 const entry = process.argv[1];
-if (entry && import.meta.url === pathToFileURL(entry).href) {
+if (entry && import.meta.url === pathToFileURL(realpathSync(entry)).href) {
   process.exit(main(process.argv.slice(2)));
 }
