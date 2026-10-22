@@ -99,7 +99,6 @@ export function stencilSvg(id: string, boxes: readonly LocalBox[]): string {
   let minY = 0;
   let maxX = 1;
   let maxY = 1;
-  let xSum = 0;
   if (boxes.length > 0) {
     minX = Math.min(...boxes.map((box) => box.minX));
     maxX = Math.max(...boxes.map((box) => box.maxX));
@@ -107,11 +106,10 @@ export function stencilSvg(id: string, boxes: readonly LocalBox[]): string {
     const maxZ = Math.max(...boxes.map((box) => box.maxZ));
     minY = -maxZ;
     maxY = -minZ;
-    xSum = minX + maxX;
   }
   const viewW = Math.max(maxX - minX, 1e-6);
   const viewH = Math.max(maxY - minY, 1e-6);
-  const body = rings.length === 0 ? "" : `    <path fill-rule="evenodd" d="${pathData(rings, xSum)}"/>`;
+  const body = rings.length === 0 ? "" : `    <path fill-rule="evenodd" d="${pathData(rings)}"/>`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="${fmt(viewW)}mm" height="${fmt(viewH)}mm" viewBox="${fmt(minX)} ${fmt(minY)} ${fmt(viewW)} ${fmt(viewH)}">
   <g id="${id}" data-model="${id}" inkscape:label="model:${id}">
@@ -121,7 +119,7 @@ ${body}
 `;
 }
 
-function pathData(rings: readonly Ring[], xSum: number): string {
+function pathData(rings: readonly Ring[]): string {
   return rings.map((ring) => {
     const commands = ring.points.map((point, index) => {
       const head = index === 0 ? "M" : "L";
