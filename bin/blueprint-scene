@@ -29,4 +29,4 @@ pick_node() {
 
 NODE="$(pick_node)"
 export NODE_NO_WARNINGS=1
-exec "$NODE" --experimental-strip-types "$ROOT/src/cli.ts" "$@"
+exec "$NODE" "$ROOT/src/cli.ts" "$@"
