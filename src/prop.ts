@@ -4,6 +4,7 @@ import { PlanError } from "./errors.ts";
 import { writeMeshesGlb, type NamedMesh } from "./glb-write.ts";
 import { readDesignRects, type DesignRect } from "./plan.ts";
 import type { Vec3 } from "./types.ts";
+import type { DoorCorner } from "./glb-write.ts";
 
 export type DoorPropOptions = {
   svgPath: string;
