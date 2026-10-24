@@ -20,6 +20,7 @@ export const ASSET_TYPES = [
   "weapon",
   "projectile",
   "key",
+  "room",
 ] as const;
 
 export type AssetType = (typeof ASSET_TYPES)[number];

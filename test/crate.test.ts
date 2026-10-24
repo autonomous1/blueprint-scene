@@ -11,6 +11,7 @@ const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
 );
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]);
 
 test("one unlabeled texture is on all six faces and the box matches the rectangle", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-crate-"));
@@ -272,6 +273,63 @@ test("a right face whose transformed width is not the front height fails", () =>
   }
 });
 
+test("an unlabeled jpg file is embedded as image/jpeg", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-crate-"));
+  try {
+    const jpeg = Buffer.from(JPEG);
+    const svgPath = path.join(dir, "crate.svg");
+    const outPath = path.join(dir, "crate.glb");
+    writeFileSync(path.join(dir, "face.jpg"), jpeg);
+    writeFileSync(svgPath, page(`
+      <rect id="panel" x="0" y="0" width="1.5" height="0.8" data-texture="face.jpg"/>`));
+    writeCrateProp({ svgPath, outPath });
+    const { doc, bin } = readGlb(readFileSync(outPath));
+    assert.equal(doc.images?.length, 1);
+    assert.equal(doc.images?.[0]?.mimeType, "image/jpeg");
+    assert.equal(Buffer.compare(embeddedImages(doc, bin)[0]!, jpeg), 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a jpeg data uri is embedded as image/jpeg", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-crate-"));
+  try {
+    const jpeg = Buffer.from(JPEG);
+    const svgPath = path.join(dir, "crate.svg");
+    const outPath = path.join(dir, "crate.glb");
+    writeFileSync(svgPath, page(`
+      <rect id="panel" x="1" y="1" width="1.5" height="0.8">
+        <image href="data:image/jpeg;base64,${jpeg.toString("base64")}" x="1" y="1" width="1.5" height="0.8"/>
+      </rect>`));
+    writeCrateProp({ svgPath, outPath });
+    const { doc, bin } = readGlb(readFileSync(outPath));
+    assert.equal(doc.images?.length, 1);
+    assert.equal(doc.images?.[0]?.mimeType, "image/jpeg");
+    assert.equal(Buffer.compare(embeddedImages(doc, bin)[0]!, jpeg), 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a file that is not a png or jpeg fails", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-crate-"));
+  try {
+    const svgPath = path.join(dir, "crate.svg");
+    const outPath = path.join(dir, "crate.glb");
+    writeFileSync(path.join(dir, "face.jpg"), Buffer.from("not an image"));
+    writeFileSync(svgPath, page(`
+      <rect id="panel" x="0" y="0" width="1.5" height="0.8" data-texture="face.jpg"/>`));
+    assert.throws(
+      () => writeCrateProp({ svgPath, outPath }),
+      (err: unknown) => err instanceof PlanError && /is not a png or jpeg/.test((err as Error).message),
+    );
+    assert.equal(existsSync(outPath), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("prop --shape crate writes the glb and the collision file", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-crate-"));
   try {
@@ -339,7 +397,7 @@ type GlbDoc = {
   nodes?: GlbNode[];
   meshes?: Array<{ name?: string; primitives?: GlbPrimitive[] }>;
   materials?: Array<{ pbrMetallicRoughness?: { baseColorTexture?: { index: number } } }>;
-  images?: Array<{ bufferView?: number }>;
+  images?: Array<{ mimeType?: string; bufferView?: number }>;
   bufferViews?: Array<{ byteOffset?: number; byteLength: number }>;
   accessors?: Array<{ bufferView?: number; byteOffset?: number; componentType: number; count: number; type: string }>;
 };

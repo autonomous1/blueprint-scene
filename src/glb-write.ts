@@ -60,6 +60,10 @@ export type MeshPrimitive = {
    * triangles per quad, so four corners stay four vertices.
    */
   quads?: boolean;
+  /** Sets `baseColorFactor`. Omitted keeps the flat colour or the image-only material. */
+  color?: readonly [number, number, number, number];
+  /** Adds `alphaMode: "BLEND"` and `doubleSided: true`. */
+  blend?: boolean;
 };
 
 export type NamedMesh = {
@@ -71,6 +75,12 @@ export type NamedMesh = {
 
 const ARRAY_BUFFER = 34962;
 const ELEMENT_ARRAY_BUFFER = 34963;
+
+export function imageMime(bytes: Uint8Array): "image/png" | "image/jpeg" | undefined {
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  return undefined;
+}
 
 /**
  * One node per mesh, at the vertex origin. A mesh with `parent` hangs under
@@ -97,6 +107,28 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
     },
   }];
   const materialForImage = new Map<number, number>();
+  const materialForPane = new Map<string, number>();
+  const paneMaterial = (
+    image: number | undefined,
+    color: readonly [number, number, number, number] | undefined,
+    blend: boolean,
+  ): number => {
+    const key = `${image ?? ""}|${color ? color.join(",") : ""}|${blend ? 1 : 0}`;
+    const existing = materialForPane.get(key);
+    if (existing != null) return existing;
+    const index = materials.length;
+    materials.push({
+      pbrMetallicRoughness: {
+        ...(color ? { baseColorFactor: [color[0], color[1], color[2], color[3]] as [number, number, number, number] } : {}),
+        ...(image != null ? { baseColorTexture: { index: image } } : {}),
+        metallicFactor: 0,
+        roughnessFactor: 1,
+      },
+      ...(blend ? { alphaMode: "BLEND" as const, doubleSided: true } : {}),
+    });
+    materialForPane.set(key, index);
+    return index;
+  };
   const gltfMeshes = meshes.map((mesh) => {
     const primitives = [];
     for (const primitive of mesh.primitives) {
@@ -132,19 +164,25 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
           { componentType: 5126, count: built.count, type: "VEC2" },
         );
         const source = imageIndexOf(primitive.image);
-        const existing = materialForImage.get(source);
-        if (existing != null) material = existing;
-        else {
-          material = materials.length;
-          materialForImage.set(source, material);
-          materials.push({
-            pbrMetallicRoughness: {
-              baseColorTexture: { index: source },
-              metallicFactor: 0,
-              roughnessFactor: 1,
-            },
-          });
+        if (primitive.color != null || primitive.blend === true) {
+          material = paneMaterial(source, primitive.color, primitive.blend === true);
+        } else {
+          const existing = materialForImage.get(source);
+          if (existing != null) material = existing;
+          else {
+            material = materials.length;
+            materialForImage.set(source, material);
+            materials.push({
+              pbrMetallicRoughness: {
+                baseColorTexture: { index: source },
+                metallicFactor: 0,
+                roughnessFactor: 1,
+              },
+            });
+          }
         }
+      } else if (primitive.color != null || primitive.blend === true) {
+        material = paneMaterial(undefined, primitive.color, primitive.blend === true);
       }
       primitives.push({ attributes, indices, material, mode: 4 });
     }
@@ -168,7 +206,11 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
   if (images.length > 0) {
     json.samplers = [{ magFilter: 9729, minFilter: 9729, wrapS: 33071, wrapT: 33071 }];
     json.textures = images.map((_, index) => ({ sampler: 0, source: index }));
-    json.images = imageViews.map((bufferView) => ({ mimeType: "image/png", bufferView }));
+    json.images = imageViews.map((bufferView, index) => {
+      const mimeType = imageMime(images[index] ?? new Uint8Array());
+      if (!mimeType) throw new Error("embedded image is not a png or jpeg");
+      return { mimeType, bufferView };
+    });
   }
   return packGlb(json, bytes);
 }

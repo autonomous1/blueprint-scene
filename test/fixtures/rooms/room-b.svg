@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   xmlns:dc="http://purl.org/dc/elements/1.1/"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 210 297"
+   version="1.1"
+   id="svg16501"
+   inkscape:version="0.92.5 (2060ec1f9f, 2020-04-08)"
+   sodipodi:docname="room-b.svg">
+  <defs
+     id="defs16495" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="18.607983"
+     inkscape:cx="11.612979"
+     inkscape:cy="10.904871"
+     inkscape:document-units="mm"
+     inkscape:current-layer="layer12"
+     showgrid="false"
+     inkscape:window-width="2807"
+     inkscape:window-height="1549"
+     inkscape:window-x="73"
+     inkscape:window-y="34"
+     inkscape:window-maximized="1" />
+  <metadata
+     id="metadata16498">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:title></dc:title>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:groupmode="layer"
+     id="layer10"
+     inkscape:label="floor">
+    <image
+       sodipodi:absref="/home/tim/dev/conveyor-engine-arena/dev/scenes/arena-1/designs/rooms/floor.png"
+       xlink:href="floor.png"
+       width="6"
+       height="6"
+       preserveAspectRatio="none"
+       id="image17885"
+       x="0"
+       y="291" />
+  </g>
+  <g
+     inkscape:label="walls"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <image
+       sodipodi:absref="/home/tim/dev/conveyor-engine-arena/dev/scenes/arena-1/designs/rooms/long-wall.png"
+       xlink:href="long-wall.png"
+       inkscape:label="front"
+       y="288"
+       x="-1.781861e-14"
+       id="image17575"
+       preserveAspectRatio="none"
+       height="3"
+       width="6" />
+    <image
+       sodipodi:absref="/home/tim/dev/conveyor-engine-arena/dev/scenes/arena-1/designs/rooms/short-wall.png"
+       xlink:href="short-wall.png"
+       inkscape:label="back"
+       width="6"
+       height="3"
+       preserveAspectRatio="none"
+       id="image17655"
+       x="0"
+       y="297" />
+    <image
+       sodipodi:absref="/home/tim/dev/conveyor-engine-arena/dev/scenes/arena-1/designs/rooms/short-wall-2.png"
+       xlink:href="short-wall-2.png"
+       inkscape:label="left"
+       transform="rotate(-90)"
+       width="6"
+       height="3"
+       preserveAspectRatio="none"
+       id="image17752"
+       x="-297"
+       y="-3" />
+    <image
+       sodipodi:absref="/home/tim/dev/conveyor-engine-arena/dev/scenes/arena-1/designs/rooms/long-wall-2.png"
+       xlink:href="long-wall-2.png"
+       inkscape:label="right"
+       transform="rotate(-90)"
+       width="6"
+       height="3"
+       preserveAspectRatio="none"
+       id="image17817"
+       x="-297"
+       y="6" />
+  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer11"
+     inkscape:label="ceiling"
+     style="display:none">
+    <image
+       sodipodi:absref="/home/tim/dev/conveyor-engine-arena/dev/scenes/arena-1/designs/rooms/ceiling.png"
+       xlink:href="ceiling.png"
+       width="6"
+       height="6"
+       preserveAspectRatio="none"
+       id="image17950"
+       x="0"
+       y="291" />
+  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer12"
+     inkscape:label="doors">
+    <rect
+       style="color:#000000;display:inline;overflow:visible;opacity:1;vector-effect:none;fill:#3edbf2;fill-opacity:1;fill-rule:nonzero;stroke:none;stroke-width:0.12959428;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:0.51837711, 0.12959427;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       id="door-1-1-9-22"
+       width="0.49405965"
+       height="1.8900341"
+       x="-0.2043734"
+       y="292.85577"
+       model="door1.glb"
+       inkscape:label="model:door-1"
+       data-key="key"
+       data-locked="true"
+       data-wall="left" />
+  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer13"
+     inkscape:label="windows" />
+  <g
+     inkscape:groupmode="layer"
+     id="layer14"
+     inkscape:label="openings" />
+  <g
+     inkscape:groupmode="layer"
+     id="layer15"
+     inkscape:label="holes" />
+  <g
+     inkscape:groupmode="layer"
+     id="layer16"
+     inkscape:label="props">
+    <rect
+       style="color:#000000;display:inline;overflow:visible;opacity:1;vector-effect:none;fill:#3e67f2;fill-opacity:1;fill-rule:nonzero;stroke:none;stroke-width:0.10959286px;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       id="cover-crate-2-1"
+       width="0.51800001"
+       height="0.48700002"
+       x="1.7316331"
+       y="291.70883"
+       inkscape:label="model:ammo-box" />
+    <rect
+       style="color:#000000;display:inline;overflow:visible;opacity:1;vector-effect:none;fill:#087420;fill-opacity:1;fill-rule:nonzero;stroke:none;stroke-width:0.12563834px;stroke-linecap:butt;stroke-linejoin:miter;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;paint-order:markers fill stroke"
+       id="cover-crate-2-6"
+       width="0.67799997"
+       height="0.48899999"
+       x="3.2583585"
+       y="295.36206"
+       inkscape:label="model:med-kit" />
+  </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer17"
+     inkscape:label="lights" />
+</svg>

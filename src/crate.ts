@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PlanError } from "./errors.ts";
-import { writeMeshesGlb, type DoorCorner, type MeshPrimitive, type NamedMesh } from "./glb-write.ts";
+import { imageMime, writeMeshesGlb, type DoorCorner, type MeshPrimitive, type NamedMesh } from "./glb-write.ts";
 import { readLayerShapes, type LayerShape } from "./plan.ts";
 import type { Vec3 } from "./types.ts";
 
@@ -201,35 +201,37 @@ function loadFaces(svgPath: string, design: CrateDesign): Record<Face, Uint8Arra
 function loadTexture(svgPath: string, shape: LayerShape, face: string): Uint8Array {
   const ref = (shape.dataTexture || shape.href || "").trim();
   if (!ref) throw new PlanError(`crate face "${face}" is missing a texture`);
-  if (ref.startsWith("data:")) return pngFromDataUri(ref, face);
-  return readPng(path.resolve(path.dirname(svgPath), ref), face);
+  return loadTextureRef(svgPath, ref, face);
 }
 
-function pngFromDataUri(value: string, face: string): Uint8Array {
+/** PNG or JPEG bytes for a face texture. `ref` is a data URI or a path. `what` is the face name. */
+export function loadTextureRef(svgPath: string, ref: string, what: string): Uint8Array {
+  if (ref.startsWith("data:")) return imageFromDataUri(ref, what);
+  return readImage(path.resolve(path.dirname(svgPath), ref), what);
+}
+
+function imageFromDataUri(value: string, face: string): Uint8Array {
   const comma = value.indexOf(",");
   const header = comma >= 0 ? value.slice(0, comma) : value;
   const payload = comma >= 0 ? value.slice(comma + 1) : "";
-  if (!/^data:image\/png\b/i.test(header) || !/;base64\b/i.test(header)) {
-    throw new PlanError(`crate texture "${face}" is not a png`);
+  if (!/^data:image\/(?:png|jpeg|jpg)\b/i.test(header) || !/;base64\b/i.test(header)) {
+    throw new PlanError(`crate texture "${face}" is not a png or jpeg`);
   }
-  return assertPng(Buffer.from(payload.replace(/\s+/g, ""), "base64"), face);
+  return assertImage(Buffer.from(payload.replace(/\s+/g, ""), "base64"), face);
 }
 
-function readPng(file: string, face: string): Uint8Array {
+function readImage(file: string, face: string): Uint8Array {
   let bytes: Buffer;
   try {
     bytes = readFileSync(file);
   } catch {
     throw new PlanError(`crate texture "${face}" could not be read`);
   }
-  return assertPng(bytes, face);
+  return assertImage(bytes, face);
 }
 
-function assertPng(bytes: Uint8Array, face: string): Uint8Array {
-  const head = Buffer.from(bytes.subarray(0, 8));
-  if (head.length < 8 || head[0] !== 0x89 || head.toString("ascii", 1, 4) !== "PNG") {
-    throw new PlanError(`crate texture "${face}" is not a png`);
-  }
+function assertImage(bytes: Uint8Array, face: string): Uint8Array {
+  if (!imageMime(bytes)) throw new PlanError(`crate texture "${face}" is not a png or jpeg`);
   return new Uint8Array(bytes);
 }
 
