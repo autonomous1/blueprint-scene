@@ -1,5 +1,8 @@
 .vscode/
+agents/
+plan/
 node_modules/
 dist/
+plan/
 /buildings/
 *.log

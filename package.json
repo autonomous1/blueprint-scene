@@ -11,6 +11,8 @@
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "test": "NODE_NO_WARNINGS=1 node --test test/*.test.ts",
+    "codemap:check": "node scripts/codemap.ts --check",
+    "codemap": "node scripts/codemap.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "bake": "node src/cli.ts"
   },

@@ -153,12 +153,55 @@ export function doorClearLocal(placement: DoorPlacement): LocalBox {
 }
 
 /**
+ * AABB difference. At most six pieces: full-height slabs on either side of
+ * the cut along X, then the Y slabs across the cut's X (the original Z),
+ * then the Z slabs across the cut's X and Y. The six do not overlap. A
+ * piece thinner than 1e-6 is dropped. No overlap with the cut means the
+ * original box.
+ */
+export function subtractBox(box: LocalBox, cut: LocalBox): LocalBox[] {
+  const hole = intersectBox(box, cut);
+  if (!hole) return [box];
+  const parts: LocalBox[] = [];
+  if (hole.minX > box.minX + BOX_EPS) parts.push({ ...box, maxX: hole.minX });
+  if (hole.maxX < box.maxX - BOX_EPS) parts.push({ ...box, minX: hole.maxX });
+  if (hole.minY > box.minY + BOX_EPS) {
+    parts.push({ ...box, minX: hole.minX, maxX: hole.maxX, maxY: hole.minY });
+  }
+  if (hole.maxY < box.maxY - BOX_EPS) {
+    parts.push({ ...box, minX: hole.minX, maxX: hole.maxX, minY: hole.maxY });
+  }
+  if (hole.minZ > box.minZ + BOX_EPS) {
+    parts.push({
+      ...box,
+      minX: hole.minX,
+      maxX: hole.maxX,
+      minY: hole.minY,
+      maxY: hole.maxY,
+      maxZ: hole.minZ,
+    });
+  }
+  if (hole.maxZ < box.maxZ - BOX_EPS) {
+    parts.push({
+      ...box,
+      minX: hole.minX,
+      maxX: hole.maxX,
+      minY: hole.minY,
+      maxY: hole.maxY,
+      minZ: hole.maxZ,
+    });
+  }
+  return parts.filter(positiveBox);
+}
+
+/**
  * Replace one wall AABB with the solid that remains around a door opening.
  * Both boxes are in the same frame: X along the wall, Y up, Z through the
  * thickness. A through-wall door is the two jambs, the lintel, and a sill
  * when the wall extends below the opening. A host thicker than the opening
  * also keeps the plug behind it. Pieces stay inside the wall.
  */
+
 export function subtractDoorOpening(wall: LocalBox, opening: LocalBox): LocalBox[] {
   const hole = intersectBox(wall, opening);
   if (!hole) return [wall];
@@ -204,13 +247,15 @@ export function subtractDoorOpening(wall: LocalBox, opening: LocalBox): LocalBox
  * (outer side within `DOOR_FACE_TOL_M`) and extend inward. A box that only
  * touches the opening along an edge or face is not a hit. A face skin that
  * stands proud of the hinge face is cut through too, so no sliver seals the
- * doorway. No hit at all is a plan error.
+ * doorway. No hit at all is a plan error, unless `requireHit` is false
+ * (a room wall the opening may miss). Then the boxes are returned unchanged.
  */
 export function cutDoorFromBoxes(
   modelBoxes: readonly LocalBox[],
   situated: SituatedDoor,
   buildingPosition: Vec3,
   buildingYaw: Yaw,
+  requireHit = true,
 ): LocalBox[] {
   const { placement, opening } = situated;
   const out: LocalBox[] = [];
@@ -233,6 +278,7 @@ export function cutDoorFromBoxes(
     }
   }
   if (hits === 0) {
+    if (!requireHit) return modelBoxes.slice();
     throw new PlanError(`door "${placement.id}" does not hit a wall box`);
   }
   return out;

@@ -6,13 +6,18 @@ import { PlanError } from "./errors.ts";
 import { measure } from "./measure.ts";
 import { writeCrateProp } from "./crate.ts";
 import { writeDoorProp } from "./prop.ts";
-import { existsSync, realpathSync } from "node:fs";
+import { writeRoom } from "./room-glb.ts";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { readFloorsSvg } from "./floors-svg.ts";
 
 const USAGE = `blueprint-scene measure --glb model.glb --out buildings/<id>.json --svg buildings/<id>.svg
 blueprint-scene bake --svg plan.svg --models ./models --out web/game/buildings.placements.json
         [--mesh-prefix wall_] [--game web/game/arena.game.json]
+        [--floors buildings] [--rooms web/assets/models]
 blueprint-scene prop --shape door --svg door.svg --out props/door.glb
 blueprint-scene prop --shape crate --svg crate.svg --out props/cover-crate.glb
+blueprint-scene room --svg room.svg --out room.glb [--glb blender.glb]
+blueprint-scene floors --svg buildings/<id>.floors.svg
 
 Inkscape drawing scale is 1 mm = 1 m. A rectangle 8 mm wide is an 8 m facade.
 The toolbar is the room: x → x and toolbar y → z. Yaw is snapped to 0, 90, 180, or 270.
@@ -48,6 +53,11 @@ Each placement type is copied from that asset in the game file. It is not an
 Inkscape label. An asset with no type omits the field. With no --game, a
 web/game/arena.game.json in the working directory is used when it exists.
 A second bake writes the same type. The game file itself is not written.
+--floors is the directory of <model>.floors.svg. A building whose model has
+that file gets the file's external doors, stairs, and room instances.
+--rooms is the directory of <prefab>.room.json, required when a floors file
+has a room. With at least one room, bake also writes rooms.placements.json
+and rooms.lights.json beside --out. Without --floors those files are not written.
 
 prop --shape door reads a door-design layer. Part ids are data-part-frame,
 data-part-door, data-part-hinge, and data-part-texture. The texture image is
@@ -65,8 +75,24 @@ is the box width and height. A side face's width matches that height, and
 its height is the depth. The top matches the front width and that depth.
 Faces that disagree on a shared edge fail the file.
 The GLB is one mesh of 24 vertices. Its origin is the center of the bottom
-face. Each face uses its own texture. The same stem gets .collision.json
-with one AABB of that size. There is no skin and no collision in the GLB.`;
+face. Each face uses its own PNG or JPEG texture. The same stem gets .collision.json
+with one AABB of that size. There is no skin and no collision in the GLB.
+
+room reads one room SVG. The file name is the room id. Layers are floor,
+walls, ceiling, doors, windows, openings, holes, props, and lights. A
+leading number and underscore on a layer name is ignored. The floor is the
+footprint. Wall faces are front, back, left, and right. A missing opposite
+reuses the given side, and a missing ceiling reuses the floor. The origin
+is the center of the floor, y = 0 is the floor, front is +Z, and right is
++X. The command prints the size and the counts. It writes one GLB at --out
+with the floor, the ceiling and the four inside walls. It also writes
+<id>.room.json next to --out. The .room.json also lists the room's props and lights, which are not in the GLB. --glb copies a Blender GLB to --out.
+Face textures are
+PNG or JPEG. Doors, windows,
+openings and holes are cut out of the faces. A window gets a pane
+unless data-glass="false".
+
+floors reads layers floor-<n>, doors-external, stairs-external, and ignore, then prints the model, floor elevations, and the room, door, and stair counts without writing a file.`;
 
 export function main(argv: string[]): number {
   try {
@@ -91,6 +117,14 @@ export function main(argv: string[]): number {
       runProp(argv.slice(1));
       return 0;
     }
+    if (command === "room") {
+      runRoom(argv.slice(1));
+      return 0;
+    }
+    if (command === "floors") {
+      runFloors(argv.slice(1));
+      return 0;
+    }
     throw new PlanError(`unknown command "${command}"\n${USAGE}`);
   } catch (err) {
     if (err instanceof PlanError) console.error(err.message);
@@ -112,7 +146,7 @@ function runMeasure(argv: string[]): void {
 }
 
 function runBake(argv: string[]): void {
-  const flags = parseFlags(argv, new Set(["svg", "models", "out", "mesh-prefix", "collision-dir", "game"]));
+  const flags = parseFlags(argv, new Set(["svg", "models", "out", "mesh-prefix", "collision-dir", "game", "floors", "rooms"]));
   if (!flags.svg) throw new PlanError(`missing --svg\n${USAGE}`);
   if (!flags.out) throw new PlanError(`missing --out\n${USAGE}`);
   const result = bake({
@@ -122,6 +156,8 @@ function runBake(argv: string[]): void {
     meshPrefix: flags["mesh-prefix"],
     collisionDir: flags["collision-dir"],
     gamePath: flags.game ?? defaultGamePath(),
+    floorsDir: flags.floors,
+    roomsDir: flags.rooms,
   });
   for (const line of result.lines) console.log(line);
 }
@@ -149,6 +185,43 @@ function runProp(argv: string[]): void {
     return;
   }
   throw new PlanError(`unknown prop shape "${flags.shape}"`);
+}
+
+function runRoom(argv: string[]): void {
+  const flags = parseFlags(argv, new Set(["svg", "out", "glb"]));
+  if (!flags.svg) throw new PlanError(`missing --svg\n${USAGE}`);
+  if (!flags.out) throw new PlanError(`missing --out\n${USAGE}`);
+  const written = writeRoom({ svgPath: flags.svg, outPath: flags.out, glbPath: flags.glb });
+  const room = written.room;
+  for (const warning of written.warnings) console.log(warning);
+  const counts = [
+    `${room.doors.length} doors`,
+    `${room.windows.length} windows`,
+    `${room.openings.length} openings`,
+    `${room.holes.length} holes`,
+    `${room.props.length} props`,
+    `${room.lights.length} lights`,
+  ].join(", ");
+  console.log(`room ${room.id}: ${formatMetres(room.width)}\u00d7${formatMetres(room.depth)}\u00d7${formatMetres(room.height)} m, ${counts}`);
+  console.log(`wrote ${flags.out}`);
+  console.log(`wrote ${path.join(path.dirname(flags.out), `${room.id}.room.json`)}`);
+}
+
+function runFloors(argv: string[]): void {
+  const flags = parseFlags(argv, new Set(["svg"]));
+  if (!flags.svg) throw new PlanError(`missing --svg\n${USAGE}`);
+  const source = readFloorsSvg(readFileSync(flags.svg, "utf8"));
+  const elevations = source.floors.map((floor) => formatMetres(floor.elevation)).join(", ");
+  const rooms = source.floors.reduce((count, floor) => count + floor.rooms.length, 0);
+  console.log(
+    `floors ${source.model}: ${source.floors.length} floors (z ${elevations}), ${rooms} rooms, ${source.doors.length} doors, ${source.props.length} stairs props`,
+  );
+}
+
+function formatMetres(n: number): string {
+  const rounded = Math.round(n * 1000) / 1000;
+  if (Object.is(rounded, -0)) return "0";
+  return String(rounded);
 }
 
 function parseFlags(argv: string[], known: Set<string>): Record<string, string> {

@@ -23,7 +23,7 @@ export type PlanPlacement = {
   stencil?: { origin: Vec3; scale: number };
 };
 
-const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+export const ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
 const CARDINALS: Yaw[] = [0, 90, 180, 270];
 
 const METERS: Record<string, number> = {
@@ -38,14 +38,14 @@ const METERS: Record<string, number> = {
   q: 0.00025,
 };
 
-type Mat = [number, number, number, number, number, number];
+export type Mat = [number, number, number, number, number, number];
 
-function ident(): Mat {
+export function ident(): Mat {
   return [1, 0, 0, 1, 0, 0];
 }
 
 /** `m` is applied after `n`. */
-function mul(m: Mat, n: Mat): Mat {
+export function mul(m: Mat, n: Mat): Mat {
   const [a1, b1, c1, d1, e1, f1] = m;
   const [a2, b2, c2, d2, e2, f2] = n;
   return [
@@ -58,7 +58,7 @@ function mul(m: Mat, n: Mat): Mat {
   ];
 }
 
-function apply(m: Mat, x: number, y: number): [number, number] {
+export function apply(m: Mat, x: number, y: number): [number, number] {
   return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 }
 
@@ -385,7 +385,7 @@ function axisAligned(edge: [number, number]): boolean {
   return Math.min(Math.abs(dx), Math.abs(dy)) <= 1e-3 * length;
 }
 
-function pageFrame(svg: XmlNode): PageFrame {
+export function pageFrame(svg: XmlNode): PageFrame {
   const viewBox = attr(svg, "viewBox");
   if (!viewBox) throw new PlanError("svg is missing viewBox");
   const box = parseViewBox(viewBox);
@@ -411,7 +411,7 @@ function trimNum(n: number): string {
   return String(Math.round(n * 1000) / 1000);
 }
 
-function documentUnits(svg: XmlNode): string | undefined {
+export function documentUnits(svg: XmlNode): string | undefined {
   const named = namedView(svg);
   return named ? attr(named, "document-units") : undefined;
 }
@@ -512,7 +512,7 @@ function consider(el: XmlNode, matrix: Mat, stack: string[], collect: Collect): 
   if (!tagged) return;
   const { id, model } = tagged;
   claimPlacementId(collect, id);
-  const measured = measureTagged(el, matrix, collect, id);
+  const measured = measureTagged(el, matrix, collect.frame, collect.units, id);
   const stencil = stencilPose(el, matrix, collect.frame);
   collect.ids.add(id);
   collect.placements.push({ id, model, ...measured, ...(stencil ? { stencil } : {}) });
@@ -525,7 +525,7 @@ function consider(el: XmlNode, matrix: Mat, stack: string[], collect: Collect): 
  * Check: `matrix(30 0 0 30 10 90)` on a 100-unit page at 1 m per unit puts the
  * origin at world (10, 0, 10) with scale 30.
  */
-function stencilPose(el: XmlNode, matrix: Mat, frame: PageFrame): { origin: Vec3; scale: number } | undefined {
+export function stencilPose(el: XmlNode, matrix: Mat, frame: PageFrame): { origin: Vec3; scale: number } | undefined {
   if (localName(el.name) !== "g") return undefined;
   if (!el.children.some((child) => localName(child.name) === "path")) return undefined;
   const [ox, oy] = apply(matrix, 0, 0);
@@ -536,7 +536,7 @@ function stencilPose(el: XmlNode, matrix: Mat, frame: PageFrame): { origin: Vec3
   };
 }
 
-function taggedModel(el: XmlNode): { id: string; model: string } | undefined {
+export function taggedModel(el: XmlNode): { id: string; model: string } | undefined {
   const dataModel = attr(el, "data-model")?.trim();
   const labelModel = modelFromLabel(attr(el, "label"));
   if (!dataModel && !labelModel) return undefined;
@@ -557,13 +557,13 @@ function claimPlacementId(collect: Collect, id: string): void {
   }
 }
 
-function measureTagged(
+export function measureTagged(
   el: XmlNode,
   matrix: Mat,
-  collect: Collect,
+  frame: PageFrame,
+  units: string | undefined,
   id: string,
 ): { position: Vec3; yaw: Yaw; drawnWidth: number; drawnDepth: number } {
-  const { frame, units } = collect;
   const local = localName(el.name) === "rect"
     ? rectBounds(el, frame.meters, units)
     : localBounds(el, frame.meters, units, id);
@@ -583,7 +583,7 @@ function measureTagged(
 }
 
 /** Uniform SVG scale. A plain rectangle is 1. `scale(2)` is 2. */
-function uniformScale(matrix: Mat, id: string): number {
+export function uniformScale(matrix: Mat, id: string): number {
   const lenX = Math.hypot(matrix[0], matrix[1]);
   const lenY = Math.hypot(matrix[2], matrix[3]);
   if (lenX < 1e-9 || lenY < 1e-9) throw new PlanError(`placement "${id}" transform scale is zero`);
@@ -606,19 +606,23 @@ function takeBounds(el: XmlNode, matrix: Mat, collect: Collect): void {
   };
 }
 
-function takeProp(el: XmlNode, matrix: Mat, collect: Collect): void {
+/** A props-layer rectangle. Unlabelled rectangles are skipped. The caller claims the id. */
+export function propFromElement(
+  el: XmlNode,
+  matrix: Mat,
+  frame: PageFrame,
+  units: string | undefined,
+): SceneProp | undefined {
   const tagged = taggedModel(el);
-  if (!tagged) return;
+  if (!tagged) return undefined;
   const { id, model } = tagged;
-  claimPlacementId(collect, id);
-  const measured = measureTagged(el, matrix, collect, id);
+  const measured = measureTagged(el, matrix, frame, units, id);
   const minY = optionalNumber(attr(el, "data-min-y"), `prop "${id}" data-min-y`);
   const maxY = optionalNumber(attr(el, "data-max-y"), `prop "${id}" data-max-y`);
   if (minY !== undefined && maxY !== undefined && maxY < minY) {
     throw new PlanError(`prop "${id}" maxY must exceed minY`);
   }
-  collect.propIds.add(id);
-  collect.props.push({
+  return {
     id,
     model,
     position: measured.position,
@@ -628,19 +632,36 @@ function takeProp(el: XmlNode, matrix: Mat, collect: Collect): void {
     drawnDepth: measured.drawnDepth,
     ...(minY !== undefined ? { minY } : {}),
     ...(maxY !== undefined ? { maxY } : {}),
-  });
+  };
 }
 
-function takeDoor(el: XmlNode, matrix: Mat, collect: Collect): void {
+function takeProp(el: XmlNode, matrix: Mat, collect: Collect): void {
+  const tagged = taggedModel(el);
+  if (!tagged) return;
+  claimPlacementId(collect, tagged.id);
+  const prop = propFromElement(el, matrix, collect.frame, collect.units);
+  if (!prop) return;
+  collect.propIds.add(prop.id);
+  collect.props.push(prop);
+}
+
+/**
+ * Door rectangle geometry. `building` is the caller's placement id (a plan
+ * door's `data-building`, or a room's id). This does not claim ids and does
+ * not read `data-building`.
+ */
+export function doorFromElement(
+  el: XmlNode,
+  matrix: Mat,
+  frame: PageFrame,
+  units: string | undefined,
+  building: string,
+): SceneDoor {
   const id = requireId(el, "door");
-  const building = attr(el, "data-building")?.trim();
-  if (!building) throw new PlanError(`door "${id}" is missing data-building`);
-  if (!ID_RE.test(building)) throw new PlanError(`door "${id}" has invalid data-building "${building}"`);
   const model = doorModel(el, id);
-  claimPlacementId(collect, id);
-  const local = rectBounds(el, collect.frame.meters, collect.units);
+  const local = rectBounds(el, frame.meters, units);
   if (!local) throw new PlanError(`door "${id}" has no footprint`);
-  const box = worldAabb(local, matrix, collect.frame);
+  const box = worldAabb(local, matrix, frame);
   const [cx, cy] = apply(matrix, (local.minX + local.maxX) / 2, (local.minY + local.maxY) / 2);
   const width = optionalPositive(attr(el, "data-width"), `door "${id}" data-width`);
   const height = optionalPositive(attr(el, "data-height"), `door "${id}" data-height`);
@@ -648,12 +669,11 @@ function takeDoor(el: XmlNode, matrix: Mat, collect: Collect): void {
   const elevation = doorElevation(el, id);
   const locked = parseLocked(el, id);
   const key = parseKey(el, id);
-  collect.doorIds.add(id);
-  collect.doors.push({
+  return {
     id,
     model,
     building,
-    center: svgPointToWorld(cx, cy, elevation, collect.frame),
+    center: svgPointToWorld(cx, cy, elevation, frame),
     minX: box.minX,
     maxX: box.maxX,
     minZ: box.minZ,
@@ -665,7 +685,19 @@ function takeDoor(el: XmlNode, matrix: Mat, collect: Collect): void {
     ...(width !== undefined ? { width } : {}),
     ...(height !== undefined ? { height } : {}),
     ...(depth !== undefined ? { depth } : {}),
-  });
+  };
+}
+
+function takeDoor(el: XmlNode, matrix: Mat, collect: Collect): void {
+  const id = requireId(el, "door");
+  const building = attr(el, "data-building")?.trim();
+  if (!building) throw new PlanError(`door "${id}" is missing data-building`);
+  if (!ID_RE.test(building)) throw new PlanError(`door "${id}" has invalid data-building "${building}"`);
+  doorModel(el, id);
+  claimPlacementId(collect, id);
+  const door = doorFromElement(el, matrix, collect.frame, collect.units, building);
+  collect.doorIds.add(id);
+  collect.doors.push(door);
 }
 
 /**
@@ -721,7 +753,7 @@ function parseKey(el: XmlNode, id: string): string | undefined {
   return raw;
 }
 
-function optionalPositive(raw: string | undefined, what: string): number | undefined {
+export function optionalPositive(raw: string | undefined, what: string): number | undefined {
   const value = optionalNumber(raw, what);
   if (value === undefined) return undefined;
   if (!(value > 0)) throw new PlanError(`${what} must be positive`);
@@ -771,7 +803,7 @@ function textAnchor(el: XmlNode): { x?: string; y?: string } {
   };
 }
 
-function requireId(el: XmlNode, kind: string): string {
+export function requireId(el: XmlNode, kind: string): string {
   const id = attr(el, "id")?.trim();
   if (!id) throw new PlanError(`${kind} is missing id`);
   if (!ID_RE.test(id)) throw new PlanError(`invalid ${kind} id "${id}"`);
@@ -795,7 +827,7 @@ function worldAabb(box: Bounds2, matrix: Mat, frame: PageFrame): XzBounds {
   return { minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) };
 }
 
-function optionalNumber(raw: string | undefined, what: string): number | undefined {
+export function optionalNumber(raw: string | undefined, what: string): number | undefined {
   if (raw == null || raw.trim() === "") return undefined;
   const value = Number(raw.trim());
   if (!Number.isFinite(value)) throw new PlanError(`${what} "${raw}" is not a finite number`);
@@ -811,7 +843,7 @@ function insideBounds(box: XzBounds, x: number, z: number): boolean {
 const PATH_TOKEN = /[MmLlHhVvCcSsQqTtAaZz]|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g;
 
 /** Endpoints and control points of an SVG path, in the element's local space. */
-function pathPoints(raw: string | undefined, id: string, kind = "spawn"): Array<[number, number]> {
+export function pathPoints(raw: string | undefined, id: string, kind = "spawn"): Array<[number, number]> {
   const label = `${kind} "${id}"`;
   const tokens = raw?.match(PATH_TOKEN) ?? [];
   if (tokens.length === 0) throw new PlanError(`${label} has no position`);
@@ -916,7 +948,7 @@ function localBounds(el: XmlNode, meters: number, units: string | undefined, id:
   return box;
 }
 
-function rectBounds(el: XmlNode, meters: number, units: string | undefined): Bounds2 | undefined {
+export function rectBounds(el: XmlNode, meters: number, units: string | undefined): Bounds2 | undefined {
   const x = userLength(attr(el, "x"), 0, meters, units);
   const y = userLength(attr(el, "y"), 0, meters, units);
   const width = userLength(attr(el, "width"), Number.NaN, meters, units);
@@ -1008,7 +1040,7 @@ function parseYawText(raw: string, id: string): number {
   return Number(match[1]);
 }
 
-function yawFromSvgMatrix(m: Mat, id: string): Yaw {
+export function yawFromSvgMatrix(m: Mat, id: string): Yaw {
   const lenX = Math.hypot(m[0], m[1]);
   const lenY = Math.hypot(m[2], m[3]);
   if (lenX < 1e-9 || lenY < 1e-9) throw new PlanError(`placement "${id}" transform scale is zero`);
@@ -1029,7 +1061,7 @@ function yawFromSvgMatrix(m: Mat, id: string): Yaw {
   return yaw;
 }
 
-function parseTransform(raw: string | undefined): Mat {
+export function parseTransform(raw: string | undefined): Mat {
   if (!raw || !raw.trim()) return ident();
   const pattern = /([A-Za-z]+)\s*\(([^)]*)\)/g;
   let matrix = ident();

@@ -2,12 +2,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readAssetFiles, readAssetTypes, stampPlacement } from "./asset-type.ts";
 import { PlanError } from "./errors.ts";
-import { cutDoorFromBoxes, doorPanelWidth, situateDoor } from "./doors.ts";
+import { cutDoorFromBoxes, doorPanelWidth, situateDoor, subtractBox } from "./doors.ts";
 import { coarseFootprint } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
 import { readScene, type PlanPlacement } from "./plan.ts";
+import { cutRoomWalls, loadFloors, placeRoomDoors, type FloorBake, type RoomsLightsFile, type RoomsPlacementsFile } from "./rooms-bake.ts";
 import { boundsOfTriangles, stencilBoxes, stencilSize } from "./stencil.ts";
-import type { BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds } from "./types.ts";
+import type { BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds, Yaw } from "./types.ts";
 import { placeBox, transformXz } from "./yaw.ts";
 
 const DEFAULT_MODELS = path.join("web", "assets", "models");
@@ -36,6 +37,10 @@ export type BakeOptions = {
    * Type is not read from the SVG.
    */
   gamePath?: string;
+  /** Directory of `<model>.floors.svg`. Omit it and rooms are not baked. */
+  floorsDir?: string;
+  /** Directory of `<prefab>.room.json`. Required when a floors file has a room. */
+  roomsDir?: string;
 };
 
 type ModelBake = {
@@ -62,6 +67,10 @@ export type BakeResult = {
   spawns: SpawnPoint[];
   /** Hinged panels. `obstacles` is empty: a door is a gap, not a box. */
   doors: DoorsFile;
+  /** Room placements, unmerged doors, and room obstacles. Omitted when there are no rooms. */
+  rooms?: RoomsPlacementsFile;
+  /** Room lights. Omitted when there are no rooms. */
+  lights?: RoomsLightsFile;
   lines: string[];
 };
 
@@ -70,6 +79,8 @@ const RESERVED_OUTPUTS = new Set([
   "props.placements.json",
   "spawn-points.json",
   "doors.placements.json",
+  "rooms.placements.json",
+  "rooms.lights.json",
 ]);
 
 export function bake(options: BakeOptions): BakeResult {
@@ -125,6 +136,26 @@ export function bake(options: BakeOptions): BakeResult {
     }, assetTypes)),
     obstacles: [],
   };
+  const assetFiles = options.gamePath ? readAssetFiles(readText(options.gamePath), options.gamePath) : new Map<string, string>();
+  const floors: FloorBake | undefined = options.floorsDir
+    ? loadFloors({
+      floorsDir: options.floorsDir,
+      roomsDir: options.roomsDir,
+      buildings: file.placements,
+      taken: new Set([
+        ...file.placements.map((placement) => placement.id),
+        ...scene.props.map((prop) => prop.id),
+        ...scene.doors.map((door) => door.id),
+      ]),
+      assets: new Set([...assetTypes.keys(), ...assetFiles.keys()]),
+      assetTypes,
+      warnings,
+    })
+    : undefined;
+  if (floors) {
+    scene.doors.push(...floors.doors);
+    scene.props.push(...floors.props);
+  }
   const propBoxes = new Map<string, LocalBox | undefined>();
   for (const prop of scene.props) {
     if (propBoxes.has(prop.model)) continue;
@@ -150,8 +181,8 @@ export function bake(options: BakeOptions): BakeResult {
     yaw: spawn.yaw,
   }));
   const doorPlacements: DoorPlacement[] = [];
+  const roomDoorPlacements: DoorPlacement[] = [];
   const doorWidths = new Map<string, number | undefined>();
-  const assetFiles = options.gamePath ? readAssetFiles(readText(options.gamePath), options.gamePath) : new Map<string, string>();
   for (const door of scene.doors) {
     if (!doorWidths.has(door.model)) doorWidths.set(door.model, loadDoorPanelWidth(modelsDir, door.model, assetFiles, warnings));
   }
@@ -173,24 +204,28 @@ export function bake(options: BakeOptions): BakeResult {
     const mine = scene.doors.filter((door) => door.building === placement.id);
     let boxes = grid.boxes;
     const facetsDropped = grid.facetsDropped;
+    const situated: DoorPlacement[] = [];
+    let situatedDoors: ReturnType<typeof situateDoor>[] = [];
     if (mine.length > 0) {
       const worldBoxes = grid.boxes.map((box) => placeBox(box, placement.position, placement.yaw));
-      const situated = mine.map((door) => situateDoor(door, worldBoxes, doorWidths.get(door.model)));
-      for (const door of situated) {
+      situatedDoors = mine.map((door) => situateDoor(door, worldBoxes, doorWidths.get(door.model)));
+      for (const door of situatedDoors) {
         boxes = cutDoorFromBoxes(boxes, door, placement.position, placement.yaw);
-        doorPlacements.push(stampPlacement(roundDoor(door.placement), assetTypes));
+        const stamped = stampPlacement(roundDoor(door.placement), assetTypes);
+        doorPlacements.push(stamped);
+        situated.push(stamped);
       }
     }
-    boxes.forEach((box, index) => {
-      const placed = placeBox(box, placement.position, placement.yaw);
-      file.obstacles.push({
-        id: `${placement.id}-wall-${index}`,
-        kind: "aabb",
-        min: roundVec(placed.min),
-        max: roundVec(placed.max),
-      });
-    });
-    lines.push(instanceLine(placement.id, model.meshNames, placement.scale, grid.cellSize, boxes.length, facetsDropped));
+    // Room obstacles are already world AABBs. The same opening that cut the
+    // building shell has to leave the room wall, including a solid face that
+    // never had its own room door.
+    if (floors && situatedDoors.length > 0) cutRoomWalls(floors.obstacles, placement.id, situatedDoors);
+    const rooms = floors?.buildings.get(placement.id);
+    const pieceCount = rooms && rooms.interiors.length > 0
+      ? emitHollow(file, placement.id, boxes, placement.position, placement.yaw, rooms.interiors)
+      : emitPlaced(file, placement.id, boxes, placement.position, placement.yaw);
+    if (rooms) roomDoorPlacements.push(...placeRoomDoors(rooms.pending, situated, assetTypes, lines));
+    lines.push(instanceLine(placement.id, model.meshNames, placement.scale, grid.cellSize, pieceCount, facetsDropped));
   }
   const doors: DoorsFile = {
     formatVersion: 1,
@@ -212,6 +247,22 @@ export function bake(options: BakeOptions): BakeResult {
   lines.push(`wrote ${outputs.spawns}`);
   lines.push(`wrote ${outputs.doors}`);
 
+  let roomsFile: RoomsPlacementsFile | undefined;
+  let lightsFile: RoomsLightsFile | undefined;
+  if (floors && floors.roomCount > 0) {
+    roomsFile = {
+      formatVersion: 1,
+      units: "meters",
+      placements: [...floors.placements, ...roomDoorPlacements],
+      obstacles: floors.obstacles,
+    };
+    lightsFile = { formatVersion: 1, units: "meters", lights: floors.lights };
+    writeJson(outputs.rooms, roomsFile);
+    writeJson(outputs.lights, lightsFile);
+    lines.push(`wrote ${outputs.rooms}`);
+    lines.push(`wrote ${outputs.lights}`);
+  }
+
   mkdirSync(collisionDir, { recursive: true });
   for (const [model, baked] of boxesByModel) {
     const boxes = baked.boxes;
@@ -231,7 +282,75 @@ export function bake(options: BakeOptions): BakeResult {
     writeJson(collisionPath, collision);
     lines.push(`wrote ${collisionPath}`);
   }
-  return { file, bounds, props, spawns, doors, lines };
+  return {
+    file,
+    bounds,
+    props,
+    spawns,
+    doors,
+    lines,
+    ...(roomsFile && lightsFile ? { rooms: roomsFile, lights: lightsFile } : {}),
+  };
+}
+
+/**
+ * World obstacles for a building with no room interior. `placeBox` then
+ * `roundVec`, the same path bake used before floors files.
+ */
+function emitPlaced(
+  file: PlacementsFile,
+  id: string,
+  boxes: readonly LocalBox[],
+  position: Vec3,
+  yaw: Yaw,
+): number {
+  boxes.forEach((box, index) => {
+    const placed = placeBox(box, position, yaw);
+    file.obstacles.push({
+      id: `${id}-wall-${index}`,
+      kind: "aabb",
+      min: roundVec(placed.min),
+      max: roundVec(placed.max),
+    });
+  });
+  return boxes.length;
+}
+
+/**
+ * Place each cut box in world, then subtract room interiors. The pieces are
+ * already world AABBs; they are not passed through `placeBox` again.
+ */
+function emitHollow(
+  file: PlacementsFile,
+  id: string,
+  boxes: readonly LocalBox[],
+  position: Vec3,
+  yaw: Yaw,
+  interiors: readonly LocalBox[],
+): number {
+  let pieces: LocalBox[] = boxes.map((box) => {
+    const placed = placeBox(box, position, yaw);
+    return {
+      minX: placed.min[0],
+      maxX: placed.max[0],
+      minY: placed.min[1],
+      maxY: placed.max[1],
+      minZ: placed.min[2],
+      maxZ: placed.max[2],
+    };
+  });
+  for (const interior of interiors) {
+    pieces = pieces.flatMap((box) => subtractBox(box, interior));
+  }
+  pieces.forEach((box, index) => {
+    file.obstacles.push({
+      id: `${id}-wall-${index}`,
+      kind: "aabb",
+      min: roundVec([box.minX, box.minY, box.minZ]),
+      max: roundVec([box.maxX, box.maxY, box.maxZ]),
+    });
+  });
+  return pieces.length;
 }
 
 function roundDoor(door: DoorPlacement): DoorPlacement {
@@ -242,7 +361,15 @@ function roundDoor(door: DoorPlacement): DoorPlacement {
   };
 }
 
-function layerPaths(outPath: string): { buildings: string; bounds: string; props: string; spawns: string; doors: string } {
+function layerPaths(outPath: string): {
+  buildings: string;
+  bounds: string;
+  props: string;
+  spawns: string;
+  doors: string;
+  rooms: string;
+  lights: string;
+} {
   const base = path.basename(outPath);
   if (RESERVED_OUTPUTS.has(base)) {
     throw new PlanError(`--out is the buildings file; ${base} is written beside it`);
@@ -254,6 +381,8 @@ function layerPaths(outPath: string): { buildings: string; bounds: string; props
     props: path.join(dir, "props.placements.json"),
     spawns: path.join(dir, "spawn-points.json"),
     doors: path.join(dir, "doors.placements.json"),
+    rooms: path.join(dir, "rooms.placements.json"),
+    lights: path.join(dir, "rooms.lights.json"),
   };
 }
 
