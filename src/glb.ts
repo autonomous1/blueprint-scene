@@ -33,8 +33,9 @@ type GltfAccessor = {
 };
 
 type GltfPrimitive = {
-  attributes?: { POSITION?: number };
+  attributes?: { POSITION?: number; NORMAL?: number; TEXCOORD_0?: number };
   indices?: number;
+  material?: number;
   mode?: number;
 };
 
@@ -329,4 +330,220 @@ function transformPoint(m: number[], p: Vec3): Vec3 {
     m[1]! * x + m[5]! * y + m[9]! * z + m[13]!,
     m[2]! * x + m[6]! * y + m[10]! * z + m[14]!,
   ];
+}
+
+export type TexturedVertex = {
+  position: Vec3;
+  normal?: Vec3;
+  /** glTF UV. Copied through a cut; not recomputed. */
+  uv?: readonly [number, number];
+};
+
+export type TexturedPrimitive = {
+  /** Index into `TexturedGlb.materials`. Omitted when the source primitive has none. */
+  material?: number;
+  vertices: TexturedVertex[];
+  indices: number[];
+};
+
+export type TexturedMesh = {
+  /** Node name, unchanged. The node's matrix is baked into the vertices. */
+  nodeName: string;
+  meshName: string;
+  primitives: TexturedPrimitive[];
+};
+
+export type TexturedImage = {
+  /** Exact image bytes from the source buffer. Not decoded. */
+  bytes: Uint8Array;
+  /** Image object without `bufferView` or `uri`. `mimeType` and `name` stay. */
+  json: Record<string, unknown>;
+};
+
+/**
+ * Textured triangle meshes in the same space as `trianglesFromGlb`: node
+ * transforms are applied, placement scale is not. Image payloads and material
+ * objects are copied so a writer can embed them again without recompressing.
+ */
+export type TexturedGlb = {
+  meshes: TexturedMesh[];
+  materials: unknown[];
+  textures: unknown[];
+  images: TexturedImage[];
+  samplers: unknown[];
+  extensionsUsed?: string[];
+  extensionsRequired?: string[];
+};
+
+type TexGltf = Gltf & {
+  materials?: unknown[];
+  textures?: unknown[];
+  images?: Array<Record<string, unknown>>;
+  samplers?: unknown[];
+  extensionsUsed?: string[];
+  extensionsRequired?: string[];
+};
+
+/**
+ * Read every triangle primitive with positions, normals, UVs, and the
+ * material/image it references. External images and non-float attributes fail.
+ */
+export function readTexturedGlb(bytes: Uint8Array): TexturedGlb {
+  const { json, bin } = parseGlb(bytes);
+  const doc = json as TexGltf;
+  if (doc.buffers?.[0]?.uri) throw new PlanError("external glTF buffers are not supported; use a .glb");
+  const sceneIndex = doc.scene ?? 0;
+  const roots = doc.scenes?.[sceneIndex]?.nodes;
+  if (!roots) throw new PlanError("glb has no default scene");
+  const nodes = doc.nodes ?? [];
+  const meshes = doc.meshes ?? [];
+  const images = (doc.images ?? []).map((image, index) => readImage(doc, bin, image, index));
+  const out: TexturedMesh[] = [];
+  const visit = (index: number, parent: number[]): void => {
+    const node = nodes[index];
+    if (!node) throw new PlanError(`glb node ${index} is missing`);
+    const world = mul4(parent, nodeMatrix(node));
+    if (node.mesh != null) {
+      const mesh = meshes[node.mesh];
+      if (!mesh) throw new PlanError(`glb mesh ${node.mesh} is missing`);
+      const primitives = texturedPrimitives(doc, bin, mesh, world);
+      if (primitives.length > 0) {
+        out.push({
+          nodeName: node.name && node.name !== "" ? node.name : meshLabel(node, mesh),
+          meshName: meshLabel(node, mesh),
+          primitives,
+        });
+      }
+    }
+    for (const child of node.children ?? []) visit(child, world);
+  };
+  for (const root of roots) visit(root, IDENTITY);
+  if (out.length === 0) throw new PlanError("no triangle position data");
+  return {
+    meshes: out,
+    materials: (doc.materials ?? []).map(cloneJson),
+    textures: (doc.textures ?? []).map(cloneJson),
+    images,
+    samplers: (doc.samplers ?? []).map(cloneJson),
+    ...(doc.extensionsUsed ? { extensionsUsed: doc.extensionsUsed.slice() } : {}),
+    ...(doc.extensionsRequired ? { extensionsRequired: doc.extensionsRequired.slice() } : {}),
+  };
+}
+
+function texturedPrimitives(
+  doc: Gltf,
+  bin: Uint8Array,
+  mesh: GltfMesh,
+  world: number[],
+): TexturedPrimitive[] {
+  const primitives: TexturedPrimitive[] = [];
+  for (const primitive of mesh.primitives ?? []) {
+    const mode = primitive.mode ?? 4;
+    if (mode !== 4) continue;
+    const positionIndex = primitive.attributes?.POSITION;
+    if (positionIndex == null) continue;
+    const rawPositions = readVec3(doc, bin, positionIndex);
+    if (rawPositions.length === 0) continue;
+    const normalIndex = primitive.attributes?.NORMAL;
+    const uvIndex = primitive.attributes?.TEXCOORD_0;
+    const rawNormals = normalIndex == null ? undefined : readFloatVec3(doc, bin, normalIndex, "NORMAL");
+    const rawUvs = uvIndex == null ? undefined : readFloatVec2(doc, bin, uvIndex);
+    if (rawNormals && rawNormals.length !== rawPositions.length) {
+      throw new PlanError(`mesh "${mesh.name ?? "?"}" NORMAL count does not match POSITION`);
+    }
+    if (rawUvs && rawUvs.length !== rawPositions.length) {
+      throw new PlanError(`mesh "${mesh.name ?? "?"}" TEXCOORD_0 count does not match POSITION`);
+    }
+    const indices = primitive.indices == null
+      ? rawPositions.map((_, index) => index)
+      : readScalar(doc, bin, primitive.indices);
+    if (indices.length === 0 || indices.length % 3 !== 0) {
+      throw new PlanError(`mesh "${mesh.name ?? "?"}" index count is not a multiple of 3`);
+    }
+    const vertices: TexturedVertex[] = rawPositions.map((position, index) => {
+      const vertex: TexturedVertex = { position: transformPoint(world, position) };
+      const normal = rawNormals?.[index];
+      if (normal) vertex.normal = unit(transformNormal(world, normal));
+      const uv = rawUvs?.[index];
+      if (uv) vertex.uv = uv;
+      return vertex;
+    });
+    primitives.push({
+      ...(primitive.material != null ? { material: primitive.material } : {}),
+      vertices,
+      indices,
+    });
+  }
+  return primitives;
+}
+
+function readImage(
+  doc: Gltf,
+  bin: Uint8Array,
+  image: Record<string, unknown>,
+  index: number,
+): TexturedImage {
+  if (typeof image.uri === "string") throw new PlanError(`image ${index} is external; use a .glb`);
+  if (typeof image.bufferView !== "number") throw new PlanError(`image ${index} has no bufferView`);
+  const bufferView = doc.bufferViews?.[image.bufferView];
+  if (!bufferView) throw new PlanError(`glb bufferView ${image.bufferView} is missing`);
+  if ((bufferView.buffer ?? 0) !== 0) throw new PlanError("only glb buffer 0 is supported");
+  const start = bufferView.byteOffset ?? 0;
+  const end = start + bufferView.byteLength;
+  if (end > bin.byteLength) throw new PlanError("glb image reads past the buffer");
+  const json = { ...image };
+  delete json.bufferView;
+  delete json.uri;
+  return { bytes: bin.slice(start, end), json };
+}
+
+function readFloatVec2(doc: Gltf, bin: Uint8Array, accessorIndex: number): Array<[number, number]> {
+  const accessor = doc.accessors?.[accessorIndex];
+  if (!accessor) throw new PlanError(`glb accessor ${accessorIndex} is missing`);
+  if (accessor.componentType !== 5126) throw new PlanError("TEXCOORD_0 must be FLOAT VEC2");
+  const values = readAccessor(doc, bin, accessorIndex, "VEC2");
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < values.length; i += 2) out.push([values[i]!, values[i + 1]!]);
+  return out;
+}
+
+function readFloatVec3(doc: Gltf, bin: Uint8Array, accessorIndex: number, label: string): Vec3[] {
+  const accessor = doc.accessors?.[accessorIndex];
+  if (!accessor) throw new PlanError(`glb accessor ${accessorIndex} is missing`);
+  if (accessor.componentType !== 5126) throw new PlanError(`${label} must be FLOAT VEC3`);
+  return readVec3(doc, bin, accessorIndex);
+}
+
+/** `(M^{-1})^T` of the linear part, then the caller normalizes. */
+function transformNormal(m: number[], n: Vec3): Vec3 {
+  const a00 = m[0]!, a01 = m[4]!, a02 = m[8]!;
+  const a10 = m[1]!, a11 = m[5]!, a12 = m[9]!;
+  const a20 = m[2]!, a21 = m[6]!, a22 = m[10]!;
+  const c00 = a11 * a22 - a12 * a21;
+  const c01 = -(a10 * a22 - a12 * a20);
+  const c02 = a10 * a21 - a11 * a20;
+  const c10 = -(a01 * a22 - a02 * a21);
+  const c11 = a00 * a22 - a02 * a20;
+  const c12 = -(a00 * a21 - a01 * a20);
+  const c20 = a01 * a12 - a02 * a11;
+  const c21 = -(a00 * a12 - a02 * a10);
+  const c22 = a00 * a11 - a01 * a10;
+  const det = a00 * c00 + a01 * c01 + a02 * c02;
+  if (!(Math.abs(det) > 1e-12)) return n;
+  const inv = 1 / det;
+  return [
+    (c00 * n[0] + c01 * n[1] + c02 * n[2]) * inv,
+    (c10 * n[0] + c11 * n[1] + c12 * n[2]) * inv,
+    (c20 * n[0] + c21 * n[1] + c22 * n[2]) * inv,
+  ];
+}
+
+function unit(n: Vec3): Vec3 {
+  const len = Math.hypot(n[0], n[1], n[2]);
+  if (!(len > 1e-12)) return n;
+  return [n[0] / len, n[1] / len, n[2] / len];
+}
+
+function cloneJson(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value)) as unknown;
 }

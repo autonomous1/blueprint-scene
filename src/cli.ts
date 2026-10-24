@@ -45,7 +45,12 @@ rectangle's hinge edge. The opening is as wide as the door GLB's panel
 (its door mesh) from --models: <id>.glb, or the file its --game asset uri
 names (door-1 -> door1.glb). With no GLB or no panel mesh it prints a warning
 and uses the rectangle; data-width overrides both. It writes a hinged placement. Its model is data-model or the label model:<id>, the same
-as a prop. A door with no model id fails. The door file has no obstacle.
+as a prop. A door with no model id fails. The door file has no obstacle. A model with an external door on every
+placement also writes <model>.cut.glb next to its source in --models. The
+cut removes that door gap from the textured mesh. The source <model>.glb is
+not modified. Point the asset uri at the cut file; a later bake refreshes it.
+A door that is not on every placement of the model is left, so one static
+mesh is not given a hole only one copy has.
 A props rectangle places the model. Its obstacle is the GLB bounds after
 that position, yaw, and scale, or the rectangle when the GLB is missing.
 The pawn radius is not added.

@@ -1,3 +1,4 @@
+import type { TexturedGlb, TexturedPrimitive } from "./glb.ts";
 import type { Triangle, Vec3 } from "./types.ts";
 
 export type DoorCorner = {
@@ -219,6 +220,108 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
  * Parents come first, then one node per mesh. A parent has children and no
  * mesh, so a loader can yaw the whole frame without picking one stile.
  */
+/**
+ * Write meshes whose node transforms are already in the vertices. Image bytes
+ * are copied as given. Materials, textures, and samplers keep their JSON,
+ * including KTX2 / `KHR_texture_basisu`. Node names are the names passed in.
+ */
+export function writeTexturedGlb(doc: TexturedGlb): Uint8Array {
+  const bin = new BinBuilder();
+  const accessors: unknown[] = [];
+  const bufferViews: unknown[] = [];
+  const imageViews = doc.images.map((image) => pushView(bin, bufferViews, image.bytes));
+  const gltfMeshes = [];
+  const nodes: Array<{ name: string; mesh: number }> = [];
+  for (const mesh of doc.meshes) {
+    const primitives = [];
+    for (const primitive of mesh.primitives) {
+      const written = writePrimitive(bin, bufferViews, accessors, primitive);
+      if (written) primitives.push(written);
+    }
+    if (primitives.length === 0) continue;
+    const meshIndex = gltfMeshes.length;
+    gltfMeshes.push({ name: mesh.meshName, primitives });
+    nodes.push({ name: mesh.nodeName, mesh: meshIndex });
+  }
+  if (gltfMeshes.length === 0) throw new Error("cut mesh has no triangles");
+  const bytes = bin.toUint8Array();
+  const json: Record<string, unknown> = {
+    asset: { version: "2.0" },
+    scene: 0,
+    scenes: [{ nodes: nodes.map((_, index) => index) }],
+    nodes,
+    meshes: gltfMeshes,
+    accessors,
+    bufferViews,
+    buffers: [{ byteLength: bytes.byteLength }],
+  };
+  if (doc.materials.length > 0) json.materials = doc.materials;
+  if (doc.samplers.length > 0) json.samplers = doc.samplers;
+  if (doc.textures.length > 0) json.textures = doc.textures;
+  if (doc.images.length > 0) {
+    json.images = doc.images.map((image, index) => ({ ...image.json, bufferView: imageViews[index] }));
+  }
+  if (doc.extensionsUsed && doc.extensionsUsed.length > 0) json.extensionsUsed = doc.extensionsUsed;
+  if (doc.extensionsRequired && doc.extensionsRequired.length > 0) json.extensionsRequired = doc.extensionsRequired;
+  return packGlb(json, bytes);
+}
+
+function writePrimitive(
+  bin: BinBuilder,
+  bufferViews: unknown[],
+  accessors: unknown[],
+  primitive: TexturedPrimitive,
+): { attributes: { POSITION: number; NORMAL?: number; TEXCOORD_0?: number }; indices: number; material?: number; mode: number } | undefined {
+  if (primitive.indices.length === 0) return undefined;
+  if (primitive.indices.length % 3 !== 0) throw new Error("primitive index count is not a multiple of 3");
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  let hasNormal = true;
+  let hasUv = true;
+  for (const index of primitive.indices) {
+    const vertex = primitive.vertices[index];
+    if (!vertex) throw new Error("primitive index is out of range");
+    positions.push(vertex.position[0], vertex.position[1], vertex.position[2]);
+    if (vertex.normal) normals.push(vertex.normal[0], vertex.normal[1], vertex.normal[2]);
+    else hasNormal = false;
+    if (vertex.uv) uvs.push(vertex.uv[0], vertex.uv[1]);
+    else hasUv = false;
+  }
+  const count = primitive.indices.length;
+  const position = pushAccessor(bin, bufferViews, accessors, floatBuffer(positions), ARRAY_BUFFER, vec3Accessor(0, count, positions));
+  const attributes: { POSITION: number; NORMAL?: number; TEXCOORD_0?: number } = { POSITION: position };
+  if (hasNormal && normals.length === count * 3) {
+    attributes.NORMAL = pushAccessor(bin, bufferViews, accessors, floatBuffer(normals), ARRAY_BUFFER, {
+      componentType: 5126,
+      count,
+      type: "VEC3",
+    });
+  }
+  if (hasUv && uvs.length === count * 2) {
+    attributes.TEXCOORD_0 = pushAccessor(bin, bufferViews, accessors, floatBuffer(uvs), ARRAY_BUFFER, {
+      componentType: 5126,
+      count,
+      type: "VEC2",
+    });
+  }
+  const indexValues = primitive.indices.map((_, index) => index);
+  const indices = pushAccessor(
+    bin,
+    bufferViews,
+    accessors,
+    u32Buffer(indexValues),
+    ELEMENT_ARRAY_BUFFER,
+    { componentType: 5125, count: indexValues.length, type: "SCALAR" },
+  );
+  return {
+    attributes,
+    indices,
+    ...(primitive.material != null ? { material: primitive.material } : {}),
+    mode: 4,
+  };
+}
+
 function sceneNodes(meshes: readonly NamedMesh[]): {
   nodes: Array<{ name: string; mesh?: number; children?: number[] }>;
   roots: number[];

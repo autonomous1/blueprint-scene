@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readAssetFiles, readAssetTypes, stampPlacement } from "./asset-type.ts";
 import { PlanError } from "./errors.ts";
+import { cutBuildingGlb, openingInModel } from "./building-mesh-cut.ts";
 import { cutDoorFromBoxes, doorPanelWidth, situateDoor, subtractBox } from "./doors.ts";
 import { coarseFootprint } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
@@ -190,6 +191,7 @@ export function bake(options: BakeOptions): BakeResult {
   for (const [model, baked] of boxesByModel) {
     if (baked.fromGlb) lines.push(meshLine(model, baked));
   }
+  const openingsByModel = new Map<string, LocalBox[][]>();
   const scaledGrids = new Map<string, { triangles: Triangle[]; boxes: LocalBox[]; cellSize: number; facetsDropped: number }>();
   for (const placement of file.placements) {
     const model = boxesByModel.get(placement.model)!;
@@ -206,6 +208,7 @@ export function bake(options: BakeOptions): BakeResult {
     const facetsDropped = grid.facetsDropped;
     const situated: DoorPlacement[] = [];
     let situatedDoors: ReturnType<typeof situateDoor>[] = [];
+    const modelOpenings: LocalBox[] = [];
     if (mine.length > 0) {
       const worldBoxes = grid.boxes.map((box) => placeBox(box, placement.position, placement.yaw));
       situatedDoors = mine.map((door) => situateDoor(door, worldBoxes, doorWidths.get(door.model)));
@@ -214,8 +217,13 @@ export function bake(options: BakeOptions): BakeResult {
         const stamped = stampPlacement(roundDoor(door.placement), assetTypes);
         doorPlacements.push(stamped);
         situated.push(stamped);
+        // The published hinge and size, in the same model space as the GLB.
+        modelOpenings.push(openingInModel(stamped, placement.position, placement.yaw, placement.scale));
       }
     }
+    const groups = openingsByModel.get(placement.model) ?? [];
+    groups.push(modelOpenings);
+    openingsByModel.set(placement.model, groups);
     // Room obstacles are already world AABBs. The same opening that cut the
     // building shell has to leave the room wall, including a solid face that
     // never had its own room door.
@@ -261,6 +269,25 @@ export function bake(options: BakeOptions): BakeResult {
     writeJson(outputs.lights, lightsFile);
     lines.push(`wrote ${outputs.rooms}`);
     lines.push(`wrote ${outputs.lights}`);
+  }
+
+  for (const [model, groups] of openingsByModel) {
+    const baked = boxesByModel.get(model);
+    if (!baked?.fromGlb) continue;
+    const shared = sharedOpenings(groups);
+    const anyDoor = groups.some((group) => group.length > 0);
+    if (!anyDoor) continue;
+    if (shared.length === 0) {
+      lines.push(
+        `warning: ${model}: external doors are not on every placement; the shared mesh is left whole`,
+      );
+      continue;
+    }
+    const widest = Math.max(...groups.map((group) => group.length));
+    if (shared.length < widest) {
+      lines.push(`warning: ${model}: cut keeps ${shared.length} openings shared by every placement`);
+    }
+    lines.push(`wrote ${writeBuildingCut(modelsDir, model, shared)}`);
   }
 
   mkdirSync(collisionDir, { recursive: true });
@@ -351,6 +378,38 @@ function emitHollow(
     });
   });
   return pieces.length;
+}
+
+/**
+ * Openings present on every placement of one model. Static instances share
+ * one mesh, so a door that only one copy has cannot be a hole in that mesh.
+ */
+function sharedOpenings(groups: readonly (readonly LocalBox[])[]): LocalBox[] {
+  const first = groups[0];
+  if (!first) return [];
+  return first.filter((box) => groups.every((group) => group.some((other) => sameOpening(box, other))));
+}
+
+function sameOpening(a: LocalBox, b: LocalBox): boolean {
+  const eps = 1e-4;
+  return Math.abs(a.minX - b.minX) < eps && Math.abs(a.maxX - b.maxX) < eps
+    && Math.abs(a.minY - b.minY) < eps && Math.abs(a.maxY - b.maxY) < eps
+    && Math.abs(a.minZ - b.minZ) < eps && Math.abs(a.maxZ - b.maxZ) < eps;
+}
+
+/** `<model>.cut.glb` beside the source. The source file is not modified. */
+function writeBuildingCut(modelsDir: string, model: string, openings: readonly LocalBox[]): string {
+  const source = path.join(modelsDir, `${model}.glb`);
+  const outPath = path.join(modelsDir, `${model}.cut.glb`);
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(source);
+  } catch {
+    throw new PlanError(`${model}: cannot read ${source}`);
+  }
+  const cut = cutBuildingGlb(bytes, openings);
+  writeFileSync(outPath, cut);
+  return outPath;
 }
 
 function roundDoor(door: DoorPlacement): DoorPlacement {
