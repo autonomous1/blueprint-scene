@@ -2,15 +2,18 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readAssetFiles, readAssetTypes, stampPlacement } from "./asset-type.ts";
 import { PlanError } from "./errors.ts";
-import { cutBuildingGlb, openingInModel } from "./building-mesh-cut.ts";
-import { cutDoorFromBoxes, doorPanelWidth, situateDoor, subtractBox } from "./doors.ts";
-import { coarseFootprint } from "./footprint.ts";
+import { boxInModel, cutBuildingGlb, extendSkinToFacade, meshProbe, openingInModel, openingOverlapCounts, uncutBuildingGlb, type MeshProbe } from "./building-mesh-cut.ts";
+import { cutDoorFromBoxes, doorCutLocal, doorPanelWidth, situateDoor, subtractBox } from "./doors.ts";
+import { coarseFootprint, measureFootprint } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
+import { derivePlaces } from "./places.ts";
 import { readScene, type PlanPlacement } from "./plan.ts";
-import { cutRoomWalls, loadFloors, placeRoomDoors, type FloorBake, type RoomsLightsFile, type RoomsPlacementsFile } from "./rooms-bake.ts";
+import type { RoomFile } from "./room-file.ts";
+import { readFloorsSvg } from "./floors-svg.ts";
+import { cutRoomWalls, loadFloors, placeRoomDoors, resolveExteriorDoors, type FloorBake, type RoomsLightsFile, type RoomsPlacementsFile } from "./rooms-bake.ts";
 import { boundsOfTriangles, stencilBoxes, stencilSize } from "./stencil.ts";
-import type { BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds, Yaw } from "./types.ts";
-import { placeBox, transformXz } from "./yaw.ts";
+import type { BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, Placement, PlacementsFile, ScenePlace, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds, Yaw } from "./types.ts";
+import { inverseYaw, placeBox, transformXz } from "./yaw.ts";
 
 const DEFAULT_MODELS = path.join("web", "assets", "models");
 const MODEL_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
@@ -58,6 +61,24 @@ type ModelBake = {
   /** XZ center of that stencil extent, in model units. A drawn rectangle is centered on it. */
   stencilCenterX: number;
   stencilCenterZ: number;
+  /**
+   * Transformed vertex XZ bounds, every mesh. Node scale is already applied.
+   * Logged against the drawn path. A copied stencil is not scaled onto this:
+   * a lip thinner than the measure cell is outside the path and must not pull
+   * the uniform scale.
+   */
+  measureMinX: number;
+  measureMaxX: number;
+  measureMinZ: number;
+  measureMaxZ: number;
+  measureWidth: number;
+  measureDepth: number;
+  /**
+   * Union of the 0.05 m measure runs. A copied floors path is this outline,
+   * so the footprint check uses it and not the vertex bounds.
+   */
+  runWidth: number;
+  runDepth: number;
 };
 
 export type BakeResult = {
@@ -72,6 +93,8 @@ export type BakeResult = {
   rooms?: RoomsPlacementsFile;
   /** Room lights. Omitted when there are no rooms. */
   lights?: RoomsLightsFile;
+  /** In memory only. Not written (scene-graph.json is a later task). */
+  places: ScenePlace[];
   lines: string[];
 };
 
@@ -102,6 +125,8 @@ export function bake(options: BakeOptions): BakeResult {
     const stencil = stencilBoxes(geometry.triangles);
     const size = stencilSize(stencil);
     const center = stencilCenter(stencil);
+    const measured = measureBounds(geometry.triangles);
+    const runs = stencilSize(measureFootprint(geometry.triangles));
     boxesByModel.set(model, {
       triangles: geometry.triangles,
       boxes: coarseFootprint(geometry.triangles).boxes,
@@ -112,6 +137,9 @@ export function bake(options: BakeOptions): BakeResult {
       stencilDepth: size.depth,
       stencilCenterX: center.x,
       stencilCenterZ: center.z,
+      runWidth: runs.width,
+      runDepth: runs.depth,
+      ...measured,
     });
   }
 
@@ -138,6 +166,34 @@ export function bake(options: BakeOptions): BakeResult {
     obstacles: [],
   };
   const assetFiles = options.gamePath ? readAssetFiles(readText(options.gamePath), options.gamePath) : new Map<string, string>();
+  const scaledGrids = new Map<string, { triangles: Triangle[]; boxes: LocalBox[]; cellSize: number; facetsDropped: number }>();
+  const gridFor = (placement: Placement): {
+    model: ModelBake;
+    grid: { triangles: Triangle[]; boxes: LocalBox[]; cellSize: number; facetsDropped: number };
+  } => {
+    const model = boxesByModel.get(placement.model);
+    if (!model) throw new PlanError(`missing model "${placement.model}"`);
+    const key = `${placement.model}\0${placement.scale}`;
+    let grid = scaledGrids.get(key);
+    if (!grid) {
+      const triangles = scaleTriangles(model.triangles, placement.scale);
+      const uncut = coarseFootprint(triangles);
+      grid = { triangles, boxes: uncut.boxes, cellSize: uncut.cellSize, facetsDropped: uncut.facetsDropped };
+      scaledGrids.set(key, grid);
+    }
+    return { model, grid };
+  };
+  // Model-scoped scene doors become one leaf per placement before floors
+  // claim ids. Floors doors are already expanded and stay model-scoped.
+  scene.doors = resolveExteriorDoors(
+    scene.doors,
+    file.placements,
+    (placement) => gridFor(placement).grid.boxes.map((box) => placeBox(box, placement.position, placement.yaw)),
+    new Set([
+      ...file.placements.map((placement) => placement.id),
+      ...scene.props.map((prop) => prop.id),
+    ]),
+  );
   const floors: FloorBake | undefined = options.floorsDir
     ? loadFloors({
       floorsDir: options.floorsDir,
@@ -151,12 +207,26 @@ export function bake(options: BakeOptions): BakeResult {
       assets: new Set([...assetTypes.keys(), ...assetFiles.keys()]),
       assetTypes,
       warnings,
+      measures: new Map([...boxesByModel].map(([model, baked]) => [model, {
+        width: baked.runWidth,
+        depth: baked.runDepth,
+      }])),
     })
     : undefined;
   if (floors) {
     scene.doors.push(...floors.doors);
     scene.props.push(...floors.props);
   }
+  const derived = scenePlaces(options, file.placements, new Set([
+    ...file.placements.map((placement) => placement.id),
+    ...scene.props.map((prop) => prop.id),
+    ...scene.doors.map((door) => door.id),
+  ]), new Map([...boxesByModel].map(([model, baked]) => [model, {
+    width: baked.runWidth,
+    depth: baked.runDepth,
+  }])));
+  scene.places = derived.places;
+  warnings.push(...derived.warnings);
   const propBoxes = new Map<string, LocalBox | undefined>();
   for (const prop of scene.props) {
     if (propBoxes.has(prop.model)) continue;
@@ -191,34 +261,55 @@ export function bake(options: BakeOptions): BakeResult {
   for (const [model, baked] of boxesByModel) {
     if (baked.fromGlb) lines.push(meshLine(model, baked));
   }
-  const openingsByModel = new Map<string, LocalBox[][]>();
-  const scaledGrids = new Map<string, { triangles: Triangle[]; boxes: LocalBox[]; cellSize: number; facetsDropped: number }>();
+  const openingsByModel = new Map<string, CutOpening[][]>();
+  const placementOnlyModels = new Set<string>();
+  const modelScopedDoors: { buildingId: string; door: DoorPlacement }[] = [];
+  const floorsDoorIds = new Set(floors?.doors.map((door) => door.id) ?? []);
+  const sceneSvg = path.resolve(options.svgPath);
   for (const placement of file.placements) {
-    const model = boxesByModel.get(placement.model)!;
-    const key = `${placement.model}\0${placement.scale}`;
-    let grid = scaledGrids.get(key);
-    if (!grid) {
-      const triangles = scaleTriangles(model.triangles, placement.scale);
-      const uncut = coarseFootprint(triangles);
-      grid = { triangles, boxes: uncut.boxes, cellSize: uncut.cellSize, facetsDropped: uncut.facetsDropped };
-      scaledGrids.set(key, grid);
-    }
+    const { model, grid } = gridFor(placement);
     const mine = scene.doors.filter((door) => door.building === placement.id);
     let boxes = grid.boxes;
     const facetsDropped = grid.facetsDropped;
     const situated: DoorPlacement[] = [];
     let situatedDoors: ReturnType<typeof situateDoor>[] = [];
-    const modelOpenings: LocalBox[] = [];
+    const modelOpenings: CutOpening[] = [];
     if (mine.length > 0) {
       const worldBoxes = grid.boxes.map((box) => placeBox(box, placement.position, placement.yaw));
       situatedDoors = mine.map((door) => situateDoor(door, worldBoxes, doorWidths.get(door.model)));
-      for (const door of situatedDoors) {
+      for (let index = 0; index < situatedDoors.length; index += 1) {
+        const door = situatedDoors[index]!;
+        const source = mine[index]!;
+        // Measure the volume before the boxes are split. The punch is that
+        // volume, including a skin proud of the hinge, not the 2 m stamp.
+        const cutLocal = doorCutLocal(boxes, door, placement.position, placement.yaw);
         boxes = cutDoorFromBoxes(boxes, door, placement.position, placement.yaw);
         const stamped = stampPlacement(roundDoor(door.placement), assetTypes);
         doorPlacements.push(stamped);
         situated.push(stamped);
-        // The published hinge and size, in the same model space as the GLB.
-        modelOpenings.push(openingInModel(stamped, placement.position, placement.yaw, placement.scale));
+        // Only a model-scoped opening may punch the shared mesh. A
+        // placement-scoped leaf cuts this instance's boxes and stops there.
+        // A room door on this wall is added after placeRoomDoors, from the
+        // same door-local volume.
+        if (source.bind === "model") {
+          const fromFloors = floorsDoorIds.has(source.id);
+          if (cutLocal) {
+            pushOpening(modelOpenings, {
+              id: source.id,
+              source: fromFloors ? "floors" : "scene",
+              file: fromFloors
+                ? path.resolve(options.floorsDir!, `${placement.model}.floors.svg`)
+                : sceneSvg,
+              box: extendSkinToFacade(
+                model.triangles,
+                boxInModel(door.placement, cutLocal, placement.position, placement.yaw, placement.scale),
+              ),
+            });
+          }
+          modelScopedDoors.push({ buildingId: placement.id, door: stamped });
+        } else {
+          placementOnlyModels.add(placement.model);
+        }
       }
     }
     const groups = openingsByModel.get(placement.model) ?? [];
@@ -232,7 +323,25 @@ export function bake(options: BakeOptions): BakeResult {
     const pieceCount = rooms && rooms.interiors.length > 0
       ? emitHollow(file, placement.id, boxes, placement.position, placement.yaw, rooms.interiors)
       : emitPlaced(file, placement.id, boxes, placement.position, placement.yaw);
-    if (rooms) roomDoorPlacements.push(...placeRoomDoors(rooms.pending, situated, assetTypes, lines));
+    if (rooms && floors) {
+      const placed = placeRoomDoors(rooms.pending, situated, assetTypes, lines, {
+        buildingId: placement.id,
+        rooms: floors.obstacles,
+        buildings: file.obstacles,
+      });
+      roomDoorPlacements.push(...placed.placements);
+      for (const cut of placed.wallCuts) {
+        pushOpening(modelOpenings, {
+          id: cut.id,
+          source: "room",
+          file: path.resolve(cut.file),
+          box: extendSkinToFacade(
+            model.triangles,
+            boxInModel(cut.placement, cut.local, placement.position, placement.yaw, placement.scale),
+          ),
+        });
+      }
+    }
     lines.push(instanceLine(placement.id, model.meshNames, placement.scale, grid.cellSize, pieceCount, facetsDropped));
   }
   const doors: DoorsFile = {
@@ -258,6 +367,13 @@ export function bake(options: BakeOptions): BakeResult {
   let roomsFile: RoomsPlacementsFile | undefined;
   let lightsFile: RoomsLightsFile | undefined;
   if (floors && floors.roomCount > 0) {
+    cutBlockedRoomMeshes(
+      modelsDir,
+      modelScopedDoors,
+      floors.placements,
+      new Set([...assetTypes.keys(), ...assetFiles.keys()]),
+      lines,
+    );
     roomsFile = {
       formatVersion: 1,
       units: "meters",
@@ -271,23 +387,43 @@ export function bake(options: BakeOptions): BakeResult {
     lines.push(`wrote ${outputs.lights}`);
   }
 
+  lines.push(
+    `bake-inputs svg=${sceneSvg} floors=${options.floorsDir ? path.resolve(options.floorsDir) : "none"} rooms=${options.roomsDir ? path.resolve(options.roomsDir) : "none"}`,
+  );
   for (const [model, groups] of openingsByModel) {
+    for (const group of groups) {
+      for (const opening of group) lines.push(cutOpenLine(model, opening));
+    }
+    const shared = sharedOpenings(groups);
+    lines.push(`cut-shared ${model} ${shared.length}`);
     const baked = boxesByModel.get(model);
     if (!baked?.fromGlb) continue;
-    const shared = sharedOpenings(groups);
-    const anyDoor = groups.some((group) => group.length > 0);
-    if (!anyDoor) continue;
+    const anyModelDoor = groups.some((group) => group.length > 0);
+    if (!anyModelDoor) {
+      // Placement-scoped openings never enter the shared mesh. Warn when
+      // another copy of the model would have shown a hole it does not have.
+      if (placementOnlyModels.has(model) && groups.length > 1) {
+        lines.push(
+          `warning: ${model}: external doors are not on every placement; the shared mesh is left whole`,
+        );
+      }
+      // The live list is empty. A cut written for doors that have since been
+      // removed would keep those holes. Replace it with the uncut mesh.
+      rewriteEmptyCut(modelsDir, model, lines);
+      continue;
+    }
     if (shared.length === 0) {
       lines.push(
         `warning: ${model}: external doors are not on every placement; the shared mesh is left whole`,
       );
+      rewriteEmptyCut(modelsDir, model, lines);
       continue;
     }
     const widest = Math.max(...groups.map((group) => group.length));
     if (shared.length < widest) {
       lines.push(`warning: ${model}: cut keeps ${shared.length} openings shared by every placement`);
     }
-    lines.push(`wrote ${writeBuildingCut(modelsDir, model, shared)}`);
+    lines.push(`wrote ${writeBuildingCut(modelsDir, model, shared, lines)}`);
   }
 
   mkdirSync(collisionDir, { recursive: true });
@@ -309,15 +445,47 @@ export function bake(options: BakeOptions): BakeResult {
     writeJson(collisionPath, collision);
     lines.push(`wrote ${collisionPath}`);
   }
+  const floorsScales = floorsScaleByModel(options.floorsDir, boxesByModel.keys());
+  for (const placement of placements) {
+    lines.push(scaleReport(placement, boxesByModel.get(placement.model)!, scales.get(placement.id)!, floorsScales.get(placement.model)));
+  }
   return {
     file,
     bounds,
     props,
     spawns,
     doors,
+    places: scene.places,
     lines,
     ...(roomsFile && lightsFile ? { rooms: roomsFile, lights: lightsFile } : {}),
   };
+}
+
+function scenePlaces(
+  options: BakeOptions,
+  buildings: readonly Placement[],
+  taken: ReadonlySet<string>,
+  measures: ReadonlyMap<string, { width: number; depth: number }>,
+): { places: ScenePlace[]; warnings: string[] } {
+  if (!options.floorsDir) return { places: [], warnings: [] };
+  const floorsDir = options.floorsDir;
+  const roomsDir = options.roomsDir;
+  return derivePlaces({
+    buildings,
+    measures,
+    floorsFor: (model) => {
+      const floorsPath = path.join(floorsDir, `${model}.floors.svg`);
+      if (!existsSync(floorsPath)) return undefined;
+      return readFloorsSvg(readText(floorsPath));
+    },
+    roomFileFor: (prefab) => {
+      if (!roomsDir) return undefined;
+      const filePath = path.join(roomsDir, `${prefab}.room.json`);
+      if (!existsSync(filePath)) return undefined;
+      return JSON.parse(readText(filePath)) as RoomFile;
+    },
+    taken,
+  });
 }
 
 /**
@@ -380,14 +548,44 @@ function emitHollow(
   return pieces.length;
 }
 
+type CutOpening = {
+  id: string;
+  source: "scene" | "floors" | "room";
+  file: string;
+  box: LocalBox;
+};
+
+function pushOpening(list: CutOpening[], opening: CutOpening): void {
+  if (list.some((other) => sameOpening(other.box, opening.box))) return;
+  list.push(opening);
+}
+
+function cutOpenLine(model: string, opening: CutOpening): string {
+  const box = opening.box;
+  const n = (value: number) => value.toFixed(4);
+  const aabb = [box.minX, box.maxX, box.minY, box.maxY, box.minZ, box.maxZ].map(n).join(",");
+  return `cut-open ${model} id=${opening.id} source=${opening.source} file=${opening.file} aabb=${aabb}`;
+}
+
+/**
+ * A previous `<model>.cut.glb` is replaced when this bake's shared list is
+ * empty. No file is created when there was none: a model that never had a
+ * shared opening stays on its source GLB.
+ */
+function rewriteEmptyCut(modelsDir: string, model: string, lines: string[]): void {
+  const cutPath = path.join(modelsDir, `${model}.cut.glb`);
+  if (!existsSync(cutPath)) return;
+  lines.push(`wrote ${writeBuildingCut(modelsDir, model, [], lines)}`);
+}
+
 /**
  * Openings present on every placement of one model. Static instances share
  * one mesh, so a door that only one copy has cannot be a hole in that mesh.
  */
-function sharedOpenings(groups: readonly (readonly LocalBox[])[]): LocalBox[] {
+function sharedOpenings(groups: readonly (readonly CutOpening[])[]): CutOpening[] {
   const first = groups[0];
   if (!first) return [];
-  return first.filter((box) => groups.every((group) => group.some((other) => sameOpening(box, other))));
+  return first.filter((opening) => groups.every((group) => group.some((other) => sameOpening(opening.box, other.box))));
 }
 
 function sameOpening(a: LocalBox, b: LocalBox): boolean {
@@ -397,8 +595,108 @@ function sameOpening(a: LocalBox, b: LocalBox): boolean {
     && Math.abs(a.minZ - b.minZ) < eps && Math.abs(a.maxZ - b.maxZ) < eps;
 }
 
+/**
+ * A model-scoped exterior door that still hits a room mesh is punched out of
+ * a shared variant of that mesh. Instances the door does not block keep the
+ * original GLB, so an interior copy of the same prefab is not holed.
+ * The variant id is `<model>.open` (then `.open-2`, …). The source GLB is
+ * not modified. A missing game-file asset is reported as a JSON line.
+ */
+function cutBlockedRoomMeshes(
+  modelsDir: string,
+  doors: readonly { buildingId: string; door: DoorPlacement }[],
+  placements: readonly Placement[],
+  knownAssets: ReadonlySet<string>,
+  lines: string[],
+): void {
+  const rooms = placements.filter(isRoomMesh);
+  const byModel = new Map<string, Placement[]>();
+  for (const room of rooms) {
+    const group = byModel.get(room.model) ?? [];
+    group.push(room);
+    byModel.set(room.model, group);
+  }
+  for (const [model, group] of byModel) {
+    const source = path.join(modelsDir, `${model}.glb`);
+    let bytes: Buffer;
+    try {
+      bytes = readFileSync(source);
+    } catch {
+      continue;
+    }
+    const probe = meshProbe(bytes);
+    const signed = group.map((room) => ({
+      room,
+      openings: blockedOpenings(doors, room, probe),
+    }));
+    const signatures = [...new Set(signed.map((item) => openingSignature(item.openings)).filter((sig) => sig !== ""))].sort();
+    const variantOf = new Map<string, string>();
+    signatures.forEach((sig, index) => {
+      variantOf.set(sig, signatures.length === 1 ? `${model}.open` : `${model}.open-${index + 1}`);
+    });
+    const written = new Set<string>();
+    for (const item of signed) {
+      const sig = openingSignature(item.openings);
+      const variant = variantOf.get(sig);
+      if (!variant) continue;
+      if (!written.has(variant)) {
+        const outPath = path.join(modelsDir, `${variant}.glb`);
+        writeFileSync(outPath, cutBuildingGlb(bytes, item.openings));
+        written.add(variant);
+        lines.push(`wrote ${outPath}`);
+        if (!knownAssets.has(variant)) {
+          lines.push(
+            `{"id":"${variant}","kind":"model","type":"room","instance":"static","uri":"/assets/models/${variant}.glb","mediaType":"model/gltf-binary"}`,
+          );
+        }
+      }
+      item.room.model = variant;
+    }
+  }
+}
+
+function isRoomMesh(placement: Placement): boolean {
+  if (placement.type === "room") return true;
+  if (placement.type !== undefined) return false;
+  return placement.model === "room" || placement.model.startsWith("room-");
+}
+
+/**
+ * Model-scoped doors of this room's building whose clear volume covers most
+ * of the room's height and whose inward ray still hits the room mesh.
+ */
+function blockedOpenings(
+  doors: readonly { buildingId: string; door: DoorPlacement }[],
+  room: Placement,
+  probe: MeshProbe,
+): LocalBox[] {
+  const openings: LocalBox[] = [];
+  for (const leaf of doors) {
+    if (!room.id.startsWith(`${leaf.buildingId}.`)) continue;
+    const opening = openingInModel(leaf.door, room.position, room.yaw, room.scale);
+    const height = opening.maxY - opening.minY;
+    const overlap = Math.min(opening.maxY, probe.maxY) - Math.max(opening.minY, 0);
+    if (!(overlap > height * 0.5)) continue;
+    const worldIn = transformXz(0, -1, leaf.door.yaw);
+    const inward = transformXz(worldIn.x, worldIn.z, inverseYaw(room.yaw));
+    const axis: 0 | 2 = Math.abs(inward.x) >= Math.abs(inward.z) ? 0 : 2;
+    const direction: -1 | 1 = (axis === 0 ? inward.x : inward.z) >= 0 ? 1 : -1;
+    if (!probe.blocks(opening, axis, direction)) continue;
+    openings.push(opening);
+  }
+  return openings;
+}
+
+function openingSignature(openings: readonly LocalBox[]): string {
+  const q = (n: number) => Math.round(n * 1e4) / 1e4;
+  return openings
+    .map((box) => [box.minX, box.maxX, box.minY, box.maxY, box.minZ, box.maxZ].map(q).join(","))
+    .sort()
+    .join(";");
+}
+
 /** `<model>.cut.glb` beside the source. The source file is not modified. */
-function writeBuildingCut(modelsDir: string, model: string, openings: readonly LocalBox[]): string {
+function writeBuildingCut(modelsDir: string, model: string, openings: readonly CutOpening[], lines: string[]): string {
   const source = path.join(modelsDir, `${model}.glb`);
   const outPath = path.join(modelsDir, `${model}.cut.glb`);
   let bytes: Buffer;
@@ -407,7 +705,13 @@ function writeBuildingCut(modelsDir: string, model: string, openings: readonly L
   } catch {
     throw new PlanError(`${model}: cannot read ${source}`);
   }
-  const cut = cutBuildingGlb(bytes, openings);
+  if (openings.length > 0) {
+    const removed = openingOverlapCounts(bytes, openings.map((opening) => opening.box));
+    openings.forEach((opening, index) => {
+      lines.push(`cut-tris ${model} id=${opening.id} removed=${removed[index] ?? 0}`);
+    });
+  }
+  const cut = openings.length === 0 ? uncutBuildingGlb(bytes) : cutBuildingGlb(bytes, openings.map((opening) => opening.box));
   writeFileSync(outPath, cut);
   return outPath;
 }
@@ -621,47 +925,96 @@ function geometryFor(options: BakeOptions, modelsDir: string, model: string): Gl
 /**
  * Where the GLB origin goes and its uniform scale.
  *
- * A copied stencil group (`placement.stencil`) carries both: its local origin
- * is the model origin and its transform scale is the model scale. Nothing is
- * divided by a footprint, so the mesh and the walls land on the drawn stencil.
+ * A copied stencil group keeps the model origin at the group origin and the
+ * group's uniform scale. Floors reads that same matrix scale. The scale is
+ * not drawn size over the vertex extent: a lip the measure grid drops makes
+ * those two axes disagree, and averaging them misses the floors scale.
+ * Axes that disagree by more than 1% add a warning that names each fit
+ * (drawn metres / vertex extent). The group scale is still the one used.
  *
  * Any other placement (a rectangle, or a group of rectangles) is drawn around
- * the stencil extent. The scale is drawn size over that extent, the average of
- * the two axes. The drawn center is the extent's center, so the origin is the
+ * the thin-triangle stencil extent. The scale is drawn size over that extent,
+ * the average of the two axes. The same 1% warning applies, and the average
+ * is used. The drawn center is the extent's center, so the origin is the
  * drawn center minus the turned, scaled offset of that center from the origin.
- * Axes that disagree by more than 1% add a warning line; the average is used.
  *
  * Check: a 2 m rectangle centered at x 10 for a 1 m stencil whose extent is
  * x 0..1 (center 0.5) at yaw 0: scale 2, origin x 10 − 2 × 0.5 = 9.
  */
 function poseForPlacement(
   placement: PlanPlacement,
-  model: Pick<ModelBake, "stencilWidth" | "stencilDepth" | "stencilCenterX" | "stencilCenterZ">,
+  model: ModelBake,
   warnings: string[],
 ): { position: Vec3; scale: number } {
   if (placement.stencil) {
     const scale = placement.stencil.scale;
-    if (!Number.isFinite(scale) || scale <= 0) throw new PlanError(`placement "${placement.id}" scale is not positive`);
+    if (!(scale > 0) || !Number.isFinite(scale)) {
+      throw new PlanError(`placement "${placement.id}" scale is not positive`);
+    }
+    noteAxisFit(placement, model.measureWidth, model.measureDepth, scale, warnings, true);
     return { position: placement.stencil.origin, scale };
   }
   if (model.stencilWidth < 1e-9 || model.stencilDepth < 1e-9) return { position: placement.position, scale: 1 };
-  const sx = placement.drawnWidth / model.stencilWidth;
-  const sz = placement.drawnDepth / model.stencilDepth;
-  if (!Number.isFinite(sx) || !Number.isFinite(sz) || sx <= 0 || sz <= 0) {
-    throw new PlanError(`placement "${placement.id}" scale is not positive`);
-  }
-  const scale = (sx + sz) / 2;
-  if (Math.abs(sx - sz) > 0.01 * scale) {
-    warnings.push(
-      `warning: placement "${placement.id}" drawn size is not the model's proportions `
-      + `(scale x ${trimNum(sx)} vs z ${trimNum(sz)}); using ${trimNum(scale)}`,
-    );
-  }
+  const scale = scaleForPlacement(placement, model.stencilWidth, model.stencilDepth, warnings);
   const offset = transformXz(model.stencilCenterX * scale, model.stencilCenterZ * scale, placement.yaw);
   return {
     position: [placement.position[0] - offset.x, placement.position[1], placement.position[2] - offset.z],
     scale,
   };
+}
+
+/** Drawn metres over the model extent. One uniform scale, the average of the axes. */
+function scaleForPlacement(placement: PlanPlacement, width: number, depth: number, warnings: string[]): number {
+  const fit = axisFit(placement, width, depth);
+  const scale = (fit.sx + fit.sz) / 2;
+  if (Math.abs(fit.sx - fit.sz) > 0.01 * scale) {
+    warnings.push(axisWarning(placement, width, depth, fit.sx, fit.sz, trimNum(scale)));
+  }
+  return scale;
+}
+
+/**
+ * Per-axis drawn/vertex fits. `group` keeps `used` (the stencil matrix scale)
+ * when the axes disagree. The warning names the drawn metres and the vertex
+ * extent each fit came from.
+ */
+function noteAxisFit(
+  placement: PlanPlacement,
+  width: number,
+  depth: number,
+  used: number,
+  warnings: string[],
+  group: boolean,
+): void {
+  const fit = axisFit(placement, width, depth);
+  const span = (fit.sx + fit.sz) / 2;
+  if (Math.abs(fit.sx - fit.sz) <= 0.01 * span) return;
+  const via = group ? `group scale ${trimNum(used)}` : trimNum(used);
+  warnings.push(axisWarning(placement, width, depth, fit.sx, fit.sz, via));
+}
+
+function axisFit(placement: PlanPlacement, width: number, depth: number): { sx: number; sz: number } {
+  if (width < 1e-9 || depth < 1e-9) throw new PlanError(`placement "${placement.id}" model has no footprint`);
+  const sx = placement.drawnWidth / width;
+  const sz = placement.drawnDepth / depth;
+  if (!Number.isFinite(sx) || !Number.isFinite(sz) || sx <= 0 || sz <= 0) {
+    throw new PlanError(`placement "${placement.id}" scale is not positive`);
+  }
+  return { sx, sz };
+}
+
+function axisWarning(
+  placement: PlanPlacement,
+  width: number,
+  depth: number,
+  sx: number,
+  sz: number,
+  via: string,
+): string {
+  return `warning: placement "${placement.id}" drawn size is not the model's proportions `
+    + `(scale x ${trimNum(sx)} from drawn ${trimNum(placement.drawnWidth)} / mesh ${trimNum(width)}`
+    + ` vs z ${trimNum(sz)} from drawn ${trimNum(placement.drawnDepth)} / mesh ${trimNum(depth)}); `
+    + `using ${via}`;
 }
 
 function stencilCenter(boxes: readonly LocalBox[]): { x: number; z: number } {
@@ -729,6 +1082,60 @@ function readText(filePath: string): string {
 
 function writeJson(filePath: string, value: unknown): void {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function measureBounds(triangles: Triangle[]): Pick<ModelBake, "measureMinX" | "measureMaxX" | "measureMinZ" | "measureMaxZ" | "measureWidth" | "measureDepth"> {
+  const bounds = boundsOfTriangles(triangles);
+  if (!bounds) {
+    return {
+      measureMinX: 0,
+      measureMaxX: 0,
+      measureMinZ: 0,
+      measureMaxZ: 0,
+      measureWidth: 0,
+      measureDepth: 0,
+    };
+  }
+  const measureMinX = bounds.min[0];
+  const measureMaxX = bounds.max[0];
+  const measureMinZ = bounds.min[2];
+  const measureMaxZ = bounds.max[2];
+  return {
+    measureMinX,
+    measureMaxX,
+    measureMinZ,
+    measureMaxZ,
+    measureWidth: measureMaxX - measureMinX,
+    measureDepth: measureMaxZ - measureMinZ,
+  };
+}
+
+function floorsScaleByModel(floorsDir: string | undefined, models: Iterable<string>): Map<string, number> {
+  const scales = new Map<string, number>();
+  if (!floorsDir) return scales;
+  for (const model of models) {
+    const floorsPath = path.join(floorsDir, `${model}.floors.svg`);
+    if (!existsSync(floorsPath)) continue;
+    scales.set(model, readFloorsSvg(readText(floorsPath)).scale);
+  }
+  return scales;
+}
+
+/** One line: measured GLB bounds, stencil size, drawn size, scale, floors scale. */
+function scaleReport(placement: PlanPlacement, model: ModelBake, scale: number, floorsScale: number | undefined): string {
+  const stencilW = placement.stencil ? placement.drawnWidth / placement.stencil.scale : model.stencilWidth;
+  const stencilD = placement.stencil ? placement.drawnDepth / placement.stencil.scale : model.stencilDepth;
+  const usedW = placement.stencil ? model.measureWidth : model.stencilWidth;
+  const usedD = placement.stencil ? model.measureDepth : model.stencilDepth;
+  const sx = usedW > 1e-9 ? placement.drawnWidth / usedW : 0;
+  const sz = usedD > 1e-9 ? placement.drawnDepth / usedD : 0;
+  const floors = floorsScale === undefined ? "none" : roundM(floorsScale);
+  return `${placement.id}: measure ${roundM(model.measureMinX)}..${roundM(model.measureMaxX)} × ${roundM(model.measureMinZ)}..${roundM(model.measureMaxZ)}`
+    + ` (${roundM(model.measureWidth)}×${roundM(model.measureDepth)})`
+    + ` stencil ${roundM(stencilW)}×${roundM(stencilD)}`
+    + ` drawn ${roundM(placement.drawnWidth)}×${roundM(placement.drawnDepth)}`
+    + ` scaleForPlacement ${roundM(scale)} (x ${roundM(sx)} z ${roundM(sz)})`
+    + ` floors.scale ${floors}`;
 }
 
 function roundM(n: number): number {

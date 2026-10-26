@@ -37,20 +37,29 @@ placed by its group origin, the model origin, at its transform's uniform scale.
 A rectangle's scale is its size relative to the measured stencil extent, and it
 is centered on that extent; a rectangle out of proportion prints a warning.
 Building obstacles are a 0.5 m XZ grid. Cells the mesh covers from y = 0 to 2 m merge into wall runs before short ones are dropped. A box under 1 m on its long side, or under 0.5 m³, is dropped. A facade longer than 1 m stays even when the mesh is about a centimetre thick. At most 32 boxes. A doors rectangle
-with data-building="<placement id>" cuts a hinge-aligned opening out of every
-wall box it overlaps, from its sill to sill + door height. The sill is the
+with data-building="<model id>" is copied onto every placement of that model.
+Each leaf id is <placement id>.<door id>. That opening is cut from each
+placement's wall boxes and from the shared <model>.cut.glb. Static instances
+are one mesh, so the opening is the same on every copy. A unique facade needs
+another model, or a placement id. data-building="<placement id>" cuts only
+that instance and does not punch the shared mesh. When the placement id
+equals its model id, the door is model-scoped; rename the placement to keep
+it on one copy. A name that matches neither fails. The cut is a hinge-aligned
+opening through every wall box it overlaps, from its sill to sill + door height. The sill is the
 rectangle's own z in meters (world y, like a prop z; not inherited from a
 group; absent is 0); wall below the sill and above the head stays. The hinge is the drawn
 rectangle's hinge edge. The opening is as wide as the door GLB's panel
 (its door mesh) from --models: <id>.glb, or the file its --game asset uri
 names (door-1 -> door1.glb). With no GLB or no panel mesh it prints a warning
 and uses the rectangle; data-width overrides both. It writes a hinged placement. Its model is data-model or the label model:<id>, the same
-as a prop. A door with no model id fails. The door file has no obstacle. A model with an external door on every
-placement also writes <model>.cut.glb next to its source in --models. The
-cut removes that door gap from the textured mesh. The source <model>.glb is
-not modified. Point the asset uri at the cut file; a later bake refreshes it.
-A door that is not on every placement of the model is left, so one static
-mesh is not given a hole only one copy has.
+as a prop. A door with no model id fails. The door file has no obstacle. Model-scoped
+openings (a scene door bound to a model, and doors-external in a floors file)
+write <model>.cut.glb next to the source in --models. The cut removes those
+door gaps from the textured mesh. The source <model>.glb is not modified.
+Point the asset uri at the cut file; a later bake refreshes it. A
+placement-scoped door stays out of that mesh. An opening that did not land
+on every placement is left out too, so one static mesh is not given a hole
+only one copy has.
 A props rectangle places the model. Its obstacle is the GLB bounds after
 that position, yaw, and scale, or the rectangle when the GLB is missing.
 The pawn radius is not added.

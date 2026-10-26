@@ -1,14 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { stampPlacement } from "./asset-type.ts";
-import { DOOR_FACE_TOL_M, cutDoorFromBoxes, situateDoor, type SituatedDoor } from "./doors.ts";
+import { DOOR_FACE_TOL_M, cutDoorFromBoxes, doorCutLocal, situateDoor, type SituatedDoor } from "./doors.ts";
 import { PlanError } from "./errors.ts";
 import { readFloorsSvg, type RoomInstanceSource } from "./floors-svg.ts";
 import { ID_RE } from "./plan.ts";
 import { WALL_T, type RoomDoor, type RoomFile, type RoomLight } from "./room-file.ts";
 import { wallLine, type WallFace } from "./room-svg.ts";
 import type { AssetType, DoorPlacement, LocalBox, Obstacle, Placement, SceneDoor, SceneProp, Vec3, Yaw } from "./types.ts";
-import { transformXz } from "./yaw.ts";
+import { inverseYaw, transformXz } from "./yaw.ts";
 
 export const addYaw = (a: Yaw, b: Yaw): Yaw => ((a + b) % 360) as Yaw;
 
@@ -73,6 +73,8 @@ export type PendingRoomDoor = {
   normal: { x: number; z: number };
   sceneDoor: SceneDoor;
   host: { min: Vec3; max: Vec3 };
+  /** `<prefab>.room.json` this door was read from. */
+  file: string;
 };
 
 export type BuildingRooms = {
@@ -105,7 +107,60 @@ type LoadInput = {
   assets: ReadonlySet<string>;
   assetTypes: ReadonlyMap<string, AssetType>;
   warnings: string[];
+  /**
+   * Measure-stencil XZ size of each model, in model units: the union of the
+   * 0.05 m runs. That is the outline a copied floors path uses, not the raw
+   * vertex bounds.
+   */
+  measures?: ReadonlyMap<string, { width: number; depth: number }>;
 };
+
+/**
+ * Placement scale times the measure-stencil extent must match the floors
+ * footprint. Both sides are that stencil, so a copied group at the floors
+ * scale passes even when a vertex lip sits outside the path. A model scaled
+ * off the footprint still fails. The tolerance is 0.1%. With no measure, the
+ * scale numbers themselves are compared at that tolerance.
+ */
+function assertSameMetres(
+  building: Placement,
+  source: { scale: number; footprint: Array<[number, number]> },
+  measured: { width: number; depth: number } | undefined,
+): void {
+  const footprint = footprintSpan(source.footprint);
+  const haveMeasure = measured !== undefined && measured.width > 1e-9 && measured.depth > 1e-9;
+  const worldW = haveMeasure ? measured.width * building.scale : undefined;
+  const worldD = haveMeasure ? measured.depth * building.scale : undefined;
+  const scaleOff = Math.abs(building.scale - source.scale) > 1e-3 * Math.abs(source.scale);
+  const widthOff = worldW === undefined
+    ? scaleOff
+    : Math.abs(worldW - footprint.width) > 1e-3 * Math.abs(footprint.width);
+  const depthOff = worldD === undefined
+    ? false
+    : Math.abs(worldD - footprint.depth) > 1e-3 * Math.abs(footprint.depth);
+  if (!widthOff && !depthOff) return;
+  const detail = worldW === undefined
+    ? ""
+    : ` (mesh ${fmt(worldW)}\u00d7${fmt(worldD!)} m, footprint ${fmt(footprint.width)}\u00d7${fmt(footprint.depth)} m)`;
+  const lead = worldW !== undefined && !scaleOff
+    ? `building "${building.id}" mesh differs from ${building.model}.floors.svg footprint at scale ${fmt(building.scale)}`
+    : `building "${building.id}" scale ${fmt(building.scale)} differs from ${building.model}.floors.svg scale ${fmt(source.scale)}`;
+  throw new PlanError(`${lead}${detail}`);
+}
+
+function footprintSpan(footprint: readonly (readonly [number, number])[]): { width: number; depth: number } {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const [x, z] of footprint) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  return { width: maxX - minX, depth: maxZ - minZ };
+}
 
 /**
  * External doors, stairs, and room instances for every building that has a floors file.
@@ -136,19 +191,16 @@ export function loadFloors(input: LoadInput): FloorBake {
         `building "${building.id}": ${building.model}.floors.svg model "${source.model}" is not "${building.model}"`,
       );
     }
-    if (Math.abs(building.scale - source.scale) > 1e-3 * source.scale) {
-      throw new PlanError(
-        `building "${building.id}" scale ${fmt(building.scale)} differs from ${building.model}.floors.svg scale ${fmt(source.scale)}`,
-      );
-    }
+    assertSameMetres(building, source, input.measures?.get(building.model));
     const hasRooms = source.floors.some((floor) => floor.rooms.length > 0);
     if (hasRooms && !input.roomsDir) {
       throw new PlanError(`building "${building.id}" has room instances in ${building.model}.floors.svg; pass --rooms`);
     }
     for (const door of source.doors) {
-      const world = worldDoor(building, door);
-      claim(world.id);
-      doors.push(world);
+      for (const world of expandModelDoor(door, [building])) {
+        claim(world.id);
+        doors.push(world);
+      }
     }
     for (const prop of source.props) {
       const world = worldProp(building, prop, `${building.id}.${prop.id}`);
@@ -211,7 +263,10 @@ export function loadFloors(input: LoadInput): FloorBake {
           props.push(world);
         }
         for (const light of room.lights) lights.push(worldLight(building, inst, floor.elevation, prefix, light));
-        for (const door of room.doors) record.pending.push(pendingDoor(building, inst, floor.elevation, room, prefix, door, toWorld));
+        const roomFile = path.join(input.roomsDir!, `${inst.prefab}.room.json`);
+        for (const door of room.doors) {
+          record.pending.push(pendingDoor(building, inst, floor.elevation, room, prefix, door, toWorld, roomFile));
+        }
         roomCount += 1;
       }
     }
@@ -221,17 +276,40 @@ export function loadFloors(input: LoadInput): FloorBake {
   return { doors, props, buildings, placements, obstacles, lights, roomCount };
 }
 
+export type RoomDoorHosts = {
+  buildingId: string;
+  /** World room obstacles. Cut every box for this building, including a sibling room. */
+  rooms: Obstacle[];
+  /** World building obstacles already emitted. Cut this building's `-wall-` boxes. */
+  buildings: Obstacle[];
+};
+
+/** An unmerged room door that cut this building's wall boxes. `local` is door-local. */
+export type RoomWallCut = {
+  id: string;
+  file: string;
+  placement: DoorPlacement;
+  local: LocalBox;
+};
+
 /**
  * Merge a room door into a situated door of the same opening, or return a leaf.
  * A partial overlap throws. A size mismatch warns and still merges.
+ * An unmerged leaf is cut from the room walls and from the emitted building
+ * boxes with `cutDoorFromBoxes`, the same opening an exterior door uses.
+ * A leaf that hits a building wall is also returned in `wallCuts`, in the
+ * door frame, so the visual mesh can punch that same volume.
  */
 export function placeRoomDoors(
   pending: readonly PendingRoomDoor[],
   situated: readonly DoorPlacement[],
   assetTypes: ReadonlyMap<string, AssetType>,
   lines: string[],
-): DoorPlacement[] {
+  hosts: RoomDoorHosts,
+): { placements: DoorPlacement[]; wallCuts: RoomWallCut[] } {
   const out: DoorPlacement[] = [];
+  const unmerged: SituatedDoor[] = [];
+  const files = new Map<string, string>();
   for (const door of pending) {
     let merged = false;
     for (const other of situated) {
@@ -254,9 +332,29 @@ export function placeRoomDoors(
     }
     if (merged) continue;
     const situatedDoor = situateDoor(door.sceneDoor, [door.host]);
+    unmerged.push(situatedDoor);
+    files.set(situatedDoor.placement.id, door.file);
     out.push(stampPlacement(roundDoor(situatedDoor.placement), assetTypes));
   }
-  return out;
+  const wallBoxes = hosts.buildings
+    .filter((obstacle) => obstacle.id.startsWith(`${hosts.buildingId}-wall-`))
+    .map(obstacleToLocal);
+  const wallCuts: RoomWallCut[] = [];
+  for (const door of unmerged) {
+    const local = doorCutLocal(wallBoxes, door, [0, 0, 0], 0);
+    if (!local) continue;
+    wallCuts.push({
+      id: door.placement.id,
+      file: files.get(door.placement.id) ?? door.placement.id,
+      placement: door.placement,
+      local,
+    });
+  }
+  if (unmerged.length > 0) {
+    cutRoomWalls(hosts.rooms, hosts.buildingId, unmerged);
+    cutPrefixedWalls(hosts.buildings, `${hosts.buildingId}-wall-`, unmerged);
+  }
+  return { placements: out, wallCuts };
 }
 
 /**
@@ -271,8 +369,15 @@ export function cutRoomWalls(
   buildingId: string,
   doors: readonly SituatedDoor[],
 ): void {
+  cutPrefixedWalls(obstacles, `${buildingId}.`, doors);
+}
+
+function cutPrefixedWalls(
+  obstacles: Obstacle[],
+  prefix: string,
+  doors: readonly SituatedDoor[],
+): void {
   if (doors.length === 0) return;
-  const prefix = `${buildingId}.`;
   const next: Obstacle[] = [];
   let changed = false;
   for (const obstacle of obstacles) {
@@ -333,6 +438,138 @@ function obstacleToLocal(obstacle: Obstacle): LocalBox {
     minZ: obstacle.min[2],
     maxZ: obstacle.max[2],
   };
+}
+
+/** Inverse of `buildingToWorld`. Metres in the placement frame, not GLB units. */
+export function worldToBuilding(b: Placement, p: Vec3): Vec3 {
+  const local = transformXz(p[0] - b.position[0], p[2] - b.position[2], inverseYaw(b.yaw));
+  return [local.x, p[1] - b.position[1], local.z];
+}
+
+/**
+ * World scene door → the building-local frame `expandModelDoor` consumes.
+ * The reference placement is the copy the rectangle overlaps.
+ */
+export function doorToBuildingLocal(door: SceneDoor, building: Placement): SceneDoor {
+  const center = worldToBuilding(building, door.center);
+  const box = mapBox({
+    minX: door.minX,
+    maxX: door.maxX,
+    minY: door.center[1],
+    maxY: door.center[1],
+    minZ: door.minZ,
+    maxZ: door.maxZ,
+  }, (p) => worldToBuilding(building, p));
+  return {
+    ...door,
+    building: building.model,
+    bind: "model",
+    center,
+    minX: box.minX,
+    maxX: box.maxX,
+    minZ: box.minZ,
+    maxZ: box.maxZ,
+  };
+}
+
+/**
+ * One model-local door onto every given placement. Leaf id is
+ * `${placement.id}.${door.id}`. Floors `doors-external` and a scene door
+ * whose `data-building` is a model both use this, so the copy is one rule.
+ * Pass only placements of that model. Static instances share one opening.
+ */
+export function expandModelDoor(door: SceneDoor, placements: readonly Placement[]): SceneDoor[] {
+  const local: SceneDoor = { ...door, bind: "model" };
+  return placements.map((placement) => worldDoor(placement, local));
+}
+
+type WorldAabb = { min: Vec3; max: Vec3 };
+
+/**
+ * Placement of `door.building`'s model that the door rectangle overlaps.
+ * No overlap: the nearest. Several overlaps: the greatest XZ area, then the nearer.
+ */
+export function referencePlacement(
+  door: SceneDoor,
+  placements: readonly Placement[],
+  worldBoxes: (placement: Placement) => readonly WorldAabb[],
+): Placement {
+  if (placements.length === 0) throw new PlanError(`door "${door.id}" has no placement`);
+  let best = placements[0]!;
+  let bestArea = -1;
+  let bestDist = Infinity;
+  for (const placement of placements) {
+    const boxes = worldBoxes(placement);
+    let area = 0;
+    let dist = Infinity;
+    if (boxes.length === 0) {
+      dist = Math.hypot(door.center[0] - placement.position[0], door.center[2] - placement.position[2]);
+    }
+    for (const box of boxes) {
+      area += xzOverlap(door.minX, door.maxX, door.minZ, door.maxZ, box.min[0], box.max[0], box.min[2], box.max[2]);
+      dist = Math.min(dist, xzDistance(door.center[0], door.center[2], box.min[0], box.max[0], box.min[2], box.max[2]));
+    }
+    if (area > bestArea + 1e-9 || (Math.abs(area - bestArea) <= 1e-9 && dist < bestDist)) {
+      best = placement;
+      bestArea = area;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
+/**
+ * Scene doors from `readScene` become one world door per target placement.
+ * Model-scoped doors expand. Placement-scoped doors stay one leaf.
+ * `taken` is placement and prop ids. An expanded leaf that collides throws.
+ */
+export function resolveExteriorDoors(
+  doors: readonly SceneDoor[],
+  placements: readonly Placement[],
+  worldBoxes: (placement: Placement) => readonly WorldAabb[],
+  taken: ReadonlySet<string>,
+): SceneDoor[] {
+  const used = new Set(taken);
+  const out: SceneDoor[] = [];
+  for (const door of doors) {
+    if (door.bind === "placement") {
+      if (used.has(door.id)) throw new PlanError(`duplicate placement id "${door.id}"`);
+      used.add(door.id);
+      out.push(door);
+      continue;
+    }
+    if (door.bind !== "model") throw new PlanError(`door "${door.id}" has no bind`);
+    const ofModel = placements.filter((placement) => placement.model === door.building);
+    if (ofModel.length === 0) {
+      throw new PlanError(`door "${door.id}" data-building "${door.building}" does not match a placement`);
+    }
+    const local = doorToBuildingLocal(door, referencePlacement(door, ofModel, worldBoxes));
+    for (const world of expandModelDoor(local, ofModel)) {
+      if (used.has(world.id)) throw new PlanError(`duplicate placement id "${world.id}"`);
+      used.add(world.id);
+      out.push(world);
+    }
+  }
+  return out;
+}
+
+function xzOverlap(
+  minX: number, maxX: number, minZ: number, maxZ: number,
+  boxMinX: number, boxMaxX: number, boxMinZ: number, boxMaxZ: number,
+): number {
+  const x = Math.min(maxX, boxMaxX) - Math.max(minX, boxMinX);
+  const z = Math.min(maxZ, boxMaxZ) - Math.max(minZ, boxMinZ);
+  if (x <= 0 || z <= 0) return 0;
+  return x * z;
+}
+
+function xzDistance(
+  x: number, z: number,
+  minX: number, maxX: number, minZ: number, maxZ: number,
+): number {
+  const dx = x < minX ? minX - x : x > maxX ? x - maxX : 0;
+  const dz = z < minZ ? minZ - z : z > maxZ ? z - maxZ : 0;
+  return Math.hypot(dx, dz);
 }
 
 function worldDoor(building: Placement, door: SceneDoor): SceneDoor {
@@ -418,6 +655,7 @@ function pendingDoor(
   prefix: string,
   door: RoomDoor,
   toWorld: (p: Vec3) => Vec3,
+  file: string,
 ): PendingRoomDoor {
   const fpW = room.footprint.maxX - room.footprint.minX;
   const fpD = room.footprint.maxZ - room.footprint.minZ;
@@ -474,6 +712,7 @@ function pendingDoor(
       min: [hostWorld.minX, hostWorld.minY, hostWorld.minZ],
       max: [hostWorld.maxX, hostWorld.maxY, hostWorld.maxZ],
     },
+    file,
   };
 }
 

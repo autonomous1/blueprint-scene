@@ -102,7 +102,23 @@ export type SceneDoor = {
   id: string;
   /** Asset id from `data-model` or the label `model:<id>`. */
   model: string;
+  /**
+   * `data-building`. A model id, or one placement id.
+   * A model id (any placement uses that model) is shared: every placement of
+   * the model gets the opening, and the shared mesh is cut. When the string
+   * is both a model id and a placement id, it is the model. The first copy
+   * is often named after the model. A one-off on that copy needs a placement
+   * id that is not the model string.
+   * A placement id that is not a model cuts that instance only. The shared
+   * mesh stays whole, so a sibling does not get a hole without a leaf.
+   */
   building: string;
+  /**
+   * Set once `building` is resolved. `model` openings are the same on every
+   * placement and go into the shared mesh. `placement` openings cut that one
+   * instance's boxes and stay out of the shared mesh.
+   */
+  bind?: "model" | "placement";
   center: Vec3;
   minX: number;
   maxX: number;
@@ -193,6 +209,21 @@ export type CollisionFile = {
   origin: Vec3;
   yawConvention: "y-up-90";
   boxes: CollisionBox[];
+};
+
+export type PlaceKind = "room" | "hall" | "platform" | "stairs" | "elevator";
+
+/** One walkable region. Stairs and elevator places are filled by a later task. */
+export type ScenePlace = {
+  id: string;
+  kind: PlaceKind;
+  building?: string;
+  floor?: string;
+  /** Walkable elevation in world metres (y). */
+  y: number;
+  /** World XZ polygon, counter-clockwise. */
+  polygon: Array<[number, number]>;
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 };
 
 export type Triangle = [Vec3, Vec3, Vec3];

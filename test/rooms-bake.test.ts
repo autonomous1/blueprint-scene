@@ -7,9 +7,13 @@ import test from "node:test";
 import { bake } from "../src/bake.ts";
 import { PlanError } from "../src/errors.ts";
 import { readFloorsSvg } from "../src/floors-svg.ts";
+import { writeTriangleGlb } from "../src/glb-write.ts";
+import { trianglesFromGlb } from "../src/glb.ts";
 import type { RoomFile } from "../src/room-file.ts";
 import { writeRoom } from "../src/room-glb.ts";
-import type { Obstacle, Vec3 } from "../src/types.ts";
+import { placeRoomDoors, type PendingRoomDoor } from "../src/rooms-bake.ts";
+import type { DoorPlacement, Obstacle, SceneDoor, Vec3 } from "../src/types.ts";
+import { placeBox } from "../src/yaw.ts";
 import { trianglesFromBox } from "./boxes.ts";
 import { writeGlb } from "./glb-writer.ts";
 
@@ -29,7 +33,7 @@ type StageOpts = {
   writeRoomFile?: boolean;
   panel?: number;
   game?: "rm" | "other" | "none";
-  /** Room-prefab door wall. `left` leaves the facade wall solid until the external door cuts it. */
+  /** Room-prefab door wall. `left` is the other outer face in this fixture. */
   roomDoorWall?: "front" | "left";
 };
 
@@ -116,6 +120,20 @@ function hits(obstacle: Obstacle, box: Box): boolean {
   return obstacle.min[0] < box.max[0] && obstacle.max[0] > box.min[0]
     && obstacle.min[1] < box.max[1] && obstacle.max[1] > box.min[1]
     && obstacle.min[2] < box.max[2] && obstacle.max[2] > box.min[2];
+}
+
+/** Open-leaf clear volume: local x across the width, y up the height, z 2 m inward. Inset so a jamb face does not count. */
+function doorwayClear(door: DoorPlacement): Box {
+  const [width, height] = door.size;
+  const placed = placeBox({
+    minX: (door.hinge === "left" ? 0 : -width) + 0.01,
+    maxX: (door.hinge === "left" ? width : 0) - 0.01,
+    minY: 0.01,
+    maxY: height - 0.01,
+    minZ: -2 + 0.01,
+    maxZ: -0.01,
+  }, door.position, door.yaw);
+  return { min: placed.min, max: placed.max };
 }
 
 function covers(obstacle: Obstacle, point: Vec3): boolean {
@@ -269,6 +287,18 @@ test("a room door with no external match is emitted, and a partial overlap fails
     });
     assert.equal(result.doors.placements.some((item) => item.id === "B.r1.d1"), false);
     assert.equal(result.doors.placements.some((item) => item.id === "B.front"), true);
+    const staticBoxes = [...result.file.obstacles, ...result.rooms!.obstacles];
+    for (const id of ["B.r1.d1", "B.r2.d1"]) {
+      const door = result.rooms!.placements.find((item): item is DoorPlacement => item.id === id);
+      assert.ok(door && door.hinge, id);
+      const doorHits = staticBoxes.filter((item) => hits(item, doorwayClear(door))).map((item) => item.id);
+      assert.deepEqual(doorHits, [], `${id}: a baked box seals the open gap`);
+    }
+    const front = result.doors.placements.find((item) => item.id === "B.front");
+    assert.ok(front);
+    const exteriorHits = staticBoxes.filter((item) => hits(item, doorwayClear(front))).map((item) => item.id);
+    assert.deepEqual(exteriorHits, [], "B.front: a baked box seals the open gap");
+    assert.equal(result.file.obstacles.some((item) => covers(item, [8, 1, 14.95])), true);
   } finally {
     rmSync(apart.dir, { recursive: true, force: true });
   }
@@ -388,6 +418,228 @@ test("a room prefab missing from the game file is printed as an asset snippet", 
   }
 });
 
+test("empty exteriors punch the room door that cuts the building wall", () => {
+  const staged = stage();
+  try {
+    writeFileSync(path.join(staged.floors, "blk.floors.svg"), floorsSvg(-0.5, 1, 6, { doors: false }));
+    const result = run(staged);
+    const opens = result.lines.filter((line) => line.startsWith("cut-open "));
+    assert.deepEqual(opens.map(cutOpenId), ["blk B.r1.d1 room", "blk B.r2.d1 room"]);
+    assert.ok(opens.every((line) => line.includes(`${path.sep}rm.room.json`)), opens.join("\n"));
+    assert.equal(result.lines.includes("cut-shared blk 2"), true);
+    const inputs = result.lines.find((line) => line.startsWith("bake-inputs "));
+    assert.ok(inputs, result.lines.join("\n"));
+    assert.ok(inputs.includes(`svg=${path.resolve(staged.svg)}`));
+    assert.ok(inputs.includes(`floors=${path.resolve(staged.floors)}`));
+    assert.ok(inputs.includes(`rooms=${path.resolve(staged.rooms)}`));
+    assert.equal(result.doors.placements.length, 0);
+    const leaf = result.rooms!.placements.find((item) => item.id === "B.r1.d1");
+    assert.deepEqual(leaf, {
+      id: "B.r1.d1",
+      model: "door-1",
+      position: [9.5, 0, 15.1],
+      yaw: 0,
+      hinge: "left",
+      size: [1, 2.1, 0.08],
+      open: false,
+    });
+    assert.equal(result.rooms!.placements.some((item) => item.id === "B.r2.d1"), true);
+    const staticBoxes = [...result.file.obstacles, ...result.rooms!.obstacles];
+    const door = leaf as DoorPlacement;
+    const doorHits = staticBoxes.filter((item) => hits(item, doorwayClear(door))).map((item) => item.id);
+    assert.deepEqual(doorHits, []);
+  } finally {
+    rmSync(staged.dir, { recursive: true, force: true });
+  }
+});
+
+test("an interior room door is not a shared punch", () => {
+  const shell: Obstacle = { id: "B-wall-0", kind: "aabb", min: [0, 0, 0], max: [4, 3, 0.2] };
+  const partition: Obstacle = { id: "B.room.front", kind: "aabb", min: [0, 0, 3.8], max: [4, 3, 4.2] };
+  const facade = pendingDoor("B.facade", [2, 0, 0.2], { min: [0, 0, 0], max: [4, 3, 0.2] });
+  const interior = pendingDoor("B.inside", [2, 0, 4], { min: [0, 0, 3.8], max: [4, 3, 4.2] });
+  const placed = placeRoomDoors([facade, interior], [], new Map(), [], {
+    buildingId: "B",
+    rooms: [partition],
+    buildings: [shell],
+  });
+  assert.deepEqual(placed.placements.map((door) => door.id), ["B.facade", "B.inside"]);
+  assert.deepEqual(placed.wallCuts.map((cut) => cut.id), ["B.facade"]);
+  const local = placed.wallCuts[0]!.local;
+  assert.ok(local.maxZ - local.minZ > 0.1, `wall cut depth ${local.maxZ - local.minZ}`);
+  assert.ok(local.maxZ <= 0.2 + 1e-6 && local.minZ >= -2 - 1e-6);
+});
+
+function pendingDoor(id: string, center: Vec3, host: { min: Vec3; max: Vec3 }): PendingRoomDoor {
+  const sceneDoor: SceneDoor = {
+    id,
+    model: "door-1",
+    building: "B",
+    center,
+    minX: center[0] - 0.5,
+    maxX: center[0] + 0.5,
+    minZ: center[2] - 0.1,
+    maxZ: center[2] + 0.1,
+    hinge: "left",
+    width: 1,
+    height: 2.1,
+    open: false,
+  };
+  return {
+    id,
+    width: 1,
+    height: 2.1,
+    along: "x",
+    spanMin: center[0] - 0.5,
+    spanMax: center[0] + 0.5,
+    face: center[2],
+    normal: { x: 0, z: 1 },
+    sceneDoor,
+    host,
+    file: "room.room.json",
+  };
+}
+
+test("the shared cut removes triangles in the room door's wall opening", () => {
+  const staged = stage();
+  try {
+    writeFileSync(path.join(staged.floors, "blk.floors.svg"), floorsSvg(-0.5, 1, 6, { doors: false }));
+    writeFileSync(
+      path.join(staged.models, "blk.glb"),
+      writeTriangleGlb("blk", trianglesFromBox([-0.5, 0, -0.5], [0.5, 0.6, 0.5])),
+    );
+    const result = bake({
+      svgPath: staged.svg,
+      outPath: staged.out,
+      collisionDir: staged.collision,
+      modelsDir: staged.models,
+      floorsDir: staged.floors,
+      roomsDir: staged.rooms,
+      ...(staged.game ? { gamePath: staged.game } : {}),
+    });
+    const opens = result.lines.filter((line) => line.startsWith("cut-open blk "));
+    assert.deepEqual(opens.map(cutOpenId), ["blk B.r1.d1 room", "blk B.r2.d1 room"]);
+    const removed = result.lines.filter((line) => line.startsWith("cut-tris blk "));
+    assert.equal(removed.length, 2, result.lines.filter((line) => line.startsWith("cut-")).join("\n"));
+    for (const line of removed) {
+      const count = Number(line.slice(line.indexOf("removed=") + "removed=".length));
+      assert.ok(count > 0, line);
+    }
+    const cut = trianglesFromGlb(readFileSync(path.join(staged.models, "blk.cut.glb"))).triangles;
+    const source = trianglesFromGlb(readFileSync(path.join(staged.models, "blk.glb"))).triangles;
+    for (const line of opens) {
+      const box = aabbOf(line);
+      const center = [(box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, (box.minZ + box.maxZ) / 2];
+      assert.ok(rayHitsZ(source, center) > 0, line);
+      assert.equal(rayHitsZ(cut, center, box.minZ, box.maxZ), 0, line);
+    }
+  } finally {
+    rmSync(staged.dir, { recursive: true, force: true });
+  }
+});
+
+function cutOpenId(line: string): string {
+  const model = line.split(" ")[1];
+  const id = line.match(/id=(\S+)/)?.[1];
+  const source = line.match(/source=(\S+)/)?.[1];
+  return `${model} ${id} ${source}`;
+}
+
+function aabbOf(line: string): { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number } {
+  const raw = line.slice(line.indexOf("aabb=") + "aabb=".length).split(",").map(Number);
+  return { minX: raw[0]!, maxX: raw[1]!, minY: raw[2]!, maxY: raw[3]!, minZ: raw[4]!, maxZ: raw[5]! };
+}
+
+/** Hits of a −Z ray whose Z lies in [z0, z1]. Omit the range to count every hit. */
+function rayHitsZ(tris: Vec3[][], center: number[], z0 = -Infinity, z1 = Infinity): number {
+  const origin: Vec3 = [center[0]!, center[1]!, 2];
+  const dir: Vec3 = [0, 0, -1];
+  let count = 0;
+  for (const [a, b, c] of tris) {
+    if (!a || !b || !c) continue;
+    const ab: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac: Vec3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const p: Vec3 = [dir[1] * ac[2] - dir[2] * ac[1], dir[2] * ac[0] - dir[0] * ac[2], dir[0] * ac[1] - dir[1] * ac[0]];
+    const det = ab[0] * p[0] + ab[1] * p[1] + ab[2] * p[2];
+    if (Math.abs(det) < 1e-10) continue;
+    const inv = 1 / det;
+    const tvec: Vec3 = [origin[0] - a[0], origin[1] - a[1], origin[2] - a[2]];
+    const u = (tvec[0] * p[0] + tvec[1] * p[1] + tvec[2] * p[2]) * inv;
+    if (u < -1e-5 || u > 1 + 1e-5) continue;
+    const q: Vec3 = [tvec[1] * ab[2] - tvec[2] * ab[1], tvec[2] * ab[0] - tvec[0] * ab[2], tvec[0] * ab[1] - tvec[1] * ab[0]];
+    const v = (dir[0] * q[0] + dir[1] * q[1] + dir[2] * q[2]) * inv;
+    if (v < -1e-5 || u + v > 1 + 1e-5) continue;
+    const t = (ac[0] * q[0] + ac[1] * q[1] + ac[2] * q[2]) * inv;
+    const z = origin[2] + dir[2] * t;
+    if (t > 1e-4 && z >= z0 - 1e-4 && z <= z1 + 1e-4) count += 1;
+  }
+  return count;
+}
+
+test("a moved floors exterior is the only shared opening", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-move-door-"));
+  try {
+    const floors = path.join(dir, "floors");
+    const models = path.join(dir, "models");
+    mkdirSync(floors);
+    mkdirSync(models);
+    writeFileSync(path.join(models, "door-1.glb"), writeGlb(
+      [{ name: "door", triangles: trianglesFromBox([0, 0, 0], [1, 2.1, 0.08]) }],
+      [{ name: "door", mesh: "door" }],
+    ));
+    const svg = path.join(dir, "plan.svg");
+    writeFileSync(svg, sceneSvg({ x: 5, y: 25, w: 10, h: 10 }, 0));
+    const bakeAt = (doorX: number) => {
+      writeFileSync(path.join(floors, "blk.floors.svg"), floorsSvg(doorX, 1, 6, { rooms: false }));
+      return bake({
+        svgPath: svg,
+        outPath: path.join(dir, "out", "buildings.placements.json"),
+        collisionDir: path.join(dir, "collision"),
+        modelsDir: models,
+        walls: WALLS,
+        floorsDir: floors,
+      });
+    };
+    const first = bakeAt(-0.5);
+    const second = bakeAt(1.5);
+    const opens = (lines: readonly string[]) => lines.filter((line) => line.startsWith("cut-open blk "));
+    const before = opens(first.lines);
+    const after = opens(second.lines);
+    assert.equal(before.length, 1, first.lines.join("\n"));
+    assert.equal(after.length, 1, second.lines.join("\n"));
+    assert.match(before[0]!, /id=B\.front /);
+    assert.match(before[0]!, /source=floors /);
+    assert.match(before[0]!, /blk\.floors\.svg/);
+    assert.match(after[0]!, /source=floors /);
+    const aabb = (line: string) => line.slice(line.indexOf("aabb="));
+    assert.notEqual(aabb(before[0]!), aabb(after[0]!));
+    assert.equal(after.some((line) => line.includes(aabb(before[0]!))), false);
+    assert.equal(first.lines.includes("cut-shared blk 1"), true);
+    assert.equal(second.lines.includes("cut-shared blk 1"), true);
+    assert.equal(second.doors.placements.length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a room door merged with an external is one shared opening", () => {
+  const staged = stage();
+  try {
+    const result = run(staged);
+    const opens = result.lines.filter((line) => line.startsWith("cut-open blk "));
+    assert.equal(opens.length, 1, result.lines.filter((line) => line.startsWith("cut-")).join("\n"));
+    assert.match(opens[0]!, /id=B\.front /);
+    assert.match(opens[0]!, /source=floors /);
+    assert.match(opens[0]!, /blk\.floors\.svg/);
+    assert.equal(result.lines.includes("cut-shared blk 1"), true);
+    assert.equal(result.lines.some((line) => line.startsWith("cut-open") && line.includes(".d1")), false);
+    assert.equal(result.rooms!.placements.some((item) => item.id === "B.r1.d1"), false);
+    assert.equal(result.doors.placements.filter((item) => item.id === "B.front").length, 1);
+  } finally {
+    rmSync(staged.dir, { recursive: true, force: true });
+  }
+});
+
 test("a scene with no floors dir writes no rooms files", () => {
   const staged = stage();
   try {
@@ -401,6 +653,185 @@ test("a scene with no floors dir writes no rooms files", () => {
   }
 });
 
+test("a copied stencil that fills its path uses the group scale, so the step meets the facade", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-align-"));
+  try {
+    const floors = path.join(dir, "floors");
+    const rooms = path.join(dir, "rooms");
+    mkdirSync(floors);
+    mkdirSync(rooms);
+    writeFileSync(path.join(floors, "blk.floors.svg"), alignFloors());
+    writeFileSync(path.join(rooms, "rm.room.json"), `${JSON.stringify({
+      formatVersion: 1,
+      units: "meters",
+      id: "rm",
+      glb: "rm.glb",
+      source: "svg",
+      footprint: { minX: -3, maxX: 3, minZ: -3, maxZ: 3 },
+      height: 3,
+      obstacles: [],
+      walkable: [],
+      holes: [],
+      doors: [],
+      props: [],
+      lights: [],
+    })}\n`);
+    const result = bake({
+      svgPath: writeScene(dir),
+      outPath: path.join(dir, "out", "buildings.placements.json"),
+      collisionDir: path.join(dir, "collision"),
+      floorsDir: floors,
+      roomsDir: rooms,
+      walls: { blk: trianglesFromBox([-0.5, 0, -0.5], [0.5, 3, 0.5]) },
+    });
+    const building = result.file.placements.find((item) => item.id === "B");
+    assert.ok(building);
+    assert.equal(building.scale, 10);
+    assert.deepEqual(building.position, [50, 0, 50]);
+    const meshWest = building.position[0] + -0.5 * building.scale;
+    const meshEast = building.position[0] + 0.5 * building.scale;
+    const meshSouth = building.position[2] + -0.5 * building.scale;
+    const meshNorth = building.position[2] + 0.5 * building.scale;
+    const stepBox = result.props.obstacles.find((item) => item.id === "B.step-box");
+    assert.ok(stepBox);
+    assert.ok(Math.abs(stepBox.max[0] - meshWest) < 1e-6, `step inner ${stepBox.max[0]} mesh ${meshWest}`);
+    const room = result.rooms?.placements.find((item) => item.id === "B.r1");
+    if (!room || !("scale" in room)) assert.fail("missing room placement");
+    assert.equal(room.scale, 1);
+    assert.ok(
+      room.position[0] - 3 > meshWest
+      && room.position[0] + 3 < meshEast
+      && room.position[2] - 3 > meshSouth
+      && room.position[2] + 3 < meshNorth,
+      `room outside shell mesh ${meshWest}..${meshEast}`,
+    );
+    const report = result.lines.find((line) => line.startsWith("B: measure "));
+    assert.ok(report, result.lines.join("\n"));
+    assert.match(report, /measure -0\.5\.\.0\.5 × -0\.5\.\.0\.5 \(1×1\)/);
+    assert.match(report, /stencil 1×1/);
+    assert.match(report, /drawn 10×10/);
+    assert.match(report, /scaleForPlacement 10 \(x 10 z 10\)/);
+    assert.match(report, /floors\.scale 10$/);
+    assert.equal(result.lines.some((line) => line.startsWith("warning:")), false, result.lines.join("\n"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an undersized copied stencil keeps the group scale and fails against the footprint", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-undersize-"));
+  try {
+    const floors = path.join(dir, "floors");
+    mkdirSync(floors);
+    writeFileSync(path.join(floors, "blk.floors.svg"), alignFloors());
+    assert.throws(
+      () => bake({
+        svgPath: writeScene(dir),
+        outPath: path.join(dir, "out", "buildings.placements.json"),
+        collisionDir: path.join(dir, "collision"),
+        floorsDir: floors,
+        walls: { blk: trianglesFromBox([-0.4, 0, -0.4], [0.4, 3, 0.4]) },
+      }),
+      (err: unknown) => {
+        const message = messageOf(err);
+        return /mesh differs from blk\.floors\.svg footprint at scale 10/.test(message)
+          && /mesh 8\u00d78 m, footprint 10\u00d710 m/.test(message)
+          && !/12\.5/.test(message);
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a mesh lip past the measure path warns per axis and keeps the group scale", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-lip-"));
+  try {
+    const floors = path.join(dir, "floors");
+    mkdirSync(floors);
+    const pathD = "M -0.5 0.2 L 0.5 0.2 L 0.5 -0.2 L -0.5 -0.2 Z";
+    writeFileSync(path.join(floors, "lip.floors.svg"), `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="40mm" height="40mm" viewBox="0 0 40 40">
+  <sodipodi:namedview inkscape:document-units="mm"/>
+  <g inkscape:groupmode="layer" inkscape:label="floor-1">
+    <g id="fp" data-model="lip" transform="matrix(30,0,0,30,0,0)"><path d="${pathD}"/></g>
+  </g>
+</svg>`);
+    const svg = path.join(dir, "plan.svg");
+    writeFileSync(svg, `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="100mm" height="100mm" viewBox="0 0 100 100">
+  <sodipodi:namedview inkscape:document-units="mm"/>
+  <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="yard" x="0" y="0" width="100" height="100"/></g>
+  <g inkscape:groupmode="layer" inkscape:label="buildings">
+    <g id="B" data-model="lip" transform="matrix(30 0 0 30 50 50)"><path d="${pathD}"/></g>
+  </g>
+</svg>`);
+    const result = bake({
+      svgPath: svg,
+      outPath: path.join(dir, "out", "buildings.placements.json"),
+      collisionDir: path.join(dir, "collision"),
+      floorsDir: floors,
+      walls: {
+        lip: [
+          ...trianglesFromBox([-0.5, 0, -0.2], [0.5, 1, 0.2]),
+          ...trianglesFromBox([-0.5, 0, -0.222], [0.5, 1, -0.2]),
+        ],
+      },
+    });
+    const building = result.file.placements.find((item) => item.id === "B");
+    assert.ok(building);
+    assert.equal(building.scale, 30);
+    const warn = result.lines.find((line) => line.includes("not the model's proportions"));
+    assert.ok(warn, result.lines.join("\n"));
+    assert.match(warn, /scale x 30 from drawn 30 \/ mesh 1/);
+    assert.match(warn, /z 28\.436 from drawn 12 \/ mesh 0\.422/);
+    assert.match(warn, /using group scale 30/);
+    const report = result.lines.find((line) => line.startsWith("B: measure "));
+    assert.ok(report, result.lines.join("\n"));
+    assert.match(report, /scaleForPlacement 30 \(x 30 z 28\.436019\)/);
+    assert.match(report, /floors\.scale 30$/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function alignFloors(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="20mm" height="20mm" viewBox="0 0 20 20">
+  <sodipodi:namedview inkscape:document-units="mm"/>
+  <g inkscape:groupmode="layer" inkscape:label="floor-1">
+    <g id="fp1" data-model="blk" transform="matrix(10,0,0,10,10,10)"><path d="M -0.5 -0.5 L 0.5 -0.5 L 0.5 0.5 L -0.5 0.5 Z"/></g>
+    <rect id="r1" inkscape:label="model:rm" x="7" y="7" width="6" height="6"/>
+  </g>
+  <g inkscape:groupmode="layer" inkscape:label="stairs-external">
+    <rect id="step" inkscape:label="model:step" x="4.6" y="9.5" width="0.4" height="1"/>
+  </g>
+</svg>`;
+}
+
+function writeScene(dir: string): string {
+  const svg = path.join(dir, "plan.svg");
+  writeFileSync(svg, `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     width="100mm" height="100mm" viewBox="0 0 100 100">
+  <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="yard" x="0" y="0" width="100" height="100"/></g>
+  <g inkscape:groupmode="layer" inkscape:label="buildings">
+    <g id="B" data-model="blk" transform="matrix(10 0 0 10 50 50)"><path d="M -0.5 -0.5 L 0.5 -0.5 L 0.5 0.5 L -0.5 0.5 Z"/></g>
+  </g>
+</svg>`);
+  return svg;
+}
+
 test("bake --help names --floors and --rooms", () => {
   const bin = path.join(import.meta.dirname, "..", "bin", "blueprint-scene");
   const cli = spawnSync(bin, ["bake", "--help"], { encoding: "utf8" });
@@ -409,11 +840,20 @@ test("bake --help names --floors and --rooms", () => {
   assert.match(cli.stdout, /--rooms/);
 });
 
-function floorsSvg(doorX: number, doorW: number, depth: number): string {
+function floorsSvg(
+  doorX: number,
+  doorW: number,
+  depth: number,
+  extras: { doors?: boolean; rooms?: boolean } = {},
+): string {
   const fp = (id: string, z: string) =>
     `<g id="${id}" data-model="blk" transform="matrix(10,0,0,10,0,0)" ${z}><path d="M 0 0 L 1 0 L 1 -1 Z"/></g>`;
-  const room = (id: string) =>
-    `<rect id="${id}" inkscape:label="model:rm" x="-3" y="-4.9" width="6" height="${depth}"/>`;
+  const room = (id: string) => extras.rooms === false
+    ? ""
+    : `<rect id="${id}" inkscape:label="model:rm" x="-3" y="-4.9" width="6" height="${depth}"/>`;
+  const door = extras.doors === false
+    ? ""
+    : `<rect id="front" inkscape:label="model:door-1" x="${doorX}" y="-5.2" width="${doorW}" height="0.2"/>`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
@@ -423,7 +863,7 @@ function floorsSvg(doorX: number, doorW: number, depth: number): string {
   <g inkscape:groupmode="layer" inkscape:label="floor-1">${fp("fp1", "")}${room("r1")}</g>
   <g inkscape:groupmode="layer" inkscape:label="floor-2">${fp("fp2", 'z="3"')}${room("r2")}</g>
   <g inkscape:groupmode="layer" inkscape:label="doors-external">
-    <rect id="front" inkscape:label="model:door-1" x="${doorX}" y="-5.2" width="${doorW}" height="0.2"/>
+    ${door}
   </g>
   <g inkscape:groupmode="layer" inkscape:label="stairs-external">
     <rect id="step" inkscape:label="model:step" x="2" y="-2" width="1" height="1"/>

@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { bake } from "../src/bake.ts";
-import { cutBuildingGlb, openingInModel } from "../src/building-mesh-cut.ts";
+import { cutBuildingGlb, extendSkinToFacade, meshProbe, openingInModel } from "../src/building-mesh-cut.ts";
 import { readTexturedGlb, type TexturedGlb } from "../src/glb.ts";
-import { writeMeshesGlb, writeTexturedGlb, type MeshPrimitive } from "../src/glb-write.ts";
+import { writeMeshesGlb, writeTexturedGlb, writeTriangleGlb, type MeshPrimitive } from "../src/glb-write.ts";
 import type { DoorPlacement, LocalBox, Triangle, Vec3 } from "../src/types.ts";
+import { trianglesFromBox } from "./boxes.ts";
 import { writeGlb } from "./glb-writer.ts";
 
 const PNG = Buffer.from(
@@ -35,6 +36,45 @@ test("openingInModel matches the door gap for a yaw-90 scale-30 building", () =>
   near(box.maxZ, box.minZ + 1.055523 / 30);
 });
 
+test("a skin short of the facade grows to that face and the cut misses it", () => {
+  const faceZ = 0.1334;
+  const cap = trianglesFromBox([-0.5, 0, faceZ], [0.5, 0.2, faceZ + 1e-4]);
+  const skin: LocalBox = {
+    minX: -0.2,
+    maxX: 0.2,
+    minY: 0.02,
+    maxY: 0.12,
+    minZ: 0.12,
+    maxZ: 0.1333,
+  };
+  const grown = extendSkinToFacade(cap, skin);
+  assert.ok(grown.maxZ >= faceZ, `maxZ ${grown.maxZ} did not reach the facade`);
+  assert.equal(grown.minX, skin.minX);
+  assert.equal(grown.maxX, skin.maxX);
+  assert.equal(grown.minY, skin.minY);
+  assert.equal(grown.maxY, skin.maxY);
+  assert.equal(grown.minZ, skin.minZ);
+
+  const beyond = extendSkinToFacade(trianglesFromBox([-0.5, 0, 0.2], [0.5, 0.2, 0.2001]), skin);
+  assert.equal(beyond.maxZ, skin.maxZ);
+
+  const near = trianglesFromBox([-0.5, 0, 0.1483], [0.5, 0.2, 0.1484]);
+  const hop = trianglesFromBox([-0.5, 0, 0.1633], [0.5, 0.2, 0.1634]);
+  const stopped = extendSkinToFacade([...near, ...hop], skin);
+  assert.ok(stopped.maxZ >= 0.1483, `maxZ ${stopped.maxZ}`);
+  assert.ok(stopped.maxZ < 0.16, `maxZ ${stopped.maxZ} walked past the reach`);
+
+  const thick: LocalBox = { ...skin, minZ: -0.05 };
+  const sliver = extendSkinToFacade(cap, thick);
+  assert.ok(sliver.maxZ >= faceZ, `thick maxZ ${sliver.maxZ}`);
+  const tooFar = extendSkinToFacade(trianglesFromBox([-0.5, 0, 0.15], [0.5, 0.2, 0.1501]), thick);
+  assert.equal(tooFar.maxZ, thick.maxZ);
+
+  const cut = triangles(cutBuildingGlb(writeTriangleGlb("facade", cap), [grown]));
+  assert.ok(rayHits(cap, [0, 0.07, -1], [0, 0, 1]) > 0);
+  assert.equal(rayHits(cut, [0, 0.07, -1], [0, 0, 1]), 0);
+});
+
 test("a textured slab loses the doorway and keeps the corner UV and the image", () => {
   const png = new Uint8Array(PNG);
   const source = slabGlb(png);
@@ -59,6 +99,22 @@ test("a textured slab loses the doorway and keeps the corner UV and the image", 
     .find((vertex) => Math.abs(vertex.position[0] - 0.5) < 1e-4 && Math.abs(vertex.position[2] - 0.5) < 1e-4);
   assert.ok(edge?.uv, "the cut did not split the face");
   near(edge.uv[0], (0.5 - -5) / 10);
+});
+
+test("two doorway openings are both a clean miss", () => {
+  const source = slabGlb(new Uint8Array(PNG));
+  const left: LocalBox = { minX: -3, maxX: -1, minY: 0.5, maxY: 2.2, minZ: -1, maxZ: 1 };
+  const right: LocalBox = { minX: 1, maxX: 3, minY: 0.5, maxY: 2.2, minZ: -1, maxZ: 1 };
+  const cut = cutBuildingGlb(source, [left, right]);
+  const tris = triangles(cut);
+  assert.equal(rayHits(tris, [-2, 1.2, -2], [0, 0, 1]), 0, "left doorway still hits");
+  assert.equal(rayHits(tris, [2, 1.2, -2], [0, 0, 1]), 0, "right doorway still hits");
+  assert.ok(rayHits(tris, [0, 1.2, -2], [0, 0, 1]) > 0, "the pier between the doorways was removed");
+  assert.ok(rayHits(tris, [-4.2, 1.2, -2], [0, 0, 1]) > 0, "the wall outside the left doorway was removed");
+  const probe = meshProbe(source);
+  assert.equal(probe.blocks(left, 2, 1), true);
+  assert.equal(meshProbe(cut).blocks(left, 2, 1), false);
+  assert.equal(meshProbe(cut).blocks(right, 2, 1), false);
 });
 
 test("a node translation is applied before the opening is cut", () => {
@@ -133,7 +189,7 @@ test("bake writes one cut glb for a shared external door and leaves the source",
       <rect id="hall" data-model="m" x="5" y="9.5" width="10" height="1"/>
     </g>
     <g inkscape:groupmode="layer" inkscape:label="doors">
-      <rect id="front" data-building="hall" inkscape:label="model:door-1" x="9" y="9.5" width="2" height="1"/>
+      <rect id="front" data-building="m" inkscape:label="model:door-1" x="9" y="9.5" width="2" height="1"/>
     </g>
   </svg>`);
   const result = bake({
@@ -177,7 +233,12 @@ test("bake writes one cut glb for a shared external door and leaves the source",
     modelsDir: dir,
   });
   assert.ok(second.lines.some((line) => line.includes("external doors are not on every placement")));
-  assert.ok(readFileSync(path.join(dir, "m.cut.glb")).equals(before));
+  assert.ok(second.lines.some((line) => line === "cut-shared m 0"));
+  const restored = readFileSync(path.join(dir, "m.cut.glb"));
+  assert.equal(restored.equals(before), false);
+  assert.ok(readFileSync(glbPath).equals(Buffer.from(source)));
+  assert.ok(rayHits(triangles(restored), [center[0], center[1], -2], [0, 0, 1]) > 0);
+  assert.ok(rayHits(triangles(restored), [center[0] - 3, center[1], -2], [0, 0, 1]) > 0);
 });
 
 function slabGlb(png: Uint8Array): Uint8Array {

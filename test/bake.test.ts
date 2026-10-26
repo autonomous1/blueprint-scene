@@ -6,7 +6,10 @@ import path from "node:path";
 import test from "node:test";
 import { bake } from "../src/bake.ts";
 import { PlanError } from "../src/errors.ts";
-import type { Obstacle, PlacementsFile, Vec3 } from "../src/types.ts";
+import { openingInModel } from "../src/building-mesh-cut.ts";
+import { readTexturedGlb } from "../src/glb.ts";
+import { writeMeshesGlb, type MeshPrimitive } from "../src/glb-write.ts";
+import type { Obstacle, PlacementsFile, Triangle, Vec3 } from "../src/types.ts";
 import { trianglesFromBox, trianglesFromWalls } from "./boxes.ts";
 import { writeGlb } from "./glb-writer.ts";
 
@@ -981,6 +984,208 @@ test("model:door-1 and model:door-2 are written, and a door with no model fails"
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("a model-scoped door opens every placement and a placement-scoped door opens one", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-scope-"));
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  const shell = (buildings: string, doors: string) => `<?xml version="1.0"?><svg ${ns} width="20mm" height="20mm" viewBox="0 0 20 20">
+    <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="room" x="0" y="0" width="20" height="20"/></g>
+    <g inkscape:groupmode="layer" inkscape:label="buildings">${buildings}</g>
+    <g inkscape:groupmode="layer" inkscape:label="doors">${doors}</g>
+  </svg>`;
+  const walls = { m: trianglesFromBox([-5, 0, -0.5], [5, 3, 0.5]) };
+  const two = `
+    <rect id="hall-a" data-model="m" x="5" y="9.5" width="10" height="1"/>
+    <rect id="hall-b" data-model="m" x="5" y="4.5" width="10" height="1"/>`;
+  const door = (building: string) =>
+    `<rect id="front" data-building="${building}" inkscape:label="model:door-1" x="9" y="9.5" width="2" height="1"/>`;
+  try {
+    const shared = path.join(dir, "shared.svg");
+    writeFileSync(shared, shell(two, door("m")));
+    const opened = bake({
+      svgPath: shared,
+      outPath: path.join(dir, "shared.placements.json"),
+      collisionDir: path.join(dir, "shared-buildings"),
+      modelsDir: dir,
+      walls,
+    });
+    assert.deepEqual(opened.doors.placements.map((item) => item.id), ["hall-a.front", "hall-b.front"]);
+    assert.equal(solidAt(opened.file.obstacles, [10, 1, 10]), false);
+    assert.equal(solidAt(opened.file.obstacles, [8.5, 1, 10]), true);
+    assert.equal(solidAt(opened.file.obstacles, [10, 1, 15]), false);
+    assert.equal(solidAt(opened.file.obstacles, [8.5, 1, 15]), true);
+    const [first, second] = opened.file.placements;
+    const [leafA, leafB] = opened.doors.placements;
+    assert.ok(first && second && leafA && leafB);
+    const holeA = openingInModel(leafA, first.position, first.yaw, first.scale);
+    const holeB = openingInModel(leafB, second.position, second.yaw, second.scale);
+    for (const key of ["minX", "maxX", "minY", "maxY", "minZ", "maxZ"] as const) {
+      assert.ok(Math.abs(holeA[key] - holeB[key]) < 1e-6, key);
+    }
+
+    const named = path.join(dir, "named.svg");
+    writeFileSync(named, shell(`
+      <rect id="m" data-model="m" x="5" y="9.5" width="10" height="1"/>
+      <rect id="m-b" data-model="m" x="5" y="4.5" width="10" height="1"/>`, door("m")));
+    const ambiguous = bake({
+      svgPath: named,
+      outPath: path.join(dir, "named.placements.json"),
+      collisionDir: path.join(dir, "named-buildings"),
+      modelsDir: dir,
+      walls,
+    });
+    assert.deepEqual(ambiguous.doors.placements.map((item) => item.id), ["m.front", "m-b.front"]);
+
+    const one = path.join(dir, "one.svg");
+    writeFileSync(one, shell(two, door("hall-a")));
+    const alone = bake({
+      svgPath: one,
+      outPath: path.join(dir, "one.placements.json"),
+      collisionDir: path.join(dir, "one-buildings"),
+      modelsDir: dir,
+      walls,
+    });
+    assert.deepEqual(alone.doors.placements.map((item) => item.id), ["front"]);
+    assert.equal(solidAt(alone.file.obstacles, [10, 1, 10]), false);
+    assert.equal(solidAt(alone.file.obstacles, [10, 1, 15]), true);
+    assert.equal(alone.lines.some((line) => line.includes(".cut.glb")), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a model-scoped opening is cut into the shared glb and a placement-scoped opening is not", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-scope-glb-"));
+  const png = new Uint8Array(Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  ));
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  const page = (doors: string) => `<?xml version="1.0"?><svg ${ns} width="30mm" height="30mm" viewBox="0 0 30 30">
+    <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="room" x="0" y="0" width="30" height="30"/></g>
+    <g inkscape:groupmode="layer" inkscape:label="buildings">
+      <rect id="hall-a" data-model="m" x="5" y="9.5" width="10" height="1"/>
+      <rect id="hall-b" data-model="m" x="5" y="14" width="10" height="1"/>
+    </g>
+    <g inkscape:groupmode="layer" inkscape:label="doors">${doors}</g>
+  </svg>`;
+  try {
+    writeFileSync(path.join(dir, "m.glb"), slabGlb(png));
+    const sharedSvg = path.join(dir, "shared.svg");
+    writeFileSync(sharedSvg, page(
+      `<rect id="front" data-building="m" inkscape:label="model:door-1" x="9" y="9.5" width="2" height="1"/>`,
+    ));
+    const shared = bake({
+      svgPath: sharedSvg,
+      outPath: path.join(dir, "shared.placements.json"),
+      collisionDir: path.join(dir, "shared-buildings"),
+      modelsDir: dir,
+    });
+    assert.deepEqual(shared.doors.placements.map((item) => item.id), ["hall-a.front", "hall-b.front"]);
+    assert.ok(shared.lines.some((line) => line.endsWith(`${path.sep}m.cut.glb`) || line.endsWith("/m.cut.glb")));
+    const cut = readFileSync(path.join(dir, "m.cut.glb"));
+    const door = shared.doors.placements[0];
+    const building = shared.file.placements[0];
+    assert.ok(door && building);
+    const opening = openingInModel(door, building.position, building.yaw, building.scale);
+    const center: Vec3 = [
+      (opening.minX + opening.maxX) / 2,
+      (opening.minY + opening.maxY) / 2,
+      (opening.minZ + opening.maxZ) / 2,
+    ];
+    const tris = glbTriangles(cut);
+    assert.equal(rayHits(tris, [center[0], center[1], -2], [0, 0, 1]), 0);
+    assert.ok(rayHits(tris, [center[0] - 3, center[1], -2], [0, 0, 1]) > 0);
+
+    const aloneDir = path.join(dir, "alone");
+    mkdirSync(aloneDir);
+    writeFileSync(path.join(aloneDir, "m.glb"), slabGlb(png));
+    const aloneSvg = path.join(dir, "alone.svg");
+    writeFileSync(aloneSvg, page(
+      `<rect id="front" data-building="hall-a" inkscape:label="model:door-1" x="9" y="9.5" width="2" height="1"/>`,
+    ));
+    const alone = bake({
+      svgPath: aloneSvg,
+      outPath: path.join(dir, "alone.placements.json"),
+      collisionDir: path.join(dir, "alone-buildings"),
+      modelsDir: aloneDir,
+    });
+    assert.deepEqual(alone.doors.placements.map((item) => item.id), ["front"]);
+    assert.equal(alone.lines.some((line) => line.includes(".cut.glb")), false);
+    assert.ok(alone.lines.some((line) => line.includes("external doors are not on every placement")));
+    assert.throws(() => readFileSync(path.join(aloneDir, "m.cut.glb")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function slabGlb(png: Uint8Array): Uint8Array {
+  const x0 = -5, x1 = 5, y0 = 0, y1 = 3, z0 = -0.5, z1 = 0.5;
+  const face = (
+    corners: ReadonlyArray<readonly [number, number, number, number, number]>,
+    normal: Vec3,
+  ): MeshPrimitive => ({
+    quads: true,
+    image: png,
+    corners: corners.map(([x, y, z, u, v]) => ({ position: [x, y, z], normal, uv: [u, v] })),
+  });
+  return writeMeshesGlb([{
+    name: "wall",
+    primitives: [
+      face([[x0, y0, z1, 0, 1], [x1, y0, z1, 1, 1], [x1, y1, z1, 1, 0], [x0, y1, z1, 0, 0]], [0, 0, 1]),
+      face([[x1, y0, z0, 0, 1], [x0, y0, z0, 1, 1], [x0, y1, z0, 1, 0], [x1, y1, z0, 0, 0]], [0, 0, -1]),
+      face([[x0, y0, z0, 0, 1], [x0, y0, z1, 1, 1], [x0, y1, z1, 1, 0], [x0, y1, z0, 0, 0]], [-1, 0, 0]),
+      face([[x1, y0, z1, 0, 1], [x1, y0, z0, 1, 1], [x1, y1, z0, 1, 0], [x1, y1, z1, 0, 0]], [1, 0, 0]),
+      face([[x0, y1, z1, 0, 1], [x1, y1, z1, 1, 1], [x1, y1, z0, 1, 0], [x0, y1, z0, 0, 0]], [0, 1, 0]),
+      face([[x0, y0, z0, 0, 1], [x1, y0, z0, 1, 1], [x1, y0, z1, 1, 0], [x0, y0, z1, 0, 0]], [0, -1, 0]),
+    ],
+  }]);
+}
+
+function glbTriangles(bytes: Uint8Array): Triangle[] {
+  const doc = readTexturedGlb(bytes);
+  const out: Triangle[] = [];
+  for (const mesh of doc.meshes) {
+    for (const primitive of mesh.primitives) {
+      for (let index = 0; index < primitive.indices.length; index += 3) {
+        const a = primitive.vertices[primitive.indices[index]!]?.position;
+        const b = primitive.vertices[primitive.indices[index + 1]!]?.position;
+        const c = primitive.vertices[primitive.indices[index + 2]!]?.position;
+        if (a && b && c) out.push([a, b, c]);
+      }
+    }
+  }
+  return out;
+}
+
+function rayHits(tris: readonly Triangle[], origin: Vec3, dir: Vec3): number {
+  let count = 0;
+  for (const [a, b, c] of tris) {
+    const ab: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac: Vec3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const p: Vec3 = [
+      dir[1] * ac[2] - dir[2] * ac[1],
+      dir[2] * ac[0] - dir[0] * ac[2],
+      dir[0] * ac[1] - dir[1] * ac[0],
+    ];
+    const det = ab[0] * p[0] + ab[1] * p[1] + ab[2] * p[2];
+    if (Math.abs(det) < 1e-10) continue;
+    const inv = 1 / det;
+    const tvec: Vec3 = [origin[0] - a[0], origin[1] - a[1], origin[2] - a[2]];
+    const u = (tvec[0] * p[0] + tvec[1] * p[1] + tvec[2] * p[2]) * inv;
+    if (u < -1e-6 || u > 1 + 1e-6) continue;
+    const q: Vec3 = [
+      tvec[1] * ab[2] - tvec[2] * ab[1],
+      tvec[2] * ab[0] - tvec[0] * ab[2],
+      tvec[0] * ab[1] - tvec[1] * ab[0],
+    ];
+    const v = (dir[0] * q[0] + dir[1] * q[1] + dir[2] * q[2]) * inv;
+    if (v < -1e-6 || u + v > 1 + 1e-6) continue;
+    const t = (ac[0] * q[0] + ac[1] * q[1] + ac[2] * q[2]) * inv;
+    if (t > 1e-6) count += 1;
+  }
+  return count;
+}
 
 test("a model with no GLB fails and writes nothing", () => {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-"));

@@ -1,5 +1,5 @@
 import { PlanError } from "./errors.ts";
-import type { DoorHinge, SceneDoor, SceneProp, SceneSpawn, Vec3, XzBounds, Yaw } from "./types.ts";
+import type { DoorHinge, SceneDoor, ScenePlace, SceneProp, SceneSpawn, Vec3, XzBounds, Yaw } from "./types.ts";
 import { attr, localName, parseXml, type XmlNode } from "./xml.ts";
 
 /**
@@ -16,9 +16,10 @@ export type PlanPlacement = {
   /**
    * Set when the placement is a copied `measure` stencil: a group holding the
    * stencil path. Its local origin is the model origin, so `origin` is where
-   * the GLB origin goes, and `scale` is the group's uniform transform scale in
-   * world meters per model unit. Bake uses these instead of the drawn center
-   * and the drawn size over the stencil extent.
+   * the GLB origin goes. `scale` is the group's uniform transform in metres
+   * per stencil unit. Bake keeps that origin and sets the model scale from
+   * the drawn size over the measured vertex bounds. That scale equals this
+   * one when one model unit is one stencil unit.
    */
   stencil?: { origin: Vec3; scale: number };
 };
@@ -89,6 +90,11 @@ export type PlanScene = {
   props: SceneProp[];
   spawns: SceneSpawn[];
   doors: SceneDoor[];
+  /**
+   * Walkable rooms, halls, and platforms. `readScene` leaves this empty.
+   * Bake fills it from floors files and room prefabs.
+   */
+  places: ScenePlace[];
 };
 
 /**
@@ -141,6 +147,21 @@ export function readPlacements(svgText: string): PlanPlacement[] {
   return readScene(svgText).placements;
 }
 
+/**
+ * `data-building` names a model when any placement uses that model. That
+ * includes a placement whose id is the same string: the opening is shared.
+ * Otherwise it must be exactly one placement id.
+ */
+export function classifyDoorBind(
+  building: string,
+  placements: readonly { id: string; model: string }[],
+  doorId: string,
+): "model" | "placement" {
+  if (placements.some((placement) => placement.model === building)) return "model";
+  if (placements.filter((placement) => placement.id === building).length === 1) return "placement";
+  throw new PlanError(`door "${doorId}" data-building "${building}" does not match a placement`);
+}
+
 export function readScene(svgText: string): PlanScene {
   const svg = parseXml(svgText);
   const collect: Collect = {
@@ -160,9 +181,7 @@ export function readScene(svgText: string): PlanScene {
   walk(svg, ident(), [], collect);
   if (collect.placements.length === 0) throw new PlanError("no building placements in the SVG");
   for (const door of collect.doors) {
-    if (!collect.ids.has(door.building)) {
-      throw new PlanError(`door "${door.id}" data-building "${door.building}" does not match a placement`);
-    }
+    door.bind = classifyDoorBind(door.building, collect.placements, door.id);
   }
   if (collect.bounds) {
     for (const spawn of collect.spawns) {
@@ -179,6 +198,7 @@ export function readScene(svgText: string): PlanScene {
     props: collect.props,
     spawns: collect.spawns,
     doors: collect.doors,
+    places: [],
   };
 }
 
@@ -646,9 +666,9 @@ function takeProp(el: XmlNode, matrix: Mat, collect: Collect): void {
 }
 
 /**
- * Door rectangle geometry. `building` is the caller's placement id (a plan
- * door's `data-building`, or a room's id). This does not claim ids and does
- * not read `data-building`.
+ * Door rectangle geometry. `building` is the caller's bind string: a plan
+ * door's `data-building` (model id or placement id), a floors door's model,
+ * or a room's id. This does not claim ids and does not read `data-building`.
  */
 export function doorFromElement(
   el: XmlNode,

@@ -285,6 +285,44 @@ export function cutDoorFromBoxes(
 }
 
 /**
+ * Door-local AABB of the solid `cutDoorFromBoxes` removes.
+ * Same hit rule: the wall must meet the hinge face, and the stamp extends
+ * out through a skin that stands proud of that face. Undefined when no wall
+ * is hit. The box is the union of those intersections, so its depth is the
+ * wall that was actually cut, not the 2 m inward stamp alone.
+ */
+export function doorCutLocal(
+  modelBoxes: readonly LocalBox[],
+  situated: SituatedDoor,
+  buildingPosition: Vec3,
+  buildingYaw: Yaw,
+): LocalBox | undefined {
+  const { placement, opening } = situated;
+  let hole: LocalBox | undefined;
+  for (const box of modelBoxes) {
+    const wallWorld = placeBox(box, buildingPosition, buildingYaw);
+    const wallLocal = toLocalBox(wallWorld, placement.position, placement.yaw);
+    if (!onDoorWall(wallLocal)) continue;
+    const through: LocalBox = { ...opening, maxZ: Math.max(opening.maxZ, wallLocal.maxZ) };
+    const hit = intersectBox(wallLocal, through);
+    if (!hit) continue;
+    hole = hole ? unionBox(hole, hit) : hit;
+  }
+  return hole;
+}
+
+function unionBox(a: LocalBox, b: LocalBox): LocalBox {
+  return {
+    minX: Math.min(a.minX, b.minX),
+    maxX: Math.max(a.maxX, b.maxX),
+    minY: Math.min(a.minY, b.minY),
+    maxY: Math.max(a.maxY, b.maxY),
+    minZ: Math.min(a.minZ, b.minZ),
+    maxZ: Math.max(a.maxZ, b.maxZ),
+  };
+}
+
+/**
  * Door frame: the face is z = 0 and −Z is inward. The box's outer side is
  * within `DOOR_FACE_TOL_M` of the face, and the box reaches the face plane
  * (a skin standing proud of it counts, a column in front of it does not).

@@ -2,7 +2,7 @@ import { doorClearLocal } from "./doors.ts";
 import { PlanError } from "./errors.ts";
 import { readTexturedGlb, type TexturedGlb, type TexturedPrimitive, type TexturedVertex } from "./glb.ts";
 import { writeTexturedGlb } from "./glb-write.ts";
-import type { DoorPlacement, LocalBox, Vec3, Yaw } from "./types.ts";
+import type { DoorPlacement, LocalBox, Triangle, Vec3, Yaw } from "./types.ts";
 import { inverseYaw, transformXz } from "./yaw.ts";
 
 /**
@@ -35,17 +35,32 @@ export function openingInModel(
   buildingYaw: Yaw,
   buildingScale: number,
 ): LocalBox {
+  return boxInModel(placement, doorClearLocal(placement), buildingPosition, buildingYaw, buildingScale);
+}
+
+/**
+ * `local` is in the door frame (`doorClearLocal`: hinge at the origin, −Z
+ * inward). Eight corners go door → world → model. Cardinal yaw keeps an AABB.
+ * `openingInModel` is this for the 2 m inward stamp. A wall cut passes the
+ * thicker box `doorCutLocal` measured, so the punch includes the proud face.
+ */
+export function boxInModel(
+  placement: DoorPlacement,
+  local: LocalBox,
+  buildingPosition: Vec3,
+  buildingYaw: Yaw,
+  buildingScale: number,
+): LocalBox {
   if (!(buildingScale > 0)) throw new PlanError("building scale must be positive");
-  const gap = doorClearLocal(placement);
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
   let minZ = Infinity;
   let maxZ = -Infinity;
-  for (const x of [gap.minX, gap.maxX]) {
-    for (const y of [gap.minY, gap.maxY]) {
-      for (const z of [gap.minZ, gap.maxZ]) {
+  for (const x of [local.minX, local.maxX]) {
+    for (const y of [local.minY, local.maxY]) {
+      for (const z of [local.minZ, local.maxZ]) {
         const world = doorToWorld(placement, x, y, z);
         const model = worldToModel(world, buildingPosition, buildingYaw, buildingScale);
         if (model[0] < minX) minX = model[0];
@@ -61,6 +76,212 @@ export function openingInModel(
 }
 
 /**
+ * A collision skin thinner than this, in model units, may stop short of the
+ * facade. 0.02 is 0.6 m on a scale-30 building. A thicker axis is the door
+ * width or the full wall.
+ */
+const SKIN_M = 0.02;
+
+/**
+ * How far past a thin skin a center-ray hit may pull the punch, in model
+ * units. Measured from the original face, so a stack of skins cannot walk
+ * further than this. A wall metres further is not included.
+ */
+const SKIN_REACH_M = 0.02;
+
+/**
+ * A through-cut already spans the wall, but the facade vertex can still sit
+ * a fraction of a millimetre outside that face. 0.002 is 6 cm at scale 30.
+ */
+const FACADE_SLIVER_M = 0.002;
+
+/**
+ * Grow `box` out to a mesh face the doorway center actually hits. A thin
+ * axis may reach `SKIN_REACH_M`. Any axis may reach `FACADE_SLIVER_M`, so a
+ * punch that stops just short of the facade removes that face. The door
+ * width is not grown out to the next wall.
+ */
+export function extendSkinToFacade(triangles: readonly Triangle[], box: LocalBox): LocalBox {
+  const min = [box.minX, box.minY, box.minZ];
+  const max = [box.maxX, box.maxY, box.maxZ];
+  for (const axis of [0, 1, 2] as const) {
+    const startMin = min[axis]!;
+    const startMax = max[axis]!;
+    const reach = startMax - startMin < SKIN_M ? SKIN_REACH_M : FACADE_SLIVER_M;
+    const origin: Vec3 = [
+      (min[0]! + max[0]!) / 2,
+      (min[1]! + max[1]!) / 2,
+      (min[2]! + max[2]!) / 2,
+    ];
+    origin[axis] = startMin - 1;
+    const dir: Vec3 = [0, 0, 0];
+    dir[axis] = 1;
+    for (const at of axisHits(triangles, origin, dir, axis)) {
+      if (at < startMin && startMin - at <= reach) {
+        const pulled = at - PLANE_EPS;
+        if (pulled < min[axis]!) min[axis] = pulled;
+      }
+      if (at > startMax && at - startMax <= reach) {
+        const pulled = at + PLANE_EPS;
+        if (pulled > max[axis]!) max[axis] = pulled;
+      }
+    }
+  }
+  return {
+    minX: min[0]!,
+    maxX: max[0]!,
+    minY: min[1]!,
+    maxY: max[1]!,
+    minZ: min[2]!,
+    maxZ: max[2]!,
+  };
+}
+
+function axisHits(triangles: readonly Triangle[], origin: Vec3, dir: Vec3, axis: 0 | 1 | 2): number[] {
+  const hits: number[] = [];
+  for (const [a, b, c] of triangles) {
+    const ab: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac: Vec3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const p: Vec3 = [
+      dir[1] * ac[2] - dir[2] * ac[1],
+      dir[2] * ac[0] - dir[0] * ac[2],
+      dir[0] * ac[1] - dir[1] * ac[0],
+    ];
+    const det = ab[0] * p[0] + ab[1] * p[1] + ab[2] * p[2];
+    if (Math.abs(det) < 1e-12) continue;
+    const inv = 1 / det;
+    const tvec: Vec3 = [origin[0] - a[0], origin[1] - a[1], origin[2] - a[2]];
+    const u = (tvec[0] * p[0] + tvec[1] * p[1] + tvec[2] * p[2]) * inv;
+    if (u < -1e-5 || u > 1 + 1e-5) continue;
+    const q: Vec3 = [
+      tvec[1] * ab[2] - tvec[2] * ab[1],
+      tvec[2] * ab[0] - tvec[0] * ab[2],
+      tvec[0] * ab[1] - tvec[1] * ab[0],
+    ];
+    const v = (dir[0] * q[0] + dir[1] * q[1] + dir[2] * q[2]) * inv;
+    if (v < -1e-5 || u + v > 1 + 1e-5) continue;
+    const t = (ac[0] * q[0] + ac[1] * q[1] + ac[2] * q[2]) * inv;
+    if (t <= 1e-4) continue;
+    hits.push(origin[axis] + dir[axis] * t);
+  }
+  return hits;
+}
+
+/**
+ * Source triangles that are not strictly outside `opening`, one count per
+ * opening. A triangle that only touches the box from the outside is not
+ * counted. The bake logs this as the triangles the punch removes.
+ */
+export function openingOverlapCounts(bytes: Uint8Array, openings: readonly LocalBox[]): number[] {
+  const doc = readTexturedGlb(bytes);
+  const tris: Vert[][] = [];
+  for (const mesh of doc.meshes) {
+    for (const primitive of mesh.primitives) {
+      for (let index = 0; index < primitive.indices.length; index += 3) {
+        const a = vertexAt(primitive, primitive.indices[index]!);
+        const b = vertexAt(primitive, primitive.indices[index + 1]!);
+        const c = vertexAt(primitive, primitive.indices[index + 2]!);
+        tris.push([a, b, c]);
+      }
+    }
+  }
+  return openings.map((opening) => tris.reduce((count, tri) => count + (disjoint(tri, opening) ? 0 : 1), 0));
+}
+
+export type MeshProbe = {
+  /** Highest vertex in the mesh, metres in the same space as `openingInModel`. */
+  maxY: number;
+  /**
+   * True when a ray along `axis` in `direction` through the opening hits a
+   * triangle inside the box. Samples are the inner 3×3 of the other two axes,
+   * so a doorway that is already a hole is clear and a facade quad is not.
+   */
+  blocks(opening: LocalBox, axis: 0 | 2, direction: -1 | 1): boolean;
+};
+
+/**
+ * Triangles of a textured GLB in `openingInModel` space, for doorway probes.
+ * One parse serves every instance of a shared room mesh.
+ */
+export function meshProbe(bytes: Uint8Array): MeshProbe {
+  const doc = readTexturedGlb(bytes);
+  const tris: Triangle[] = [];
+  let maxY = 0;
+  for (const mesh of doc.meshes) {
+    for (const primitive of mesh.primitives) {
+      for (let index = 0; index < primitive.indices.length; index += 3) {
+        const a = primitive.vertices[primitive.indices[index]!]?.position;
+        const b = primitive.vertices[primitive.indices[index + 1]!]?.position;
+        const c = primitive.vertices[primitive.indices[index + 2]!]?.position;
+        if (!a || !b || !c) continue;
+        tris.push([a, b, c]);
+        for (const point of [a, b, c]) if (point[1] > maxY) maxY = point[1];
+      }
+    }
+  }
+  return {
+    maxY,
+    blocks(opening, axis, direction) {
+      const min = [opening.minX, opening.minY, opening.minZ];
+      const max = [opening.maxX, opening.maxY, opening.maxZ];
+      const other = [0, 1, 2].filter((item) => item !== axis);
+      for (const u of [0.35, 0.5, 0.65]) {
+        for (const v of [0.35, 0.5, 0.65]) {
+          const origin: Vec3 = [0, 0, 0];
+          origin[other[0]!] = min[other[0]!]! + (max[other[0]!]! - min[other[0]!]!) * u;
+          origin[other[1]!] = min[other[1]!]! + (max[other[1]!]! - min[other[1]!]!) * v;
+          origin[axis] = direction > 0 ? min[axis]! - 0.5 : max[axis]! + 0.5;
+          const dir: Vec3 = [0, 0, 0];
+          dir[axis] = direction;
+          if (rayHitsBox(tris, origin, dir, min, max)) return true;
+        }
+      }
+      return false;
+    },
+  };
+}
+
+function rayHitsBox(
+  tris: readonly Triangle[],
+  origin: Vec3,
+  dir: Vec3,
+  min: readonly number[],
+  max: readonly number[],
+): boolean {
+  for (const [a, b, c] of tris) {
+    const ab: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac: Vec3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const p: Vec3 = [
+      dir[1] * ac[2] - dir[2] * ac[1],
+      dir[2] * ac[0] - dir[0] * ac[2],
+      dir[0] * ac[1] - dir[1] * ac[0],
+    ];
+    const det = ab[0] * p[0] + ab[1] * p[1] + ab[2] * p[2];
+    if (Math.abs(det) < 1e-10) continue;
+    const inv = 1 / det;
+    const tvec: Vec3 = [origin[0] - a[0], origin[1] - a[1], origin[2] - a[2]];
+    const u = (tvec[0] * p[0] + tvec[1] * p[1] + tvec[2] * p[2]) * inv;
+    if (u < -1e-5 || u > 1 + 1e-5) continue;
+    const q: Vec3 = [
+      tvec[1] * ab[2] - tvec[2] * ab[1],
+      tvec[2] * ab[0] - tvec[0] * ab[2],
+      tvec[0] * ab[1] - tvec[1] * ab[0],
+    ];
+    const v = (dir[0] * q[0] + dir[1] * q[1] + dir[2] * q[2]) * inv;
+    if (v < -1e-5 || u + v > 1 + 1e-5) continue;
+    const t = (ac[0] * q[0] + ac[1] * q[1] + ac[2] * q[2]) * inv;
+    if (t <= 1e-4) continue;
+    const hit: Vec3 = [origin[0] + dir[0] * t, origin[1] + dir[1] * t, origin[2] + dir[2] * t];
+    let inside = true;
+    for (let axis = 0; axis < 3; axis += 1) {
+      if (hit[axis]! < min[axis]! - 1e-3 || hit[axis]! > max[axis]! + 1e-3) inside = false;
+    }
+    if (inside) return true;
+  }
+  return false;
+}
+
+/**
  * Punch `openings` out of a textured building GLB. Each opening is an AABB in
  * the mesh's model space. Triangles that miss an opening keep their vertices.
  * A triangle that crosses one is split; UVs and normals are barycentric on
@@ -72,6 +293,16 @@ export function cutBuildingGlb(bytes: Uint8Array, openings: readonly LocalBox[])
   const doc = readTexturedGlb(bytes);
   const cut = cutTexturedGlb(doc, openings);
   return writeTexturedGlb(cut);
+}
+
+/**
+ * Source mesh in the cut-file form: node transforms baked, identity nodes,
+ * no door punches. `cutBuildingGlb` with an empty list returns `bytes`
+ * unchanged, which would keep a source node's scale. A stale `.cut.glb`
+ * has to be replaced with this instead.
+ */
+export function uncutBuildingGlb(bytes: Uint8Array): Uint8Array {
+  return writeTexturedGlb(readTexturedGlb(bytes));
 }
 
 function cutTexturedGlb(doc: TexturedGlb, openings: readonly LocalBox[]): TexturedGlb {
