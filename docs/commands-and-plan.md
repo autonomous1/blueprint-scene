@@ -145,7 +145,7 @@ blueprint-scene bake --svg plan.svg --models ./models --out web/game/buildings.p
 | Flag | Required | Meaning |
 | --- | --- | --- |
 | `--svg` | yes | Inkscape plan. |
-| `--out` | yes | Buildings placements JSON. `bounds.json`, `props.placements.json`, `spawn-points.json`, and `doors.placements.json` are written in the same directory. |
+| `--out` | yes | Buildings placements JSON. `bounds.json`, `props.placements.json`, `spawn-points.json`, `player-spawns.json`, and `doors.placements.json` are written in the same directory. |
 | `--models` | no | Directory of `<id>.glb`. Default is `web/assets/models` relative to the working directory. |
 | `--mesh-prefix` | no | When set, keep a mesh whose mesh or node name starts with this prefix, or whose mesh or node `extras.collision` is `true`. Omit it to use every triangle mesh. |
 | `--game` | no | `arena.game.json`. Each placement `type` is copied from that asset's `type`. An asset with no type omits the field. Type is not an Inkscape label. When omitted, `web/game/arena.game.json` is used if that file is in the working directory. The bake does not write this file. A second bake writes the same type. |
@@ -173,6 +173,7 @@ wrote web/game/buildings.placements.json
 wrote web/game/bounds.json
 wrote web/game/props.placements.json
 wrote web/game/spawn-points.json
+wrote web/game/player-spawns.json
 wrote web/game/doors.placements.json
 wrote buildings/brutalist-urban-1.collision.json
 ```
@@ -216,6 +217,7 @@ The same `scale` is what the arena applies to the mesh. The bake does not write 
 ```json
 "bounds": "./web/game/bounds.json",
 "spawnPoints": "./web/game/spawn-points.json",
+"playerSpawnPoints": "./web/game/player-spawns.json",
 "placements": [
   "./web/game/buildings.placements.json",
   "./web/game/props.placements.json"
@@ -353,7 +355,7 @@ An Inkscape layer is a group with `inkscape:groupmode="layer"`. The layer name i
 </g>
 ```
 
-`south-facade` and `north-facade` are placements. `hidden` is dropped because its layer is `ignore`. A rectangle with neither `data-model` nor a `model:` label is decoration, on any layer. A rectangle on `bounds` is the room: the layer must exist and must contain one rectangle, and the bake does not infer the room from the buildings. `data-min-y` and `data-max-y` on that rectangle replace the default vertical span of `-2` and `12`. A rectangle on `props` with `data-model` or `model:<id>` is a prop. Its placement scale is the uniform SVG scale. Its obstacle (`<id>-box`) is the GLB bounds after that position, yaw, and scale. A missing GLB uses the rectangle. The pawn radius is not added. A rectangle on `doors` with `data-building` is a door. The value is a model id (every placement of that model) or one placement id, and it also needs `data-model` or a `model:` label. A `text`, `path`, or small `rect` on `spawn-points` is a spawn. Yaw comes from that element's transform, or `0` when it is not rotated. A spawn outside the bounds rectangle fails the bake. Those layers use the same toolbar mapping as a building. Layers named `notes`, guides, and anything else are decoration. `defs`, `metadata`, and `sodipodi:namedview` are skipped.
+`south-facade` and `north-facade` are placements. `hidden` is dropped because its layer is `ignore`. A rectangle with neither `data-model` nor a `model:` label is decoration, on any layer. A rectangle on `bounds` is the room: the layer must exist and must contain one rectangle, and the bake does not infer the room from the buildings. `data-min-y` and `data-max-y` on that rectangle replace the default vertical span of `-2` and `12`. A rectangle on `props` with `data-model` or `model:<id>` is a prop. Its placement scale is the uniform SVG scale. Its obstacle (`<id>-box`) is the GLB bounds after that position, yaw, and scale. A missing GLB uses the rectangle. The pawn radius is not added. A rectangle on `doors` with `data-building` is a door. The value is a model id (every placement of that model) or one placement id, and it also needs `data-model` or a `model:` label. A `text`, `path`, or small `rect` on `spawn-points` is a spawn. Yaw comes from that element's transform, or `0` when it is not rotated. A spawn outside the bounds rectangle fails the bake. A `text`, `path`, or small `rect` on `player-spawns` is a human pad. It is written to `player-spawns.json` as `{ id, x, y: 0, z, yaw }` and is not copied into `spawn-points.json`. A player pad outside the bounds rectangle fails the bake. Those layers use the same toolbar mapping as a building. Layers named `notes`, guides, and anything else are decoration. `defs`, `metadata`, and `sodipodi:namedview` are skipped.
 
 A tagged group is one placement. The bake does not also emit the rectangles inside it. Put `data-model` on the group you duplicated, not on those inner rectangles. Inner rectangles that themselves carry `data-model`, and that are not inside an already tagged group, are separate placements and need their own ids.
 

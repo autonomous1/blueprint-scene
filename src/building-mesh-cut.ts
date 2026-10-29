@@ -96,6 +96,100 @@ const SKIN_REACH_M = 0.02;
 const FACADE_SLIVER_M = 0.002;
 
 /**
+ * Visual punch depth, in world metres. A collision box can run the whole
+ * model; the mesh cut keeps every face within this of the door face.
+ * A face further away is another wall and is not punched.
+ */
+const WALL_SLAB_M = 1;
+
+/**
+ * Door-local cut volume in model space, shrunk to the wall slab on the
+ * door normal, then grown onto a facade face it only just misses.
+ * `depth` is that slab's extent in world metres.
+ * The face is door-local z = 0. Inward is −Z. A hit more than
+ * `WALL_SLAB_M` from the face is left in the mesh.
+ */
+export function sealedOpeningBox(
+  triangles: readonly Triangle[],
+  placement: DoorPlacement,
+  local: LocalBox,
+  buildingPosition: Vec3,
+  buildingYaw: Yaw,
+  buildingScale: number,
+): { box: LocalBox; depth: number; axis: 0 | 2 } {
+  const raw = boxInModel(placement, local, buildingPosition, buildingYaw, buildingScale);
+  const frame = depthFrame(placement, local, buildingPosition, buildingYaw, buildingScale);
+  const clamped = clampToWallSlab(triangles, raw, frame, buildingScale);
+  const box = extendSkinToFacade(triangles, clamped);
+  const span = frame.axis === 0 ? box.maxX - box.minX : box.maxZ - box.minZ;
+  return { box, depth: Math.abs(span * buildingScale), axis: frame.axis };
+}
+
+/**
+ * Model axis of the door normal, and the door-face coordinate on it.
+ * Cardinal yaw keeps the normal on X or Z.
+ */
+function depthFrame(
+  placement: DoorPlacement,
+  local: LocalBox,
+  buildingPosition: Vec3,
+  buildingYaw: Yaw,
+  buildingScale: number,
+): { axis: 0 | 2; face: number } {
+  const faceWorld = doorToWorld(placement, (local.minX + local.maxX) / 2, (local.minY + local.maxY) / 2, 0);
+  const faceModel = worldToModel(faceWorld, buildingPosition, buildingYaw, buildingScale);
+  const inwardWorld = transformXz(0, -1, placement.yaw);
+  const inwardModel = transformXz(inwardWorld.x, inwardWorld.z, inverseYaw(buildingYaw));
+  const axis: 0 | 2 = Math.abs(inwardModel.x) >= Math.abs(inwardModel.z) ? 0 : 2;
+  return { axis, face: faceModel[axis]! };
+}
+
+/**
+ * Replace the depth span of `box` with the mesh slab at `frame.face`.
+ * No hit within `WALL_SLAB_M` leaves a sliver on the face, so the punch
+ * cannot run out to a facade several metres away.
+ */
+function clampToWallSlab(
+  triangles: readonly Triangle[],
+  box: LocalBox,
+  frame: { axis: 0 | 2; face: number },
+  scale: number,
+): LocalBox {
+  const { axis, face } = frame;
+  const limit = WALL_SLAB_M / scale;
+  const min = [box.minX, box.minY, box.minZ];
+  const max = [box.maxX, box.maxY, box.maxZ];
+  const origin: Vec3 = [
+    (min[0]! + max[0]!) / 2,
+    (min[1]! + max[1]!) / 2,
+    (min[2]! + max[2]!) / 2,
+  ];
+  origin[axis] = face - limit - 1;
+  const dir: Vec3 = [0, 0, 0];
+  dir[axis] = 1;
+  const hits = axisHits(triangles, origin, dir, axis).filter((hit) => Math.abs(hit - face) <= limit + 1e-6);
+  let lo: number;
+  let hi: number;
+  if (hits.length === 0) {
+    lo = face - FACADE_SLIVER_M;
+    hi = face + FACADE_SLIVER_M;
+  } else {
+    lo = Math.min(...hits) - FACADE_SLIVER_M;
+    hi = Math.max(...hits) + FACADE_SLIVER_M;
+  }
+  min[axis] = lo;
+  max[axis] = hi;
+  return {
+    minX: min[0]!,
+    maxX: max[0]!,
+    minY: min[1]!,
+    maxY: max[1]!,
+    minZ: min[2]!,
+    maxZ: max[2]!,
+  };
+}
+
+/**
  * Grow `box` out to a mesh face the doorway center actually hits. A thin
  * axis may reach `SKIN_REACH_M`. Any axis may reach `FACADE_SLIVER_M`, so a
  * punch that stops just short of the facade removes that face. The door

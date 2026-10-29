@@ -146,8 +146,11 @@ export function readFloorsSvg(svgText: string): FloorsSource {
         scope = { kind: "floor", floor };
       } else if (kind.kind === "doors") {
         scope = { kind: "doors" };
-      } else {
+      } else if (kind.kind === "stairs") {
         scope = { kind: "stairs" };
+      } else if (kind.kind === "floor-texture") {
+        // TODO: collect data-tile-m paths for floor kind.n
+        return;
       }
     } else if (isLayer && label === "ignore") {
       return;
@@ -159,7 +162,7 @@ export function readFloorsSvg(svgText: string): FloorsSource {
       if (platform && (name === "rect" || name === "path")) {
         claim(platform);
         scope.floor.platforms.push({ el, matrix });
-      } else if (name === "g" && stencilPose(el, matrix, frame) && taggedModel(el)) {
+      } else if ((name === "g" || name === "path") && stencilPose(el, matrix, frame) && taggedModel(el)) {
         scope.floor.stencils.push({ el, matrix });
       } else if (name === "rect") {
         const tagged = taggedModel(el);
@@ -332,16 +335,30 @@ function aabbPolygon(points: Array<{ x: number; z: number }>, id: string): Array
   return [[minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]];
 }
 
-function classifyLayer(label: string): { kind: "floor"; n: number } | { kind: "doors" } | { kind: "stairs" } | { kind: "ignore" } {
+function classifyLayer(
+  label: string,
+):
+  | { kind: "floor"; n: number }
+  | { kind: "floor-texture"; n: number }
+  | { kind: "doors" }
+  | { kind: "stairs" }
+  | { kind: "ignore" } {
   if (label === "doors-external") return { kind: "doors" };
   if (label === "stairs-external") return { kind: "stairs" };
   if (label === "ignore") return { kind: "ignore" };
+  const texture = /^floor-(\d+)-texture$/.exec(label);
+  if (texture) {
+    const n = Number(texture[1]);
+    if (Number.isInteger(n) && n >= 1) return { kind: "floor-texture", n };
+  }
   const match = /^floor-(\d+)$/.exec(label);
   if (match) {
     const n = Number(match[1]);
     if (Number.isInteger(n) && n >= 1) return { kind: "floor", n };
   }
-  throw new PlanError(`floors file layer "${label}" is not floor-<n>, doors-external, stairs-external or ignore`);
+  throw new PlanError(
+    `floors file layer "${label}" is not floor-<n>, floor-<n>-texture, doors-external, stairs-external or ignore`,
+  );
 }
 
 function floorPose(floor: FloorAcc, frame: ReturnType<typeof pageFrame>): Pose {

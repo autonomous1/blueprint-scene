@@ -66,6 +66,7 @@ export function derivePlaces(args: {
     const source = args.floorsFor(building.model);
     if (!source) continue;
     if (footprintScaleOff(building, source, args.measures?.get(building.model))) {
+      console.log(`building "${building.id}" scale ${building.scale} differs from ${building.model}.floors.svg scale ${source.scale}`);
       throw new PlanError(
         `building "${building.id}" scale ${building.scale} differs from ${building.model}.floors.svg scale ${source.scale}`,
       );

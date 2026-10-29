@@ -394,6 +394,67 @@ test("each layer is its own file, and a toolbar square at -24 stays at -24", () 
     assert.throws(() => readFileSync(missed));
     const kept = JSON.parse(readFileSync(path.join(dir, "spawn-points.json"), "utf8")) as Array<{ id: string }>;
     assert.deepEqual(kept.map((spawn) => spawn.id), ["cross", "corner"]);
+    assert.deepEqual(result.playerSpawns, []);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(dir, "player-spawns.json"), "utf8")), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("player-spawns and spawn-points write two files and do not cross", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-player-spawns-"));
+  const svg = path.join(dir, "room.svg");
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"`;
+  const page = `<?xml version="1.0"?><svg ${ns} width="48mm" height="48mm" viewBox="0 0 48 48">
+      <g inkscape:groupmode="layer" inkscape:label="bounds">
+        <rect id="room" x="-24" y="24" width="48" height="48"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="buildings">
+        <rect id="origin" data-model="m" x="-0.5" y="47.5" width="1" height="1"/>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="spawn-points">
+        <text id="npc" x="-10" y="58">x</text>
+      </g>
+      <g inkscape:groupmode="layer" inkscape:label="player-spawns">
+        <text id="human" x="6" y="40">x</text>
+      </g>
+    </svg>`;
+  try {
+    writeFileSync(svg, page);
+    const outPath = path.join(dir, "buildings.placements.json");
+    const result = bake({
+      svgPath: svg,
+      outPath,
+      collisionDir: path.join(dir, "buildings"),
+      walls: { m: trianglesFromBox([-0.5, 0, -0.5], [0.5, 1, 0.5]) },
+    });
+    const npc = JSON.parse(readFileSync(path.join(dir, "spawn-points.json"), "utf8")) as Array<{ id: string; x: number; z: number }>;
+    const human = JSON.parse(readFileSync(path.join(dir, "player-spawns.json"), "utf8")) as Array<{
+      id: string; x: number; y: number; z: number; yaw: number;
+    }>;
+    assert.deepEqual(npc.map((spawn) => spawn.id), ["npc"]);
+    assert.deepEqual(human, [{ id: "human", x: 6, y: 0, z: 8, yaw: 0 }]);
+    assert.deepEqual(result.spawns, [{ id: "npc", x: -10, y: 0, z: -10, yaw: 0 }]);
+    assert.deepEqual(result.playerSpawns, human);
+    assert.equal(npc.some((spawn) => spawn.id === "human"), false);
+    assert.equal(human.some((spawn) => spawn.id === "npc"), false);
+
+    const outside = path.join(dir, "outside.svg");
+    writeFileSync(outside, page.replace(
+      `<text id="human" x="6" y="40">x</text>`,
+      `<text id="human" x="6" y="40">x</text><text id="out" x="30" y="48">x</text>`,
+    ));
+    assert.throws(
+      () => bake({
+        svgPath: outside,
+        outPath: path.join(dir, "missed.placements.json"),
+        collisionDir: path.join(dir, "missed-buildings"),
+        walls: { m: trianglesFromBox([-0.5, 0, -0.5], [0.5, 1, 0.5]) },
+      }),
+      /player spawn "out" is outside the bounds rectangle/,
+    );
+    const kept = JSON.parse(readFileSync(path.join(dir, "player-spawns.json"), "utf8")) as Array<{ id: string }>;
+    assert.deepEqual(kept.map((spawn) => spawn.id), ["human"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { stampPlacement } from "./asset-type.ts";
-import { DOOR_FACE_TOL_M, cutDoorFromBoxes, doorCutLocal, situateDoor, type SituatedDoor } from "./doors.ts";
+import { DOOR_FACE_TOL_M, cutDoorFromBoxes, doorCutLocal, situateDoor, subtractBox, type SituatedDoor } from "./doors.ts";
 import { PlanError } from "./errors.ts";
-import { readFloorsSvg, type RoomInstanceSource } from "./floors-svg.ts";
+import { readFloorsSvg, type FloorsSource, type RoomInstanceSource } from "./floors-svg.ts";
 import { ID_RE } from "./plan.ts";
 import { WALL_T, type RoomDoor, type RoomFile, type RoomLight } from "./room-file.ts";
 import { wallLine, type WallFace } from "./room-svg.ts";
@@ -90,6 +90,62 @@ export type FloorBake = {
   obstacles: Obstacle[];
   lights: RoomsLight[];
   roomCount: number;
+  /** Room doors on the footprint edge, one report per model. */
+  facades: Map<string, RoomFacadeReport>;
+};
+
+/**
+ * A room wall this far from the footprint edge, in metres, is still the
+ * facade. 0.6 covers the room setback plus the wall thickness.
+ */
+export const FACADE_BAND_M = 0.6;
+
+/** The punch ends this far past the footprint edge, in metres. */
+const FACADE_PAST_EDGE_M = 0.05;
+
+export type FacadeRejectReason = "inner wall" | "normal" | "distance" | "span";
+
+/** One room door that cuts the shared facade, in GLB model units. */
+export type RoomFacadeOpening = {
+  /** `<instance id>.<door id>` */
+  id: string;
+  prefab: string;
+  doorId: string;
+  /** `<prefab>.room.json`, resolved by the caller when it has a directory. */
+  file: string;
+  box: LocalBox;
+  /** Metres from the room wall face to the footprint edge. */
+  distance: number;
+  /** Slab extent along the outward normal, metres. */
+  depth: number;
+  /** Model axis of the outward normal. */
+  axis: 0 | 2;
+};
+
+export type RoomFacadeRejection = {
+  id: string;
+  prefab: string;
+  doorId: string;
+  reason: FacadeRejectReason;
+  /** Metres. The edge the reason was decided against. */
+  distance: number;
+};
+
+export type RoomFacadeReport = {
+  openings: RoomFacadeOpening[];
+  rejected: RoomFacadeRejection[];
+};
+
+type FacadeEdge = {
+  nx: number;
+  nz: number;
+  x: number;
+  z: number;
+  /** Constant coordinate on the outward axis. */
+  face: number;
+  along: "x" | "z";
+  spanMin: number;
+  spanMax: number;
 };
 
 const GROUND_FLOOR_Y = 0.05;
@@ -148,6 +204,173 @@ function assertSameMetres(
   throw new PlanError(`${lead}${detail}`);
 }
 
+/**
+ * Room doors whose wall lies on the building footprint, in the floors frame.
+ * A door is on the facade only when its outward normal matches that edge,
+ * the face is within `FACADE_BAND_M`, and the span fits the edge. Interior
+ * doors are rejected. The box is GLB units: metres divided by the floors scale.
+ * World placement is not an input.
+ */
+export function roomFacadeOpenings(
+  source: FloorsSource,
+  roomFiles: ReadonlyMap<string, RoomFile>,
+): RoomFacadeReport {
+  if (!(source.scale > 0)) throw new PlanError(`floors model "${source.model}" scale must be positive`);
+  const edges = footprintEdges(source.footprint);
+  const openings: RoomFacadeOpening[] = [];
+  const rejected: RoomFacadeRejection[] = [];
+  for (const floor of source.floors) {
+    for (const inst of floor.rooms) {
+      const room = roomFiles.get(inst.prefab);
+      if (!room) throw new PlanError(`room "${inst.prefab}" is not loaded`);
+      for (const door of room.doors) {
+        const judged = judgeRoomDoor(source.scale, edges, floor.elevation, inst, room, door);
+        if (judged.kind === "reject") {
+          rejected.push({
+            id: `${inst.id}.${door.id}`,
+            prefab: inst.prefab,
+            doorId: door.id,
+            reason: judged.reason,
+            distance: judged.distance,
+          });
+        } else {
+          openings.push({
+            id: `${inst.id}.${door.id}`,
+            prefab: inst.prefab,
+            doorId: door.id,
+            file: `${inst.prefab}.room.json`,
+            box: judged.box,
+            distance: judged.distance,
+            depth: judged.depth,
+            axis: judged.axis,
+          });
+        }
+      }
+    }
+  }
+  return { openings, rejected };
+}
+
+function judgeRoomDoor(
+  scale: number,
+  edges: readonly FacadeEdge[],
+  elevation: number,
+  inst: RoomInstanceSource,
+  room: RoomFile,
+  door: RoomDoor,
+): { kind: "open"; box: LocalBox; distance: number; depth: number; axis: 0 | 2 }
+  | { kind: "reject"; reason: FacadeRejectReason; distance: number } {
+  const width = room.footprint.maxX - room.footprint.minX;
+  const depth = room.footprint.maxZ - room.footprint.minZ;
+  const line = wallLine(door.wall, width, depth);
+  const localNormal = wallNormal(door.wall);
+  const normal = transformXz(localNormal.x, localNormal.z, inst.yaw);
+  const at: Vec3 = line.axis === "z"
+    ? [door.center[0], door.center[1], line.at]
+    : [line.at, door.center[1], door.center[2]];
+  const face = roomToBuilding(inst.center, inst.yaw, elevation, at);
+  const alongRoom = line.axis === "z" ? { x: 1, z: 0 } : { x: 0, z: 1 };
+  const along = transformXz(alongRoom.x, alongRoom.z, inst.yaw);
+  const alongAxis: "x" | "z" = Math.abs(along.x) >= Math.abs(along.z) ? "x" : "z";
+  const mid = alongAxis === "x" ? face[0] : face[2];
+  const half = door.width / 2;
+  const spanMin = mid - half;
+  const spanMax = mid + half;
+  const axis: 0 | 2 = Math.abs(normal.x) >= Math.abs(normal.z) ? 0 : 2;
+  const faceCoord = axis === 0 ? face[0] : face[2];
+
+  const aligned = edges.filter((edge) => edge.nx * normal.x + edge.nz * normal.z > 0.99);
+  const nearest = edges.reduce((best, edge) => (
+    Math.abs(edgeDistance(face[0], face[2], edge)) < Math.abs(edgeDistance(face[0], face[2], best)) ? edge : best
+  ));
+  if (aligned.length === 0) {
+    const dot = nearest.nx * normal.x + nearest.nz * normal.z;
+    return {
+      kind: "reject",
+      reason: dot < -0.99 ? "inner wall" : "normal",
+      distance: Math.abs(edgeDistance(face[0], face[2], nearest)),
+    };
+  }
+  const edge = aligned.reduce((best, item) => (
+    Math.abs(edgeDistance(face[0], face[2], item)) < Math.abs(edgeDistance(face[0], face[2], best)) ? item : best
+  ));
+  const distance = Math.abs(edgeDistance(face[0], face[2], edge));
+  const nearestDistance = Math.abs(edgeDistance(face[0], face[2], nearest));
+  const nearestDot = nearest.nx * normal.x + nearest.nz * normal.z;
+  if (distance > FACADE_BAND_M) {
+    if (nearest !== edge && nearestDistance + 1e-4 < distance && nearestDot < -0.99) {
+      return { kind: "reject", reason: "inner wall", distance: nearestDistance };
+    }
+    return { kind: "reject", reason: "distance", distance };
+  }
+  if (edge.along !== alongAxis
+    || spanMin < edge.spanMin - DOOR_FACE_TOL_M
+    || spanMax > edge.spanMax + DOOR_FACE_TOL_M) {
+    return { kind: "reject", reason: "span", distance };
+  }
+  const sign = axis === 0 ? (normal.x >= 0 ? 1 : -1) : (normal.z >= 0 ? 1 : -1);
+  const outer = edge.face + sign * FACADE_PAST_EDGE_M;
+  const lo = Math.min(faceCoord, edge.face, outer);
+  const hi = Math.max(faceCoord, edge.face, outer);
+  const y0 = elevation + door.center[1];
+  const y1 = y0 + door.height;
+  const metres: LocalBox = axis === 0
+    ? { minX: lo, maxX: hi, minY: y0, maxY: y1, minZ: spanMin, maxZ: spanMax }
+    : { minX: spanMin, maxX: spanMax, minY: y0, maxY: y1, minZ: lo, maxZ: hi };
+  return {
+    kind: "open",
+    box: scaleBox(metres, 1 / scale),
+    distance,
+    depth: hi - lo,
+    axis,
+  };
+}
+
+/** CCW footprint. Outward is to the right of each edge. */
+function footprintEdges(footprint: readonly (readonly [number, number])[]): FacadeEdge[] {
+  const edges: FacadeEdge[] = [];
+  for (let i = 0; i < footprint.length; i += 1) {
+    const a = footprint[i]!;
+    const b = footprint[(i + 1) % footprint.length]!;
+    const dx = b[0] - a[0];
+    const dz = b[1] - a[1];
+    const len = Math.hypot(dx, dz);
+    if (!(len > 1e-8)) continue;
+    const nx = dz / len;
+    const nz = -dx / len;
+    const normalOnX = Math.abs(nx) >= Math.abs(nz);
+    const along: "x" | "z" = normalOnX ? "z" : "x";
+    edges.push({
+      nx,
+      nz,
+      x: a[0],
+      z: a[1],
+      face: normalOnX ? (a[0] + b[0]) / 2 : (a[1] + b[1]) / 2,
+      along,
+      spanMin: along === "x" ? Math.min(a[0], b[0]) : Math.min(a[1], b[1]),
+      spanMax: along === "x" ? Math.max(a[0], b[0]) : Math.max(a[1], b[1]),
+    });
+  }
+  if (edges.length === 0) throw new PlanError("floors footprint has no edge");
+  return edges;
+}
+
+/** Positive when `(x, z)` is inside the edge, against the outward normal. */
+function edgeDistance(x: number, z: number, edge: FacadeEdge): number {
+  return (edge.x - x) * edge.nx + (edge.z - z) * edge.nz;
+}
+
+function scaleBox(box: LocalBox, scale: number): LocalBox {
+  return {
+    minX: box.minX * scale,
+    maxX: box.maxX * scale,
+    minY: box.minY * scale,
+    maxY: box.maxY * scale,
+    minZ: box.minZ * scale,
+    maxZ: box.maxZ * scale,
+  };
+}
+
 function footprintSpan(footprint: readonly (readonly [number, number])[]): { width: number; depth: number } {
   let minX = Infinity;
   let maxX = -Infinity;
@@ -180,6 +403,8 @@ export function loadFloors(input: LoadInput): FloorBake {
   const lights: RoomsLight[] = [];
   const roomsByPrefab = new Map<string, RoomFile>();
   const reported = new Set<string>();
+  const facades = new Map<string, RoomFacadeReport>();
+  const facadeModels = new Set<string>();
   let roomCount = 0;
 
   for (const building of input.buildings) {
@@ -270,10 +495,29 @@ export function loadFloors(input: LoadInput): FloorBake {
         roomCount += 1;
       }
     }
+    if (!facadeModels.has(building.model)) {
+      facadeModels.add(building.model);
+      const files = new Map<string, RoomFile>();
+      for (const floor of source.floors) {
+        for (const inst of floor.rooms) {
+          const loaded = roomsByPrefab.get(inst.prefab);
+          if (loaded) files.set(inst.prefab, loaded);
+        }
+      }
+      const report = roomFacadeOpenings(source, files);
+      const roomsDir = input.roomsDir ?? "";
+      facades.set(building.model, {
+        openings: report.openings.map((opening) => ({
+          ...opening,
+          file: path.resolve(roomsDir, opening.file),
+        })),
+        rejected: report.rejected,
+      });
+    }
     if (record.interiors.length > 0 || record.pending.length > 0) buildings.set(building.id, record);
   }
 
-  return { doors, props, buildings, placements, obstacles, lights, roomCount };
+  return { doors, props, buildings, placements, obstacles, lights, roomCount, facades };
 }
 
 export type RoomDoorHosts = {
@@ -297,8 +541,9 @@ export type RoomWallCut = {
  * A partial overlap throws. A size mismatch warns and still merges.
  * An unmerged leaf is cut from the room walls and from the emitted building
  * boxes with `cutDoorFromBoxes`, the same opening an exterior door uses.
- * A leaf that hits a building wall is also returned in `wallCuts`, in the
- * door frame, so the visual mesh can punch that same volume.
+ * A leaf that hits a building wall is returned in `wallCuts`, in the door
+ * frame. That volume is collision only. A room door on the footprint edge
+ * also punches the shared mesh, from `roomFacadeOpenings`, not from here.
  */
 export function placeRoomDoors(
   pending: readonly PendingRoomDoor[],
@@ -370,6 +615,62 @@ export function cutRoomWalls(
   doors: readonly SituatedDoor[],
 ): void {
   cutPrefixedWalls(obstacles, `${buildingId}.`, doors);
+}
+
+/**
+ * Open `<building>-wall-*` where a room facade door's visual box sits.
+ * The box is the same GLB-space slab the shared mesh uses. `placeRoomDoors`
+ * already cuts a leaf that reaches the shell; this covers the setback the
+ * inward door stamp does not.
+ */
+export function cutFacadeWalls(
+  obstacles: Obstacle[],
+  building: Placement,
+  boxes: readonly LocalBox[],
+): void {
+  if (boxes.length === 0) return;
+  const world = boxes.map((box) => mapBox(scaleBox(box, building.scale), (point) => buildingToWorld(building, point)));
+  const prefix = `${building.id}-wall-`;
+  const next: Obstacle[] = [];
+  let changed = false;
+  for (const obstacle of obstacles) {
+    if (!obstacle.id.startsWith(prefix)) {
+      next.push(obstacle);
+      continue;
+    }
+    let parts: LocalBox[] = [obstacleToLocal(obstacle)];
+    let fresh = false;
+    for (const cut of world) {
+      const sliced: LocalBox[] = [];
+      for (const part of parts) {
+        const kept = subtractBox(part, cut);
+        if (kept.length === 1 && kept[0] === part) {
+          sliced.push(part);
+          continue;
+        }
+        fresh = true;
+        sliced.push(...kept);
+      }
+      parts = sliced;
+    }
+    if (!fresh) {
+      next.push(obstacle);
+      continue;
+    }
+    changed = true;
+    const kept: Obstacle[] = [];
+    for (const part of parts) {
+      const min = roundVec([part.minX, part.minY, part.minZ]);
+      const max = roundVec([part.maxX, part.maxY, part.maxZ]);
+      if (!(max[0] > min[0] && max[1] > min[1] && max[2] > min[2])) continue;
+      kept.push({ id: obstacle.id, kind: "aabb", min, max });
+    }
+    kept.forEach((part, index) => {
+      next.push(kept.length === 1 ? part : { ...part, id: `${obstacle.id}.${index}` });
+    });
+  }
+  if (!changed) return;
+  obstacles.splice(0, obstacles.length, ...next);
 }
 
 function cutPrefixedWalls(

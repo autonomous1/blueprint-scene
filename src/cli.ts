@@ -28,11 +28,13 @@ the unscaled model. A run of one cell is kept. Copy that group into a plan,
 then move and scale it. Arena meters come from that scale.
 Scale must be uniform. A 2× enlarge is scale 2. Non-uniform scale fails the file.
 
-bake reads the buildings, bounds, props, spawn-points, and doors layers. It
-writes five files and does not write arena.game.json or a scene object. --out
+bake reads the buildings, bounds, props, spawn-points, player-spawns, and doors layers. It
+writes six files and does not write arena.game.json or a scene object. --out
 is the buildings placements file. bounds.json, props.placements.json,
-spawn-points.json, and doors.placements.json are written in that same
-directory. A copied measure stencil (a group holding the stencil path) is
+spawn-points.json, player-spawns.json, and doors.placements.json are written in that same
+directory. A text, path, or small rect on player-spawns is a human pad. It is
+written only to player-spawns.json, with the same { id, x, y: 0, z, yaw } shape
+as spawn-points.json. A pad outside the bounds rectangle fails the bake. A copied measure stencil (a group holding the stencil path) is
 placed by its group origin, the model origin, at its transform's uniform scale.
 A rectangle's scale is its size relative to the measured stencil extent, and it
 is centered on that extent; a rectangle out of proportion prints a warning.

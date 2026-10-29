@@ -120,8 +120,8 @@ test("floors sort by n, nested layers stay on the floor, and the top floor keeps
 
 test("floors files reject a bad layer, footprint, elevation, room, or door", () => {
   const fp = footprint("a", "bldg", "matrix(0,30,-30,0,10,10)");
-  fails(svgWrap(layer("walls", fp)), /floors file layer "walls" is not floor-<n>, doors-external, stairs-external or ignore/);
-  fails(svgWrap(layer("floor-x", fp)), /floors file layer "floor-x" is not floor-<n>, doors-external, stairs-external or ignore/);
+  fails(svgWrap(layer("walls", fp)), /floors file layer "walls" is not floor-<n>, floor-<n>-texture, doors-external, stairs-external or ignore/);
+  fails(svgWrap(layer("floor-x", fp)), /floors file layer "floor-x" is not floor-<n>, floor-<n>-texture, doors-external, stairs-external or ignore/);
   fails(svgWrap(layer("floor-1", room("room-a", 1, 1, 2, 2))), /floor-1 needs exactly one footprint/);
   fails(svgWrap(layer("floor-1", fp + footprint("c", "bldg", "matrix(0,30,-30,0,10,10)"))), /floor-1 needs exactly one footprint/);
   fails(

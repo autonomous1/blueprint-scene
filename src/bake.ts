@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readAssetFiles, readAssetTypes, stampPlacement } from "./asset-type.ts";
 import { PlanError } from "./errors.ts";
-import { boxInModel, cutBuildingGlb, extendSkinToFacade, meshProbe, openingInModel, openingOverlapCounts, uncutBuildingGlb, type MeshProbe } from "./building-mesh-cut.ts";
+import { cutBuildingGlb, meshProbe, openingInModel, openingOverlapCounts, sealedOpeningBox, uncutBuildingGlb, type MeshProbe } from "./building-mesh-cut.ts";
 import { cutDoorFromBoxes, doorCutLocal, doorPanelWidth, situateDoor, subtractBox } from "./doors.ts";
 import { coarseFootprint, measureFootprint } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
@@ -10,7 +10,7 @@ import { derivePlaces } from "./places.ts";
 import { readScene, type PlanPlacement } from "./plan.ts";
 import type { RoomFile } from "./room-file.ts";
 import { readFloorsSvg } from "./floors-svg.ts";
-import { cutRoomWalls, loadFloors, placeRoomDoors, resolveExteriorDoors, type FloorBake, type RoomsLightsFile, type RoomsPlacementsFile } from "./rooms-bake.ts";
+import { cutFacadeWalls, cutRoomWalls, loadFloors, placeRoomDoors, resolveExteriorDoors, type FloorBake, type RoomFacadeOpening, type RoomFacadeRejection, type RoomsLightsFile, type RoomsPlacementsFile } from "./rooms-bake.ts";
 import { boundsOfTriangles, stencilBoxes, stencilSize } from "./stencil.ts";
 import type { BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, Placement, PlacementsFile, ScenePlace, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds, Yaw } from "./types.ts";
 import { inverseYaw, placeBox, transformXz } from "./yaw.ts";
@@ -87,6 +87,8 @@ export type BakeResult = {
   bounds: BoundsFile;
   props: PlacementsFile;
   spawns: SpawnPoint[];
+  /** `player-spawns` layer. Same shape as `spawns`. Not merged into that list. */
+  playerSpawns: SpawnPoint[];
   /** Hinged panels. `obstacles` is empty: a door is a gap, not a box. */
   doors: DoorsFile;
   /** Room placements, unmerged doors, and room obstacles. Omitted when there are no rooms. */
@@ -102,6 +104,7 @@ const RESERVED_OUTPUTS = new Set([
   "bounds.json",
   "props.placements.json",
   "spawn-points.json",
+  "player-spawns.json",
   "doors.placements.json",
   "rooms.placements.json",
   "rooms.lights.json",
@@ -244,13 +247,8 @@ export function bake(options: BakeOptions): BakeResult {
     }, assetTypes)),
     obstacles: scene.props.map((prop) => propObstacle(prop, propBoxes.get(prop.model))),
   };
-  const spawns: SpawnPoint[] = scene.spawns.map((spawn) => ({
-    id: spawn.id,
-    x: roundM(spawn.position[0]),
-    y: 0,
-    z: roundM(spawn.position[2]),
-    yaw: spawn.yaw,
-  }));
+  const spawns = spawnFile(scene.spawns);
+  const playerSpawns = spawnFile(scene.playerSpawns);
   const doorPlacements: DoorPlacement[] = [];
   const roomDoorPlacements: DoorPlacement[] = [];
   const doorWidths = new Map<string, number | undefined>();
@@ -273,7 +271,7 @@ export function bake(options: BakeOptions): BakeResult {
     const facetsDropped = grid.facetsDropped;
     const situated: DoorPlacement[] = [];
     let situatedDoors: ReturnType<typeof situateDoor>[] = [];
-    const modelOpenings: CutOpening[] = [];
+    const exterior: ExteriorDoorCut[] = [];
     if (mine.length > 0) {
       const worldBoxes = grid.boxes.map((box) => placeBox(box, placement.position, placement.yaw));
       situatedDoors = mine.map((door) => situateDoor(door, worldBoxes, doorWidths.get(door.model)));
@@ -287,23 +285,22 @@ export function bake(options: BakeOptions): BakeResult {
         const stamped = stampPlacement(roundDoor(door.placement), assetTypes);
         doorPlacements.push(stamped);
         situated.push(stamped);
-        // Only a model-scoped opening may punch the shared mesh. A
-        // placement-scoped leaf cuts this instance's boxes and stops there.
-        // A room door on this wall is added after placeRoomDoors, from the
-        // same door-local volume.
+        // A model-scoped exterior punches the shared mesh: a floors
+        // `doors-external` leaf or a scene door whose bind is the model.
+        // A placement-scoped leaf cuts this instance's boxes and stops there.
+        // A room door joins this list only from `roomFacadeOpenings`, and
+        // only when its wall lies on the footprint edge.
         if (source.bind === "model") {
           const fromFloors = floorsDoorIds.has(source.id);
           if (cutLocal) {
-            pushOpening(modelOpenings, {
+            exterior.push({
               id: source.id,
-              source: fromFloors ? "floors" : "scene",
+              source: fromFloors ? "doors-external" : "scene",
               file: fromFloors
                 ? path.resolve(options.floorsDir!, `${placement.model}.floors.svg`)
                 : sceneSvg,
-              box: extendSkinToFacade(
-                model.triangles,
-                boxInModel(door.placement, cutLocal, placement.position, placement.yaw, placement.scale),
-              ),
+              placement: door.placement,
+              local: cutLocal,
             });
           }
           modelScopedDoors.push({ buildingId: placement.id, door: stamped });
@@ -312,6 +309,17 @@ export function bake(options: BakeOptions): BakeResult {
         }
       }
     }
+    const modelOpenings = mergeOpenings(
+      exteriorCutOpenings(
+        exterior,
+        model.triangles,
+        placement.position,
+        placement.yaw,
+        placement.scale,
+      ),
+      (floors?.facades.get(placement.model)?.openings ?? []).map(facadeCut),
+      placement.scale,
+    );
     const groups = openingsByModel.get(placement.model) ?? [];
     groups.push(modelOpenings);
     openingsByModel.set(placement.model, groups);
@@ -330,18 +338,9 @@ export function bake(options: BakeOptions): BakeResult {
         buildings: file.obstacles,
       });
       roomDoorPlacements.push(...placed.placements);
-      for (const cut of placed.wallCuts) {
-        pushOpening(modelOpenings, {
-          id: cut.id,
-          source: "room",
-          file: path.resolve(cut.file),
-          box: extendSkinToFacade(
-            model.triangles,
-            boxInModel(cut.placement, cut.local, placement.position, placement.yaw, placement.scale),
-          ),
-        });
-      }
     }
+    const facadeBoxes = floors?.facades.get(placement.model)?.openings.map((opening) => opening.box) ?? [];
+    if (facadeBoxes.length > 0) cutFacadeWalls(file.obstacles, placement, facadeBoxes);
     lines.push(instanceLine(placement.id, model.meshNames, placement.scale, grid.cellSize, pieceCount, facetsDropped));
   }
   const doors: DoorsFile = {
@@ -357,11 +356,13 @@ export function bake(options: BakeOptions): BakeResult {
   writeJson(outputs.bounds, bounds);
   writeJson(outputs.props, props);
   writeJson(outputs.spawns, spawns);
+  writeJson(outputs.players, playerSpawns);
   writeJson(outputs.doors, doors);
   lines.push(`wrote ${outputs.buildings}`);
   lines.push(`wrote ${outputs.bounds}`);
   lines.push(`wrote ${outputs.props}`);
   lines.push(`wrote ${outputs.spawns}`);
+  lines.push(`wrote ${outputs.players}`);
   lines.push(`wrote ${outputs.doors}`);
 
   let roomsFile: RoomsPlacementsFile | undefined;
@@ -393,6 +394,9 @@ export function bake(options: BakeOptions): BakeResult {
   for (const [model, groups] of openingsByModel) {
     for (const group of groups) {
       for (const opening of group) lines.push(cutOpenLine(model, opening));
+    }
+    for (const rejected of floors?.facades.get(model)?.rejected ?? []) {
+      lines.push(cutSkipLine(model, rejected));
     }
     const shared = sharedOpenings(groups);
     lines.push(`cut-shared ${model} ${shared.length}`);
@@ -454,6 +458,7 @@ export function bake(options: BakeOptions): BakeResult {
     bounds,
     props,
     spawns,
+    playerSpawns,
     doors,
     places: scene.places,
     lines,
@@ -550,10 +555,135 @@ function emitHollow(
 
 type CutOpening = {
   id: string;
-  source: "scene" | "floors" | "room";
+  source: "scene" | "doors-external" | `room:${string}/${string}`;
   file: string;
   box: LocalBox;
+  /** Slab extent along the door normal, world metres. */
+  depth: number;
+  /** Metres from the door face to the footprint edge. 0 for a door drawn on the face. */
+  distance: number;
+  /** Model axis of the door normal. */
+  axis: 0 | 2;
 };
+
+type ExteriorDoorCut = {
+  id: string;
+  source: "scene" | "doors-external";
+  file: string;
+  placement: DoorPlacement;
+  local: LocalBox;
+};
+
+/**
+ * Shared-mesh openings for one building placement.
+ * `doors` is floors `doors-external` and scene model-scoped doors only.
+ * Each box is clamped to the wall slab. `depth` is that clamp, in metres.
+ * Room facade doors are merged in by `mergeOpenings`.
+ */
+function exteriorCutOpenings(
+  doors: readonly ExteriorDoorCut[],
+  triangles: readonly Triangle[],
+  buildingPosition: Vec3,
+  buildingYaw: Yaw,
+  buildingScale: number,
+): CutOpening[] {
+  const list: CutOpening[] = [];
+  for (const door of doors) {
+    const sealed = sealedOpeningBox(
+      triangles,
+      door.placement,
+      door.local,
+      buildingPosition,
+      buildingYaw,
+      buildingScale,
+    );
+    pushOpening(list, {
+      id: door.id,
+      source: door.source,
+      file: door.file,
+      box: sealed.box,
+      depth: sealed.depth,
+      distance: 0,
+      axis: sealed.axis,
+    });
+  }
+  return list;
+}
+
+function facadeCut(opening: RoomFacadeOpening): CutOpening {
+  return {
+    id: opening.id,
+    source: `room:${opening.prefab}/${opening.doorId}`,
+    file: opening.file,
+    box: opening.box,
+    depth: opening.depth,
+    distance: opening.distance,
+    axis: opening.axis,
+  };
+}
+
+/**
+ * One box per opening. A room facade door and a model-scoped exterior on the
+ * same edge, with more than half of the shorter span in common, become the
+ * union. Different floors stay apart: their heights do not overlap.
+ */
+function mergeOpenings(
+  exterior: readonly CutOpening[],
+  rooms: readonly CutOpening[],
+  scale: number,
+): CutOpening[] {
+  const list = exterior.map((opening) => ({ ...opening, box: { ...opening.box } }));
+  for (const opening of rooms) {
+    const hit = list.find((other) => sameEdge(other, opening));
+    if (!hit) {
+      list.push({ ...opening, box: { ...opening.box } });
+      continue;
+    }
+    hit.box = unionLocal(hit.box, opening.box);
+    const span = hit.axis === 0 ? hit.box.maxX - hit.box.minX : hit.box.maxZ - hit.box.minZ;
+    hit.depth = Math.abs(span * scale);
+    if (opening.distance > 0) hit.distance = opening.distance;
+  }
+  return list;
+}
+
+function sameEdge(a: CutOpening, b: CutOpening): boolean {
+  if (a.axis !== b.axis) return false;
+  const a0 = a.axis === 0 ? a.box.minX : a.box.minZ;
+  const a1 = a.axis === 0 ? a.box.maxX : a.box.maxZ;
+  const b0 = b.axis === 0 ? b.box.minX : b.box.minZ;
+  const b1 = b.axis === 0 ? b.box.maxX : b.box.maxZ;
+  if (gap1(a0, a1, b0, b1) > 1e-3) return false;
+  const along0a = a.axis === 0 ? a.box.minZ : a.box.minX;
+  const along1a = a.axis === 0 ? a.box.maxZ : a.box.maxX;
+  const along0b = b.axis === 0 ? b.box.minZ : b.box.minX;
+  const along1b = b.axis === 0 ? b.box.maxZ : b.box.maxX;
+  const span = Math.min(along1a - along0a, along1b - along0b);
+  if (!(overlap1(along0a, along1a, along0b, along1b) > 0.5 * span)) return false;
+  const height = Math.min(a.box.maxY - a.box.minY, b.box.maxY - b.box.minY);
+  return overlap1(a.box.minY, a.box.maxY, b.box.minY, b.box.maxY) > 0.5 * height;
+}
+
+function overlap1(a0: number, a1: number, b0: number, b1: number): number {
+  return Math.min(a1, b1) - Math.max(a0, b0);
+}
+
+function gap1(a0: number, a1: number, b0: number, b1: number): number {
+  if (a1 < b0) return b0 - a1;
+  if (b1 < a0) return a0 - b1;
+  return 0;
+}
+
+function unionLocal(a: LocalBox, b: LocalBox): LocalBox {
+  return {
+    minX: Math.min(a.minX, b.minX),
+    maxX: Math.max(a.maxX, b.maxX),
+    minY: Math.min(a.minY, b.minY),
+    maxY: Math.max(a.maxY, b.maxY),
+    minZ: Math.min(a.minZ, b.minZ),
+    maxZ: Math.max(a.maxZ, b.maxZ),
+  };
+}
 
 function pushOpening(list: CutOpening[], opening: CutOpening): void {
   if (list.some((other) => sameOpening(other.box, opening.box))) return;
@@ -564,7 +694,12 @@ function cutOpenLine(model: string, opening: CutOpening): string {
   const box = opening.box;
   const n = (value: number) => value.toFixed(4);
   const aabb = [box.minX, box.maxX, box.minY, box.maxY, box.minZ, box.maxZ].map(n).join(",");
-  return `cut-open ${model} id=${opening.id} source=${opening.source} file=${opening.file} aabb=${aabb}`;
+  return `cut-open ${model} id=${opening.id} source=${opening.source} file=${opening.file} depth=${n(opening.depth)} distance=${n(opening.distance)} aabb=${aabb}`;
+}
+
+function cutSkipLine(model: string, rejected: RoomFacadeRejection): string {
+  const n = (value: number) => value.toFixed(4);
+  return `cut-skip ${model} id=${rejected.id} source=room:${rejected.prefab}/${rejected.doorId} reason=${rejected.reason} distance=${n(rejected.distance)}`;
 }
 
 /**
@@ -724,11 +859,22 @@ function roundDoor(door: DoorPlacement): DoorPlacement {
   };
 }
 
+function spawnFile(marks: readonly { id: string; position: Vec3; yaw: Yaw }[]): SpawnPoint[] {
+  return marks.map((spawn) => ({
+    id: spawn.id,
+    x: roundM(spawn.position[0]),
+    y: 0,
+    z: roundM(spawn.position[2]),
+    yaw: spawn.yaw,
+  }));
+}
+
 function layerPaths(outPath: string): {
   buildings: string;
   bounds: string;
   props: string;
   spawns: string;
+  players: string;
   doors: string;
   rooms: string;
   lights: string;
@@ -743,6 +889,7 @@ function layerPaths(outPath: string): {
     bounds: path.join(dir, "bounds.json"),
     props: path.join(dir, "props.placements.json"),
     spawns: path.join(dir, "spawn-points.json"),
+    players: path.join(dir, "player-spawns.json"),
     doors: path.join(dir, "doors.placements.json"),
     rooms: path.join(dir, "rooms.placements.json"),
     lights: path.join(dir, "rooms.lights.json"),

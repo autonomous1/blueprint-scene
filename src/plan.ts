@@ -89,6 +89,8 @@ export type PlanScene = {
   bounds?: XzBounds;
   props: SceneProp[];
   spawns: SceneSpawn[];
+  /** Marks on the `player-spawns` layer. Not included in `spawns`. */
+  playerSpawns: SceneSpawn[];
   doors: SceneDoor[];
   /**
    * Walkable rooms, halls, and platforms. `readScene` leaves this empty.
@@ -173,6 +175,8 @@ export function readScene(svgText: string): PlanScene {
     propIds: new Set<string>(),
     spawns: [],
     spawnIds: new Set<string>(),
+    playerSpawns: [],
+    playerSpawnIds: new Set<string>(),
     doors: [],
     doorIds: new Set<string>(),
     sawBoundsLayer: false,
@@ -190,6 +194,12 @@ export function readScene(svgText: string): PlanScene {
         throw new PlanError(`spawn "${spawn.id}" is outside the bounds rectangle`);
       }
     }
+    for (const spawn of collect.playerSpawns) {
+      const [x, , z] = spawn.position;
+      if (!insideBounds(collect.bounds, x, z)) {
+        throw new PlanError(`player spawn "${spawn.id}" is outside the bounds rectangle`);
+      }
+    }
   }
   return {
     placements: collect.placements,
@@ -197,6 +207,7 @@ export function readScene(svgText: string): PlanScene {
     ...(collect.bounds ? { bounds: collect.bounds } : {}),
     props: collect.props,
     spawns: collect.spawns,
+    playerSpawns: collect.playerSpawns,
     doors: collect.doors,
     places: [],
   };
@@ -488,6 +499,8 @@ type Collect = {
   propIds: Set<string>;
   spawns: SceneSpawn[];
   spawnIds: Set<string>;
+  playerSpawns: SceneSpawn[];
+  playerSpawnIds: Set<string>;
   doors: SceneDoor[];
   doorIds: Set<string>;
   sawBoundsLayer: boolean;
@@ -511,8 +524,8 @@ function walk(el: XmlNode, parent: Mat, stack: string[], collect: Collect): void
   }
   if (!ignored && name === "rect" && layer === "props") takeProp(el, matrix, collect);
   if (!ignored && name === "rect" && layer === "doors") takeDoor(el, matrix, collect);
-  if (!ignored && (name === "text" || name === "path" || name === "rect") && layer === "spawn-points") {
-    takeSpawn(el, matrix, collect);
+  if (!ignored && (name === "text" || name === "path" || name === "rect") && (layer === "spawn-points" || layer === "player-spawns")) {
+    takeSpawn(el, matrix, collect, layer === "player-spawns");
   }
   if (!isLayer && (name === "rect" || name === "g") && isPlacement(el, nextStack)) {
     consider(el, matrix, nextStack, collect);
@@ -546,8 +559,10 @@ function consider(el: XmlNode, matrix: Mat, stack: string[], collect: Collect): 
  * origin at world (10, 0, 10) with scale 30.
  */
 export function stencilPose(el: XmlNode, matrix: Mat, frame: PageFrame): { origin: Vec3; scale: number } | undefined {
-  if (localName(el.name) !== "g") return undefined;
-  if (!el.children.some((child) => localName(child.name) === "path")) return undefined;
+  if (localName(el.name) !== "g" && localName(el.name) !== "path") return undefined;
+  if (localName(el.name) === "g") {
+    if (!el.children.some((child) => localName(child.name) === "path")) return undefined;
+  }
   const [ox, oy] = apply(matrix, 0, 0);
   const z = el.attrs["z"] ? Number(el.attrs["z"]) : 0;
   return {
@@ -780,16 +795,20 @@ export function optionalPositive(raw: string | undefined, what: string): number 
   return value;
 }
 
-function takeSpawn(el: XmlNode, matrix: Mat, collect: Collect): void {
-  const id = requireId(el, "spawn");
-  if (collect.spawnIds.has(id)) throw new PlanError(`duplicate spawn id "${id}"`);
+function takeSpawn(el: XmlNode, matrix: Mat, collect: Collect, player: boolean): void {
+  const kind = player ? "player spawn" : "spawn";
+  const id = requireId(el, kind);
+  const ids = player ? collect.playerSpawnIds : collect.spawnIds;
+  if (ids.has(id)) throw new PlanError(`duplicate ${kind} id "${id}"`);
   const [sx, sy] = spawnPoint(el, matrix, collect, id);
-  collect.spawnIds.add(id);
-  collect.spawns.push({
+  ids.add(id);
+  const mark: SceneSpawn = {
     id,
     position: svgPointToWorld(sx, sy, 0, collect.frame),
     yaw: yawOf(el, matrix, id),
-  });
+  };
+  if (player) collect.playerSpawns.push(mark);
+  else collect.spawns.push(mark);
 }
 
 /** SVG user-space point of a spawn mark, after the element transform. */

@@ -85,7 +85,7 @@ export type SceneProp = {
   maxY?: number;
 };
 
-/** A mark on the `spawn-points` layer. */
+/** A mark on the `spawn-points` or `player-spawns` layer. */
 export type SceneSpawn = {
   id: string;
   position: Vec3;
@@ -170,7 +170,10 @@ export type DoorsFile = {
   obstacles: [];
 };
 
-/** File the manifest points at with `scene.spawnPoints`. `y` is 0. */
+/**
+ * File the manifest points at with `scene.spawnPoints` or `scene.playerSpawnPoints`.
+ * `y` is 0. Player pads are the same shape, written to `player-spawns.json`.
+ */
 export type SpawnPoint = {
   id: string;
   x: number;

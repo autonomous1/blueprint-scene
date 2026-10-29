@@ -5,13 +5,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { bake } from "../src/bake.ts";
+import { openingInModel } from "../src/building-mesh-cut.ts";
 import { PlanError } from "../src/errors.ts";
-import { readFloorsSvg } from "../src/floors-svg.ts";
+import { readFloorsSvg, type FloorsSource } from "../src/floors-svg.ts";
 import { writeTriangleGlb } from "../src/glb-write.ts";
 import { trianglesFromGlb } from "../src/glb.ts";
 import type { RoomFile } from "../src/room-file.ts";
 import { writeRoom } from "../src/room-glb.ts";
-import { placeRoomDoors, type PendingRoomDoor } from "../src/rooms-bake.ts";
+import { placeRoomDoors, roomFacadeOpenings, type PendingRoomDoor } from "../src/rooms-bake.ts";
 import type { DoorPlacement, Obstacle, SceneDoor, Vec3 } from "../src/types.ts";
 import { placeBox } from "../src/yaw.ts";
 import { trianglesFromBox } from "./boxes.ts";
@@ -418,15 +419,14 @@ test("a room prefab missing from the game file is printed as an asset snippet", 
   }
 });
 
-test("empty exteriors punch the room door that cuts the building wall", () => {
+test("empty exteriors leave room doors out of the shared cut", () => {
   const staged = stage();
   try {
     writeFileSync(path.join(staged.floors, "blk.floors.svg"), floorsSvg(-0.5, 1, 6, { doors: false }));
     const result = run(staged);
     const opens = result.lines.filter((line) => line.startsWith("cut-open "));
-    assert.deepEqual(opens.map(cutOpenId), ["blk B.r1.d1 room", "blk B.r2.d1 room"]);
-    assert.ok(opens.every((line) => line.includes(`${path.sep}rm.room.json`)), opens.join("\n"));
-    assert.equal(result.lines.includes("cut-shared blk 2"), true);
+    assert.deepEqual(opens, []);
+    assert.equal(result.lines.includes("cut-shared blk 0"), true);
     const inputs = result.lines.find((line) => line.startsWith("bake-inputs "));
     assert.ok(inputs, result.lines.join("\n"));
     assert.ok(inputs.includes(`svg=${path.resolve(staged.svg)}`));
@@ -500,7 +500,61 @@ function pendingDoor(id: string, center: Vec3, host: { min: Vec3; max: Vec3 }): 
   };
 }
 
-test("the shared cut removes triangles in the room door's wall opening", () => {
+test("an interior door several metres inside does not punch the facade", () => {
+  const staged = stage();
+  try {
+    const svgPath = path.join(staged.rooms, "rm.svg");
+    writeFileSync(svgPath, roomSvg("front", true));
+    writeRoom({ svgPath, outPath: path.join(staged.rooms, "rm.glb") });
+    writeFileSync(
+      path.join(staged.models, "blk.glb"),
+      writeTriangleGlb("blk", trianglesFromBox([-0.5, 0, -0.5], [0.5, 0.6, 0.5])),
+    );
+    const result = bake({
+      svgPath: staged.svg,
+      outPath: staged.out,
+      collisionDir: staged.collision,
+      modelsDir: staged.models,
+      floorsDir: staged.floors,
+      roomsDir: staged.rooms,
+      ...(staged.game ? { gamePath: staged.game } : {}),
+    });
+    const opens = result.lines.filter((line) => line.startsWith("cut-open blk "));
+    assert.equal(opens.some((line) => line.includes("source=room")), false, opens.join("\n"));
+    assert.equal(opens.length, 1, opens.join("\n"));
+    assert.match(opens[0]!, /id=B\.front /);
+    assert.match(opens[0]!, /source=doors-external /);
+    const depth = Number(opens[0]!.match(/depth=(\S+)/)?.[1]);
+    assert.ok(depth > 0 && depth < 0.5, `exterior cut depth ${depth} is not the wall slab`);
+    const leaf = result.rooms!.placements.find((item) => item.id === "B.r1.d2");
+    assert.ok(leaf && "hinge" in leaf, "interior door leaf missing");
+    assert.equal(result.doors.placements.some((item) => item.id === "B.r1.d2"), false);
+    const building = result.file.placements.find((item) => item.id === "B");
+    assert.ok(building);
+    const gap = openingInModel(leaf as DoorPlacement, building.position, building.yaw, building.scale);
+    const center = [(gap.minX + gap.maxX) / 2, (gap.minY + gap.maxY) / 2, (gap.minZ + gap.maxZ) / 2];
+    const cut = trianglesFromGlb(readFileSync(path.join(staged.models, "blk.cut.glb"))).triangles;
+    const source = trianglesFromGlb(readFileSync(path.join(staged.models, "blk.glb"))).triangles;
+    const facadeZ = -0.5;
+    assert.ok(rayHitsZ(source, center, facadeZ - 0.05, facadeZ + 0.05) > 0, "fixture facade has no triangles behind the interior door");
+    assert.ok(
+      rayHitsZ(cut, center, facadeZ - 0.05, facadeZ + 0.05) > 0,
+      `facade tris removed behind the interior door at ${center.map((n) => n.toFixed(3)).join(",")}`,
+    );
+    const exterior = aabbOf(opens[0]!);
+    const doorCenter = [
+      (exterior.minX + exterior.maxX) / 2,
+      (exterior.minY + exterior.maxY) / 2,
+      (exterior.minZ + exterior.maxZ) / 2,
+    ];
+    assert.ok(rayHitsZ(source, doorCenter, 0.45, 0.55) > 0, "exterior doorway has no source triangles");
+    assert.equal(rayHitsZ(cut, doorCenter, 0.45, 0.55), 0, "exterior door did not cut the facade");
+  } finally {
+    rmSync(staged.dir, { recursive: true, force: true });
+  }
+});
+
+test("a room door on the building wall does not punch the shared mesh", () => {
   const staged = stage();
   try {
     writeFileSync(path.join(staged.floors, "blk.floors.svg"), floorsSvg(-0.5, 1, 6, { doors: false }));
@@ -518,32 +572,18 @@ test("the shared cut removes triangles in the room door's wall opening", () => {
       ...(staged.game ? { gamePath: staged.game } : {}),
     });
     const opens = result.lines.filter((line) => line.startsWith("cut-open blk "));
-    assert.deepEqual(opens.map(cutOpenId), ["blk B.r1.d1 room", "blk B.r2.d1 room"]);
-    const removed = result.lines.filter((line) => line.startsWith("cut-tris blk "));
-    assert.equal(removed.length, 2, result.lines.filter((line) => line.startsWith("cut-")).join("\n"));
-    for (const line of removed) {
-      const count = Number(line.slice(line.indexOf("removed=") + "removed=".length));
-      assert.ok(count > 0, line);
-    }
-    const cut = trianglesFromGlb(readFileSync(path.join(staged.models, "blk.cut.glb"))).triangles;
+    assert.deepEqual(opens, []);
+    assert.equal(result.lines.includes("cut-shared blk 0"), true);
+    assert.equal(result.lines.some((line) => line.startsWith("cut-tris ")), false);
+    assert.equal(existsSync(path.join(staged.models, "blk.cut.glb")), false);
+    const leaf = result.rooms!.placements.find((item) => item.id === "B.r1.d1");
+    assert.ok(leaf && "hinge" in leaf, "room door leaf missing");
     const source = trianglesFromGlb(readFileSync(path.join(staged.models, "blk.glb"))).triangles;
-    for (const line of opens) {
-      const box = aabbOf(line);
-      const center = [(box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2, (box.minZ + box.maxZ) / 2];
-      assert.ok(rayHitsZ(source, center) > 0, line);
-      assert.equal(rayHitsZ(cut, center, box.minZ, box.maxZ), 0, line);
-    }
+    assert.ok(rayHitsZ(source, [0, 0.1, 0]) > 0, "source facade has no triangles");
   } finally {
     rmSync(staged.dir, { recursive: true, force: true });
   }
 });
-
-function cutOpenId(line: string): string {
-  const model = line.split(" ")[1];
-  const id = line.match(/id=(\S+)/)?.[1];
-  const source = line.match(/source=(\S+)/)?.[1];
-  return `${model} ${id} ${source}`;
-}
 
 function aabbOf(line: string): { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number } {
   const raw = line.slice(line.indexOf("aabb=") + "aabb=".length).split(",").map(Number);
@@ -608,9 +648,9 @@ test("a moved floors exterior is the only shared opening", () => {
     assert.equal(before.length, 1, first.lines.join("\n"));
     assert.equal(after.length, 1, second.lines.join("\n"));
     assert.match(before[0]!, /id=B\.front /);
-    assert.match(before[0]!, /source=floors /);
+    assert.match(before[0]!, /source=doors-external /);
     assert.match(before[0]!, /blk\.floors\.svg/);
-    assert.match(after[0]!, /source=floors /);
+    assert.match(after[0]!, /source=doors-external /);
     const aabb = (line: string) => line.slice(line.indexOf("aabb="));
     assert.notEqual(aabb(before[0]!), aabb(after[0]!));
     assert.equal(after.some((line) => line.includes(aabb(before[0]!))), false);
@@ -629,7 +669,7 @@ test("a room door merged with an external is one shared opening", () => {
     const opens = result.lines.filter((line) => line.startsWith("cut-open blk "));
     assert.equal(opens.length, 1, result.lines.filter((line) => line.startsWith("cut-")).join("\n"));
     assert.match(opens[0]!, /id=B\.front /);
-    assert.match(opens[0]!, /source=floors /);
+    assert.match(opens[0]!, /source=doors-external /);
     assert.match(opens[0]!, /blk\.floors\.svg/);
     assert.equal(result.lines.includes("cut-shared blk 1"), true);
     assert.equal(result.lines.some((line) => line.startsWith("cut-open") && line.includes(".d1")), false);
@@ -639,6 +679,257 @@ test("a room door merged with an external is one shared opening", () => {
     rmSync(staged.dir, { recursive: true, force: true });
   }
 });
+
+test("a room door on the footprint edge is a facade opening", () => {
+  const report = roomFacadeOpenings(facadePlan(0, 2.8, 0), new Map([["rm", facadeRoom(["front", "back"])]]));
+  assert.equal(report.openings.length, 1);
+  const front = report.openings[0]!;
+  assert.equal(front.doorId, "front");
+  assert.equal(front.axis, 2);
+  assert.ok(Math.abs(front.distance - 0.2) < 1e-6, String(front.distance));
+  assert.ok(Math.abs(front.box.minZ - 0.48) < 1e-6, String(front.box.minZ));
+  assert.ok(Math.abs(front.box.maxZ - 0.505) < 1e-6, String(front.box.maxZ));
+  assert.ok(Math.abs(front.box.minX - -0.05) < 1e-6 && Math.abs(front.box.maxX - 0.05) < 1e-6);
+  assert.ok(Math.abs(front.box.minY) < 1e-6 && Math.abs(front.box.maxY - 0.2) < 1e-6);
+  assert.equal(report.rejected.find((item) => item.doorId === "back")?.reason, "inner wall");
+});
+
+test("a room instance yawed 90 cuts the side the front wall lands on", () => {
+  const report = roomFacadeOpenings(facadePlan(2.8, 0, 90), new Map([["rm", facadeRoom(["front"])]]));
+  assert.equal(report.openings.length, 1, JSON.stringify(report.rejected));
+  const front = report.openings[0]!;
+  assert.equal(front.axis, 0);
+  assert.ok(Math.abs(front.distance - 0.2) < 1e-6, String(front.distance));
+  assert.ok(Math.abs(front.box.minX - 0.48) < 1e-6, String(front.box.minX));
+  assert.ok(Math.abs(front.box.maxX - 0.505) < 1e-6, String(front.box.maxX));
+  assert.ok(Math.abs(front.box.minZ - -0.05) < 1e-6 && Math.abs(front.box.maxZ - 0.05) < 1e-6);
+});
+
+test("a room set back 1.5 m is rejected for distance", () => {
+  const report = roomFacadeOpenings(facadePlan(0, 1.5, 0), new Map([["rm", facadeRoom(["front"])]]));
+  assert.deepEqual(report.openings, []);
+  assert.equal(report.rejected[0]?.reason, "distance");
+  assert.ok(Math.abs((report.rejected[0]?.distance ?? 0) - 1.5) < 1e-6, String(report.rejected[0]?.distance));
+});
+
+test("a door whose span leaves the footprint edge is rejected for span", () => {
+  const report = roomFacadeOpenings(facadePlan(5.2, 2.8, 0), new Map([["rm", facadeRoom(["front"])]]));
+  assert.deepEqual(report.openings, []);
+  assert.equal(report.rejected[0]?.reason, "span");
+});
+
+test("a facade room door cuts its rectangle and an inner door does not", () => {
+  const staged = facadeStage({ centerZ: 2.8, back: true });
+  try {
+    const result = runFacade(staged);
+    const opens = result.lines.filter((line) => line.startsWith("cut-open blk "));
+    const skips = result.lines.filter((line) => line.startsWith("cut-skip blk "));
+    assert.equal(opens.length, 1, result.lines.filter((line) => line.startsWith("cut-")).join("\n"));
+    assert.match(opens[0]!, /source=room:rm\/front /);
+    assert.match(opens[0]!, /distance=0\.2000/);
+    assert.equal(skips.some((line) => /source=room:rm\/back /.test(line) && /reason=inner wall/.test(line)), true, skips.join("\n"));
+    const cut = trianglesFromGlb(readFileSync(path.join(staged.models, "blk.cut.glb"))).triangles;
+    const source = trianglesFromGlb(readFileSync(path.join(staged.models, "blk.glb"))).triangles;
+    assert.ok(rayHitsZ(source, [0, 0.1, 0], 0.45, 0.55) > 0, "north facade missing");
+    assert.equal(rayHitsZ(cut, [0, 0.1, 0], 0.45, 0.55), 0, "door rectangle still has facade tris");
+    assert.ok(rayHitsZ(cut, [0.2, 0.1, 0], 0.45, 0.55) > 0, "facade removed beside the door");
+    assert.ok(rayHitsZ(cut, [0, 0.1, 0], -0.55, -0.45) > 0, "inner door removed south facade tris");
+    assert.ok(rayHitsX(cut, [0, 0.1, 0], 0.45, 0.55) > 0, "east facade was cut");
+    const shell = result.file.obstacles.find((item) => item.id.startsWith("B-wall-"));
+    assert.ok(shell, result.file.obstacles.map((item) => item.id).join(","));
+    assert.equal(result.file.obstacles.some((item) => covers(item, [50, 1, 54.9])), false, "doorway still solid");
+    assert.equal(result.file.obstacles.some((item) => covers(item, [53, 1, 54.9])), true, "shell beside the door is gone");
+  } finally {
+    rmSync(staged.dir, { recursive: true, force: true });
+  }
+});
+
+test("a yaw-90 room instance cuts the east edge", () => {
+  const staged = facadeStage({ centerX: 2.8, centerZ: 0, yaw: 90 });
+  try {
+    const result = runFacade(staged);
+    const opens = result.lines.filter((line) => line.startsWith("cut-open blk "));
+    assert.equal(opens.length, 1, opens.join("\n"));
+    assert.match(opens[0]!, /source=room:rm\/front /);
+    const cut = trianglesFromGlb(readFileSync(path.join(staged.models, "blk.cut.glb"))).triangles;
+    assert.equal(rayHitsX(cut, [0, 0.1, 0], 0.45, 0.55), 0, "east edge still has tris in the door");
+    assert.ok(rayHitsX(cut, [0, 0.1, 0.2], 0.45, 0.55) > 0, "east edge removed beside the door");
+    assert.ok(rayHitsZ(cut, [0, 0.1, 0], 0.45, 0.55) > 0, "north facade was cut");
+  } finally {
+    rmSync(staged.dir, { recursive: true, force: true });
+  }
+});
+
+test("a room set back 1.5 m does not cut and is logged as distance", () => {
+  const staged = facadeStage({ centerZ: 1.5 });
+  try {
+    const result = runFacade(staged);
+    const opens = result.lines.filter((line) => line.startsWith("cut-open blk "));
+    const skips = result.lines.filter((line) => line.startsWith("cut-skip blk "));
+    assert.deepEqual(opens, []);
+    assert.equal(skips.some((line) => /reason=distance/.test(line) && /distance=1\.5000/.test(line)), true, skips.join("\n"));
+    assert.equal(existsSync(path.join(staged.models, "blk.cut.glb")), false);
+  } finally {
+    rmSync(staged.dir, { recursive: true, force: true });
+  }
+});
+
+test("the same opening from doors-external and a room door is one box", () => {
+  const staged = facadeStage({
+    centerZ: 2.8,
+    exterior: `<rect id="front" inkscape:label="model:door-1" x="9.5" y="4.9" width="1" height="0.2"/>`,
+  });
+  try {
+    writeFileSync(path.join(staged.models, "door-1.glb"), writeGlb(
+      [{ name: "door", triangles: trianglesFromBox([0, 0, 0], [1, 2.1, 0.08]) }],
+      [{ name: "door", mesh: "door" }],
+    ));
+    const result = runFacade(staged);
+    const opens = result.lines.filter((line) => line.startsWith("cut-open blk "));
+    assert.equal(opens.length, 1, result.lines.filter((line) => line.startsWith("cut-")).join("\n"));
+    assert.match(opens[0]!, /source=doors-external /);
+    assert.equal(opens.some((line) => line.includes("source=room:")), false);
+    assert.equal(result.lines.includes("cut-shared blk 1"), true);
+  } finally {
+    rmSync(staged.dir, { recursive: true, force: true });
+  }
+});
+
+function facadePlan(x: number, z: number, yaw: 0 | 90 | 180 | 270): FloorsSource {
+  return {
+    model: "blk",
+    scale: 10,
+    yaw: 0,
+    origin: [0, 0, 0],
+    footprint: [[-5, -5], [5, -5], [5, 5], [-5, 5]],
+    floors: [{
+      n: 1,
+      name: "floor-1",
+      elevation: 0,
+      rooms: [{ id: "r1", prefab: "rm", center: { x, z }, yaw, drawnWidth: 4, drawnDepth: 4 }],
+      platforms: [],
+    }],
+    doors: [],
+    props: [],
+  };
+}
+
+function facadeRoom(walls: readonly ("front" | "back")[]): RoomFile {
+  return {
+    formatVersion: 1,
+    units: "meters",
+    id: "rm",
+    glb: "rm.glb",
+    source: "svg",
+    footprint: { minX: -2, maxX: 2, minZ: -2, maxZ: 2 },
+    height: 3,
+    obstacles: [],
+    walkable: [],
+    holes: [],
+    doors: walls.map((wall) => ({
+      id: wall,
+      model: "door-1",
+      wall,
+      center: wall === "front" ? [0, 0, 2] : [0, 0, -2],
+      width: 1,
+      height: 2,
+      hinge: "left" as const,
+      open: false,
+    })),
+    props: [],
+    lights: [],
+  };
+}
+
+function facadeStage(opts: {
+  centerX?: number;
+  centerZ?: number;
+  yaw?: 0 | 90;
+  back?: boolean;
+  exterior?: string;
+}): Stage {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-facade-"));
+  const floors = path.join(dir, "floors");
+  const rooms = path.join(dir, "rooms");
+  const models = path.join(dir, "models");
+  mkdirSync(floors);
+  mkdirSync(rooms);
+  mkdirSync(models);
+  const cx = opts.centerX ?? 0;
+  const cz = opts.centerZ ?? 2.8;
+  const yaw = opts.yaw ?? 0;
+  const sx = 10 + cx;
+  const sy = 10 - cz;
+  const yawAttr = yaw === 0 ? "" : ` data-yaw="${yaw}"`;
+  const room = `<rect id="r1" inkscape:label="model:rm" x="${sx - 2}" y="${sy - 2}" width="4" height="4"${yawAttr}/>`;
+  writeFileSync(path.join(floors, "blk.floors.svg"), `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="20mm" height="20mm" viewBox="0 0 20 20">
+  <sodipodi:namedview inkscape:document-units="mm"/>
+  <g inkscape:groupmode="layer" inkscape:label="floor-1">
+    <g id="fp1" data-model="blk" transform="matrix(10,0,0,10,10,10)"><path d="M -0.5 -0.5 L 0.5 -0.5 L 0.5 0.5 L -0.5 0.5 Z"/></g>
+    ${room}
+  </g>
+  <g inkscape:groupmode="layer" inkscape:label="doors-external">${opts.exterior ?? ""}</g>
+</svg>`);
+  const doors = opts.back
+    ? [facadeRoom(["front", "back"]).doors[0]!, facadeRoom(["front", "back"]).doors[1]!]
+    : facadeRoom(["front"]).doors;
+  writeFileSync(path.join(rooms, "rm.room.json"), `${JSON.stringify({ ...facadeRoom(["front"]), doors })}\n`);
+  writeFileSync(path.join(models, "blk.glb"), writeTriangleGlb("blk", trianglesFromBox([-0.5, 0, -0.5], [0.5, 1, 0.5])));
+  const svg = path.join(dir, "plan.svg");
+  writeFileSync(svg, `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="100mm" height="100mm" viewBox="0 0 100 100">
+  <sodipodi:namedview inkscape:document-units="mm"/>
+  <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="yard" x="0" y="0" width="100" height="100"/></g>
+  <g inkscape:groupmode="layer" inkscape:label="buildings">
+    <g id="B" data-model="blk" transform="matrix(10 0 0 10 50 50)"><path d="M -0.5 -0.5 L 0.5 -0.5 L 0.5 0.5 L -0.5 0.5 Z"/></g>
+  </g>
+</svg>`);
+  return { dir, svg, floors, rooms, models, out: path.join(dir, "out", "buildings.placements.json"), collision: path.join(dir, "collision") };
+}
+
+function runFacade(staged: Stage) {
+  return bake({
+    svgPath: staged.svg,
+    outPath: staged.out,
+    collisionDir: staged.collision,
+    modelsDir: staged.models,
+    floorsDir: staged.floors,
+    roomsDir: staged.rooms,
+  });
+}
+
+/** Hits of a +X ray whose X lies in [x0, x1]. */
+function rayHitsX(tris: Vec3[][], center: number[], x0: number, x1: number): number {
+  const origin: Vec3 = [-2, center[1]!, center[2]!];
+  const dir: Vec3 = [1, 0, 0];
+  let count = 0;
+  for (const [a, b, c] of tris) {
+    if (!a || !b || !c) continue;
+    const ab: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const ac: Vec3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    const p: Vec3 = [dir[1] * ac[2] - dir[2] * ac[1], dir[2] * ac[0] - dir[0] * ac[2], dir[0] * ac[1] - dir[1] * ac[0]];
+    const det = ab[0] * p[0] + ab[1] * p[1] + ab[2] * p[2];
+    if (Math.abs(det) < 1e-10) continue;
+    const inv = 1 / det;
+    const tvec: Vec3 = [origin[0] - a[0], origin[1] - a[1], origin[2] - a[2]];
+    const u = (tvec[0] * p[0] + tvec[1] * p[1] + tvec[2] * p[2]) * inv;
+    if (u < -1e-5 || u > 1 + 1e-5) continue;
+    const q: Vec3 = [tvec[1] * ab[2] - tvec[2] * ab[1], tvec[2] * ab[0] - tvec[0] * ab[2], tvec[0] * ab[1] - tvec[1] * ab[0]];
+    const v = (dir[0] * q[0] + dir[1] * q[1] + dir[2] * q[2]) * inv;
+    if (v < -1e-5 || u + v > 1 + 1e-5) continue;
+    const t = (ac[0] * q[0] + ac[1] * q[1] + ac[2] * q[2]) * inv;
+    const x = origin[0] + dir[0] * t;
+    if (t > 1e-4 && x >= x0 - 1e-4 && x <= x1 + 1e-4) count += 1;
+  }
+  return count;
+}
 
 test("a scene with no floors dir writes no rooms files", () => {
   const staged = stage();
@@ -886,10 +1177,13 @@ function sceneSvg(building: { x: number; y: number; w: number; h: number }, yaw:
 </svg>`;
 }
 
-function roomSvg(doorWall: "front" | "left" = "front"): string {
+function roomSvg(doorWall: "front" | "left" = "front", backDoor = false): string {
   const door = doorWall === "front"
     ? `<rect id="d1" inkscape:label="model:door-1" data-wall="front" x="4.5" y="7.9" width="1" height="0.2"/>`
     : `<rect id="d1" inkscape:label="model:door-1" data-wall="left" x="1.9" y="10.5" width="0.2" height="1"/>`;
+  const back = backDoor
+    ? `<rect id="d2" inkscape:label="model:door-1" data-wall="back" x="4.5" y="13.9" width="1" height="0.2"/>`
+    : "";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -906,6 +1200,7 @@ function roomSvg(doorWall: "front" | "left" = "front"): string {
   </g>
   <g inkscape:groupmode="layer" inkscape:label="doors">
     ${door}
+    ${back}
   </g>
   <g inkscape:groupmode="layer" inkscape:label="lights">
     <circle id="lamp-el" inkscape:label="light:lamp" cx="5" cy="11" r="0.2" z="2"/>
