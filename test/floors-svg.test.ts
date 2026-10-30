@@ -150,6 +150,44 @@ test("floors files reject a bad layer, footprint, elevation, room, or door", () 
   );
 });
 
+test("an L-shaped stencil keeps a 6-point outline and a diagonal falls back to the AABB", () => {
+  const l = readFloorsSvg(`<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="20mm" height="20mm" viewBox="0 0 20 20">
+  <sodipodi:namedview inkscape:document-units="mm"/>
+  <g inkscape:groupmode="layer" inkscape:label="floor-1">
+    <g id="fp" data-model="bldg" transform="matrix(1,0,0,1,0,20)">
+      <path d="M 0 0 L 3 0 L 3 -1 L 1 -1 L 1 -2 L 0 -2 Z"/>
+    </g>
+  </g>
+</svg>`);
+  assert.equal(l.outlineFallback, undefined);
+  assert.deepEqual(l.outline, [[0, 0], [3, 0], [3, 1], [1, 1], [1, 2], [0, 2]]);
+  assert.deepEqual(l.footprint, [[0, 0], [3, 0], [3, 2], [0, 2]]);
+
+  const diagonal = readFloorsSvg(svgWrap(layer("floor-1", footprint("fp", "bldg", "matrix(1,0,0,1,0,20)"))));
+  assert.equal(diagonal.outlineFallback, "diagonal");
+  assert.deepEqual(diagonal.outline, diagonal.footprint);
+  assert.equal(diagonal.footprint.length, 4);
+
+  const curve = readFloorsSvg(svgWrap(layer("floor-1", `
+    <g id="fp" data-model="bldg" transform="matrix(1,0,0,1,0,20)">
+      <path d="M 0 0 C 1 0 1 -1 1 -1 L 0 -1 Z"/>
+    </g>`)));
+  assert.equal(curve.outlineFallback, "curve");
+  assert.deepEqual(curve.outline, curve.footprint);
+
+  fails(
+    svgWrap(
+      layer("floor-1", `<g id="a" data-model="bldg" transform="matrix(1,0,0,1,0,20)"><path d="M 0 0 L 2 0 L 2 -1 L 0 -1 Z"/></g>`)
+      + layer("floor-2", `<g id="b" data-model="bldg" transform="matrix(1,0,0,1,0,20)" z="1"><path d="M 0 0 L 2 0 L 2 -1 L 1 -1 L 1 -2 L 0 -2 Z"/></g>`),
+    ),
+    /floor-2 outline does not match floor-1/,
+  );
+});
+
 test("blueprint-scene floors prints the summary and writes nothing", () => {
   const bin = path.join(import.meta.dirname, "..", "bin", "blueprint-scene");
   const cli = spawnSync(bin, ["floors", "--svg", FIXTURE], { encoding: "utf8" });

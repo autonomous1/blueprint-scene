@@ -367,14 +367,26 @@ export function bake(options: BakeOptions): BakeResult {
 
   let roomsFile: RoomsPlacementsFile | undefined;
   let lightsFile: RoomsLightsFile | undefined;
-  if (floors && floors.roomCount > 0) {
+  if (floors && (floors.roomCount > 0 || floors.placements.length > 0 || floors.obstacles.length > 0)) {
+    const knownAssets = new Set([...assetTypes.keys(), ...assetFiles.keys()]);
     cutBlockedRoomMeshes(
       modelsDir,
       modelScopedDoors,
       floors.placements,
-      new Set([...assetTypes.keys(), ...assetFiles.keys()]),
+      knownAssets,
       lines,
     );
+    if (floors.hallMeshes.length > 0) mkdirSync(modelsDir, { recursive: true });
+    for (const mesh of floors.hallMeshes) {
+      const outPath = path.join(modelsDir, `${mesh.id}.glb`);
+      writeFileSync(outPath, mesh.bytes);
+      lines.push(`wrote ${outPath}`);
+      if (!knownAssets.has(mesh.id)) {
+        lines.push(
+          `{"id":"${mesh.id}","kind":"model","type":"floor","instance":"static","uri":"/assets/models/${mesh.id}.glb","mediaType":"model/gltf-binary"}`,
+        );
+      }
+    }
     roomsFile = {
       formatVersion: 1,
       units: "meters",
@@ -481,7 +493,7 @@ function scenePlaces(
     floorsFor: (model) => {
       const floorsPath = path.join(floorsDir, `${model}.floors.svg`);
       if (!existsSync(floorsPath)) return undefined;
-      return readFloorsSvg(readText(floorsPath));
+      return readFloorsSvg(readText(floorsPath), floorsPath);
     },
     roomFileFor: (prefab) => {
       if (!roomsDir) return undefined;
@@ -1263,7 +1275,7 @@ function floorsScaleByModel(floorsDir: string | undefined, models: Iterable<stri
   for (const model of models) {
     const floorsPath = path.join(floorsDir, `${model}.floors.svg`);
     if (!existsSync(floorsPath)) continue;
-    scales.set(model, readFloorsSvg(readText(floorsPath)).scale);
+    scales.set(model, readFloorsSvg(readText(floorsPath), floorsPath).scale);
   }
   return scales;
 }

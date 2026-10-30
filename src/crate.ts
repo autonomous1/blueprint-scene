@@ -205,33 +205,33 @@ function loadTexture(svgPath: string, shape: LayerShape, face: string): Uint8Arr
 }
 
 /** PNG or JPEG bytes for a face texture. `ref` is a data URI or a path. `what` is the face name. */
-export function loadTextureRef(svgPath: string, ref: string, what: string): Uint8Array {
-  if (ref.startsWith("data:")) return imageFromDataUri(ref, what);
-  return readImage(path.resolve(path.dirname(svgPath), ref), what);
+export function loadTextureRef(svgPath: string, ref: string, what: string, label = "crate texture"): Uint8Array {
+  if (ref.startsWith("data:")) return imageFromDataUri(ref, what, label);
+  return readImage(path.resolve(path.dirname(svgPath), ref), what, label);
 }
 
-function imageFromDataUri(value: string, face: string): Uint8Array {
+function imageFromDataUri(value: string, face: string, label: string): Uint8Array {
   const comma = value.indexOf(",");
   const header = comma >= 0 ? value.slice(0, comma) : value;
   const payload = comma >= 0 ? value.slice(comma + 1) : "";
   if (!/^data:image\/(?:png|jpeg|jpg)\b/i.test(header) || !/;base64\b/i.test(header)) {
-    throw new PlanError(`crate texture "${face}" is not a png or jpeg`);
+    throw new PlanError(`${label} "${face}" is not a png or jpeg`);
   }
-  return assertImage(Buffer.from(payload.replace(/\s+/g, ""), "base64"), face);
+  return assertImage(Buffer.from(payload.replace(/\s+/g, ""), "base64"), face, label);
 }
 
-function readImage(file: string, face: string): Uint8Array {
+function readImage(file: string, face: string, label: string): Uint8Array {
   let bytes: Buffer;
   try {
     bytes = readFileSync(file);
   } catch {
-    throw new PlanError(`crate texture "${face}" could not be read`);
+    throw new PlanError(`${label} "${face}" could not be read`);
   }
-  return assertImage(bytes, face);
+  return assertImage(bytes, face, label);
 }
 
-function assertImage(bytes: Uint8Array, face: string): Uint8Array {
-  if (!imageMime(bytes)) throw new PlanError(`crate texture "${face}" is not a png or jpeg`);
+function assertImage(bytes: Uint8Array, face: string, label: string): Uint8Array {
+  if (!imageMime(bytes)) throw new PlanError(`${label} "${face}" is not a png or jpeg`);
   return new Uint8Array(bytes);
 }
 

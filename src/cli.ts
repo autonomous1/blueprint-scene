@@ -226,7 +226,7 @@ function runRoom(argv: string[]): void {
 function runFloors(argv: string[]): void {
   const flags = parseFlags(argv, new Set(["svg"]));
   if (!flags.svg) throw new PlanError(`missing --svg\n${USAGE}`);
-  const source = readFloorsSvg(readFileSync(flags.svg, "utf8"));
+  const source = readFloorsSvg(readFileSync(flags.svg, "utf8"), flags.svg);
   const elevations = source.floors.map((floor) => formatMetres(floor.elevation)).join(", ");
   const rooms = source.floors.reduce((count, floor) => count + floor.rooms.length, 0);
   console.log(

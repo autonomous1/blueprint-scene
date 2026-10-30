@@ -1,9 +1,10 @@
 import { PlanError } from "./errors.ts";
 import type { FloorPlatformSource, FloorsSource, RoomInstanceSource } from "./floors-svg.ts";
+import { hallCells } from "./hall-floor.ts";
 import type { RoomFile } from "./room-file.ts";
 import { addYaw, buildingToWorld, roomToBuilding } from "./rooms-bake.ts";
 import type { Placement, ScenePlace, Vec3, Yaw } from "./types.ts";
-import { unionAabbs, type Aabb2 } from "./union.ts";
+import { unionAabbs } from "./union.ts";
 import { placeBox } from "./yaw.ts";
 
 type PlaceBuilding = {
@@ -71,7 +72,11 @@ export function derivePlaces(args: {
         `building "${building.id}" scale ${building.scale} differs from ${building.model}.floors.svg scale ${source.scale}`,
       );
     }
-    const footprint = worldPoly(building, source.footprint);
+    if (source.outlineFallback) {
+      const why = source.outlineFallback === "curve" ? "a curve" : "a diagonal edge";
+      warnings.push(`building "${building.id}" stencil outline has ${why}; using the bounding box`);
+    }
+    const outline = worldPoly(building, source.outline);
     for (const floor of source.floors) {
       const y = building.position[1] + floor.elevation;
       const floorName = String(floor.n);
@@ -95,12 +100,12 @@ export function derivePlaces(args: {
         building.id,
         floorName,
         y,
-        hallPolygon(footprint, roomPolys, warnings, hallId),
+        hallPolygon(outline, roomPolys, warnings, hallId),
       ));
       if (floor.platformDeck !== undefined) {
         const id = `${building.id}.floor-${floor.n}.platform`;
         claim(id);
-        places.push(makePlace(id, "platform", building.id, floorName, y + floor.platformDeck, footprint));
+        places.push(makePlace(id, "platform", building.id, floorName, y + floor.platformDeck, outline));
       }
       for (const platform of floor.platforms) {
         pushPlatform(places, claim, building, floorName, y, platform);
@@ -181,54 +186,28 @@ function placementOf(building: PlaceBuilding): Placement {
 }
 
 /**
- * Footprint minus room rectangles. Both are axis-aligned after a quarter turn.
- * An empty or degenerate difference keeps the footprint and warns.
+ * Outline minus room rectangles. Cells come from `hallCells` (the facade edge
+ * is inset; room edges are not). An empty or degenerate difference keeps the
+ * outline and warns.
  */
 function hallPolygon(
-  footprint: Array<[number, number]>,
+  outline: Array<[number, number]>,
   rooms: readonly (readonly (readonly [number, number])[])[],
   warnings: string[],
   id: string,
 ): Array<[number, number]> {
-  const outer = rectOf(footprint);
-  const full = ccwRect(outer);
-  const holes = rooms
-    .map((polygon) => clip(outer, rectOf(polygon)))
-    .filter((rect): rect is Rect => rect !== undefined);
-  if (holes.length === 0) return full;
-  const cells = rectDifference(outer, holes);
+  const cells = hallCells(outline, rooms.map((polygon) => rectOf(polygon)));
   if (cells.length === 0) {
-    warnings.push(`hall "${id}" difference is empty; using the full footprint`);
-    return full;
+    warnings.push(`hall "${id}" difference is empty; using the outline`);
+    return outline;
   }
   const rings = unionAabbs(cells);
   const polygon = stitch(rings.map((ring) => ring.points.map((point): [number, number] => [point.x, point.z])));
   if (!polygon || Math.abs(signedArea(polygon)) < 1e-8) {
-    warnings.push(`hall "${id}" difference is degenerate; using the full footprint`);
-    return full;
+    warnings.push(`hall "${id}" difference is degenerate; using the outline`);
+    return outline;
   }
   return polygon;
-}
-
-function rectDifference(outer: Rect, holes: readonly Rect[]): Aabb2[] {
-  const xs = uniqueSorted([outer.minX, outer.maxX, ...holes.flatMap((hole) => [hole.minX, hole.maxX])]);
-  const zs = uniqueSorted([outer.minZ, outer.maxZ, ...holes.flatMap((hole) => [hole.minZ, hole.maxZ])]);
-  const cells: Aabb2[] = [];
-  for (let k = 0; k < zs.length - 1; k += 1) {
-    for (let i = 0; i < xs.length - 1; i += 1) {
-      const minX = xs[i]!;
-      const maxX = xs[i + 1]!;
-      const minZ = zs[k]!;
-      const maxZ = zs[k + 1]!;
-      if (maxX - minX <= 1e-8 || maxZ - minZ <= 1e-8) continue;
-      const cx = (minX + maxX) / 2;
-      const cz = (minZ + maxZ) / 2;
-      if (cx < outer.minX || cx > outer.maxX || cz < outer.minZ || cz > outer.maxZ) continue;
-      if (holes.some((hole) => cx >= hole.minX && cx <= hole.maxX && cz >= hole.minZ && cz <= hole.maxZ)) continue;
-      cells.push({ minX, maxX, minZ, maxZ });
-    }
-  }
-  return cells;
 }
 
 /** One contour. Extra rings are joined by a there-and-back bridge so even-odd coverage is unchanged. */
@@ -258,16 +237,8 @@ function bridge(host: Array<[number, number]>, extra: Array<[number, number]>): 
     }
   }
   const rotated = [...extra.slice(bestJ), ...extra.slice(0, bestJ)];
-  return [...host.slice(0, bestI + 1), ...rotated, host[bestI]!, ...host.slice(bestI + 1)];
-}
-
-function clip(outer: Rect, hole: Rect): Rect | undefined {
-  const minX = Math.max(outer.minX, hole.minX);
-  const maxX = Math.min(outer.maxX, hole.maxX);
-  const minZ = Math.max(outer.minZ, hole.minZ);
-  const maxZ = Math.min(outer.maxZ, hole.maxZ);
-  if (maxX - minX <= 1e-8 || maxZ - minZ <= 1e-8) return undefined;
-  return { minX, maxX, minZ, maxZ };
+  // `rotated` is not closed. Repeat its start so the bridge walks back on itself.
+  return [...host.slice(0, bestI + 1), ...rotated, rotated[0]!, host[bestI]!, ...host.slice(bestI + 1)];
 }
 
 function rectOf(polygon: readonly (readonly [number, number])[]): Rect {
@@ -301,16 +272,6 @@ function signedArea(polygon: readonly (readonly [number, number])[]): number {
     area += point[0] * next[1] - next[0] * point[1];
   }
   return area / 2;
-}
-
-function uniqueSorted(values: number[]): number[] {
-  const sorted = [...values].sort((a, b) => a - b);
-  const out: number[] = [];
-  for (const value of sorted) {
-    const last = out[out.length - 1];
-    if (last === undefined || value - last > 1e-8) out.push(value);
-  }
-  return out;
 }
 
 function roundM(n: number): number {

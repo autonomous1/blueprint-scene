@@ -65,6 +65,12 @@ export type MeshPrimitive = {
   color?: readonly [number, number, number, number];
   /** Adds `alphaMode: "BLEND"` and `doubleSided: true`. */
   blend?: boolean;
+  /**
+   * Repeat the image (`10497`) instead of clamping it (`33071`).
+   * UVs outside 0..1 are further tiles. A primitive without this flag
+   * keeps the clamped sampler.
+   */
+  repeat?: boolean;
 };
 
 export type NamedMesh = {
@@ -90,6 +96,7 @@ export function imageMime(bytes: Uint8Array): "image/png" | "image/jpeg" | undef
  */
 export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
   const images: Uint8Array[] = [];
+  const repeatSources = new Set<number>();
   const imageIndexOf = (png: Uint8Array): number => {
     const found = images.indexOf(png);
     if (found >= 0) return found;
@@ -165,6 +172,7 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
           { componentType: 5126, count: built.count, type: "VEC2" },
         );
         const source = imageIndexOf(primitive.image);
+        if (primitive.repeat === true) repeatSources.add(source);
         if (primitive.color != null || primitive.blend === true) {
           material = paneMaterial(source, primitive.color, primitive.blend === true);
         } else {
@@ -205,8 +213,14 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
     buffers: [{ byteLength: bytes.byteLength }],
   };
   if (images.length > 0) {
-    json.samplers = [{ magFilter: 9729, minFilter: 9729, wrapS: 33071, wrapT: 33071 }];
-    json.textures = images.map((_, index) => ({ sampler: 0, source: index }));
+    const samplers: Array<{ magFilter: number; minFilter: number; wrapS: number; wrapT: number }> = [
+      { magFilter: 9729, minFilter: 9729, wrapS: 33071, wrapT: 33071 },
+    ];
+    if (repeatSources.size > 0) {
+      samplers.push({ magFilter: 9729, minFilter: 9729, wrapS: 10497, wrapT: 10497 });
+    }
+    json.samplers = samplers;
+    json.textures = images.map((_, index) => ({ sampler: repeatSources.has(index) ? 1 : 0, source: index }));
     json.images = imageViews.map((bufferView, index) => {
       const mimeType = imageMime(images[index] ?? new Uint8Array());
       if (!mimeType) throw new Error("embedded image is not a png or jpeg");

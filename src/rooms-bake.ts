@@ -3,11 +3,13 @@ import path from "node:path";
 import { stampPlacement } from "./asset-type.ts";
 import { DOOR_FACE_TOL_M, cutDoorFromBoxes, doorCutLocal, situateDoor, subtractBox, type SituatedDoor } from "./doors.ts";
 import { PlanError } from "./errors.ts";
-import { readFloorsSvg, type FloorsSource, type RoomInstanceSource } from "./floors-svg.ts";
+import { DEFAULT_TILE_M, readFloorsSvg, type FloorsSource, type RoomInstanceSource } from "./floors-svg.ts";
+import { defaultFloorImage, hallFloorGlb, hallFloorPiece, roomFootprintAabb } from "./hall-floor.ts";
 import { ID_RE } from "./plan.ts";
 import { WALL_T, type RoomDoor, type RoomFile, type RoomLight } from "./room-file.ts";
 import { wallLine, type WallFace } from "./room-svg.ts";
 import type { AssetType, DoorPlacement, LocalBox, Obstacle, Placement, SceneDoor, SceneProp, Vec3, Yaw } from "./types.ts";
+import type { Aabb2 } from "./union.ts";
 import { inverseYaw, transformXz } from "./yaw.ts";
 
 export const addYaw = (a: Yaw, b: Yaw): Yaw => ((a + b) % 360) as Yaw;
@@ -82,6 +84,15 @@ export type BuildingRooms = {
   pending: PendingRoomDoor[];
 };
 
+/**
+ * One shared hall mesh. Asset id is `${model}.floor-${n}.hall`.
+ * The GLB is building-local metres, placed at the building origin with scale 1.
+ */
+export type HallFloorMesh = {
+  id: string;
+  bytes: Uint8Array;
+};
+
 export type FloorBake = {
   doors: SceneDoor[];
   props: SceneProp[];
@@ -90,6 +101,11 @@ export type FloorBake = {
   obstacles: Obstacle[];
   lights: RoomsLight[];
   roomCount: number;
+  /**
+   * Elevated-hall meshes, one per model and floor. Written beside the other
+   * models as `${id}.glb`.
+   */
+  hallMeshes: HallFloorMesh[];
   /** Room doors on the footprint edge, one report per model. */
   facades: Map<string, RoomFacadeReport>;
 };
@@ -405,12 +421,14 @@ export function loadFloors(input: LoadInput): FloorBake {
   const reported = new Set<string>();
   const facades = new Map<string, RoomFacadeReport>();
   const facadeModels = new Set<string>();
+  const hallMeshes: HallFloorMesh[] = [];
+  const hallWritten = new Set<string>();
   let roomCount = 0;
 
   for (const building of input.buildings) {
     const floorsPath = path.join(input.floorsDir, `${building.model}.floors.svg`);
     if (!existsSync(floorsPath)) continue;
-    const source = readFloorsSvg(readText(floorsPath));
+    const source = readFloorsSvg(readText(floorsPath), floorsPath);
     if (source.model !== building.model) {
       throw new PlanError(
         `building "${building.id}": ${building.model}.floors.svg model "${source.model}" is not "${building.model}"`,
@@ -434,9 +452,11 @@ export function loadFloors(input: LoadInput): FloorBake {
     }
     const record: BuildingRooms = { interiors: [], pending: [] };
     for (const floor of source.floors) {
+      const roomAabbs: Aabb2[] = [];
       for (const inst of floor.rooms) {
         const room = roomsByPrefab.get(inst.prefab) ?? loadRoom(input.roomsDir!, inst.prefab, roomsByPrefab);
         checkFootprint(building, inst, room);
+        roomAabbs.push(roomFootprintAabb(inst, room.footprint));
         const toWorld = (p: Vec3): Vec3 => instanceToWorld(building, inst, floor.elevation, p);
         const prefix = `${building.id}.${inst.id}`;
         const yaw = addYaw(building.yaw, inst.yaw);
@@ -494,6 +514,59 @@ export function loadFloors(input: LoadInput): FloorBake {
         }
         roomCount += 1;
       }
+      // Ground floors stand on the arena ground. An elevated hall is the
+      // outline minus the room slabs, so the two floors do not stack.
+      // The mesh placement reuses the hall place id. The asset id
+      // `${model}.floor-${n}.hall` is shared by every placement of the model.
+      const worldY = building.position[1] + floor.elevation;
+      if (worldY > GROUND_FLOOR_Y) {
+        const piece = hallFloorPiece(floor.elevation, source.outline, roomAabbs);
+        if (!piece) {
+          input.warnings.push(`hall floor "${building.id}.floor-${floor.n}" covers no area outside rooms; no slab`);
+        } else {
+          const slabId = `${building.id}.floor-${floor.n}.slab`;
+          piece.cells.forEach((cell, index) => {
+            const world = mapBox({
+              minX: cell.minX,
+              maxX: cell.maxX,
+              minY: piece.slabMinY,
+              maxY: piece.slabMaxY,
+              minZ: cell.minZ,
+              maxZ: cell.maxZ,
+            }, (point) => buildingToWorld(building, point));
+            obstacles.push({
+              id: `${slabId}-${index}`,
+              kind: "aabb",
+              min: roundVec([world.minX, world.minY, world.minZ]),
+              max: roundVec([world.maxX, world.maxY, world.maxZ]),
+            });
+          });
+          const assetId = `${building.model}.floor-${floor.n}.hall`;
+          const placementId = `${building.id}.floor-${floor.n}.hall`;
+          claim(placementId);
+          placements.push(stampPlacement({
+            id: placementId,
+            model: assetId,
+            position: roundVec(building.position),
+            yaw: building.yaw,
+            scale: 1,
+          }, input.assetTypes));
+          if (!hallWritten.has(assetId)) {
+            hallWritten.add(assetId);
+            const texture = floor.texture;
+            hallMeshes.push({
+              id: assetId,
+              bytes: hallFloorGlb({
+                cells: piece.cells,
+                y: piece.surfaceY,
+                image: texture?.image ?? defaultFloorImage(),
+                tileX: texture?.tileX ?? DEFAULT_TILE_M,
+                tileZ: texture?.tileZ ?? DEFAULT_TILE_M,
+              }),
+            });
+          }
+        }
+      }
     }
     if (!facadeModels.has(building.model)) {
       facadeModels.add(building.model);
@@ -517,7 +590,7 @@ export function loadFloors(input: LoadInput): FloorBake {
     if (record.interiors.length > 0 || record.pending.length > 0) buildings.set(building.id, record);
   }
 
-  return { doors, props, buildings, placements, obstacles, lights, roomCount, facades };
+  return { doors, props, buildings, placements, obstacles, lights, roomCount, hallMeshes, facades };
 }
 
 export type RoomDoorHosts = {

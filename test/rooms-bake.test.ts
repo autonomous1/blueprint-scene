@@ -171,7 +171,7 @@ test("bake places rooms, merges the facade door, and hollows the building", () =
     const lightsPath = path.join(staged.dir, "out", "rooms.lights.json");
     assert.deepEqual(JSON.parse(readFileSync(roomsPath, "utf8")), result.rooms);
     assert.deepEqual(JSON.parse(readFileSync(lightsPath, "utf8")), result.lights);
-    assert.deepEqual(result.rooms!.placements, [
+    assert.deepEqual(result.rooms!.placements.filter((item) => item.model === "rm"), [
       { id: "B.r1", model: "rm", type: "room", position: [10, 0, 11.9], yaw: 0, scale: 1 },
       { id: "B.r2", model: "rm", type: "room", position: [10, 3, 11.9], yaw: 0, scale: 1 },
     ]);
@@ -802,6 +802,7 @@ function facadePlan(x: number, z: number, yaw: 0 | 90 | 180 | 270): FloorsSource
     yaw: 0,
     origin: [0, 0, 0],
     footprint: [[-5, -5], [5, -5], [5, 5], [-5, 5]],
+    outline: [[-5, -5], [5, -5], [5, 5], [-5, 5]],
     floors: [{
       n: 1,
       name: "floor-1",

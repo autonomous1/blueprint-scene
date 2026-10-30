@@ -19,6 +19,41 @@ export type Ring = { points: XzPoint[]; area: number };
 const EPS = 1e-6;
 
 /**
+ * `outer` minus `holes`, as the grid cells whose centres lie in `outer` and
+ * in no hole. A hole that only clips a corner leaves the rest of that cell.
+ */
+export function subtractAabbs(outer: Aabb2, holes: readonly Aabb2[]): Aabb2[] {
+  const xs = edges([outer.minX, outer.maxX, ...holes.flatMap((hole) => [hole.minX, hole.maxX])]);
+  const zs = edges([outer.minZ, outer.maxZ, ...holes.flatMap((hole) => [hole.minZ, hole.maxZ])]);
+  const cells: Aabb2[] = [];
+  for (let k = 0; k < zs.length - 1; k += 1) {
+    for (let i = 0; i < xs.length - 1; i += 1) {
+      const minX = xs[i]!;
+      const maxX = xs[i + 1]!;
+      const minZ = zs[k]!;
+      const maxZ = zs[k + 1]!;
+      if (maxX - minX <= 1e-8 || maxZ - minZ <= 1e-8) continue;
+      const cx = (minX + maxX) / 2;
+      const cz = (minZ + maxZ) / 2;
+      if (cx < outer.minX || cx > outer.maxX || cz < outer.minZ || cz > outer.maxZ) continue;
+      if (holes.some((hole) => cx >= hole.minX && cx <= hole.maxX && cz >= hole.minZ && cz <= hole.maxZ)) continue;
+      cells.push({ minX, maxX, minZ, maxZ });
+    }
+  }
+  return cells;
+}
+
+function edges(values: number[]): number[] {
+  const sorted = [...values].sort((a, b) => a - b);
+  const out: number[] = [];
+  for (const value of sorted) {
+    const last = out[out.length - 1];
+    if (last === undefined || value - last > 1e-8) out.push(value);
+  }
+  return out;
+}
+
+/**
  * Union axis-aligned boxes the way Inkscape Path → Union does.
  * Walk with the solid on the left. A square (0,0)–(1,1) is
  * (0,0) → (1,0) → (1,1) → (0,1). A fully enclosed courtyard is a
