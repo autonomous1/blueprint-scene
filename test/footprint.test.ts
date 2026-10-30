@@ -189,6 +189,21 @@ test("a solid 3 m wall keeps its own top when another part of the mesh is taller
   assert.equal(tower.maxY, 9);
 });
 
+test("a closed box is solid by default and a shell when fill is off", () => {
+  const mesh = trianglesFromBox([0, 0, 0], [8, 4, 8]);
+  const centre: Vec3 = [4, 1, 4];
+  const wall: Vec3 = [0.2, 1, 4];
+  assert.equal(footprintFromTriangles(mesh).some((box) => covers(box, centre)), true);
+  assert.equal(coarseFootprint(mesh).boxes.some((box) => covers(box, centre)), true);
+  const shell = footprintFromTriangles(mesh, CELL_M, [], false);
+  assert.equal(shell.some((box) => covers(box, centre)), false);
+  assert.equal(shell.some((box) => covers(box, wall)), true);
+  assert.equal(shell.some((box) => covers(box, [1, 1, 4])), false);
+  const coarse = coarseFootprint(mesh, false);
+  assert.equal(coarse.boxes.some((box) => covers(box, centre)), false);
+  assert.equal(coarse.boxes.some((box) => covers(box, wall)), true);
+});
+
 test("more than 32 runs doubles the cell once", () => {
   const triangles: Triangle[] = [];
   const count = MAX_OBSTACLES + 8;

@@ -160,3 +160,32 @@ test("a door that misses every wall box fails; one that spans two boxes cuts bot
   // Nothing outside the original two boxes, and no column erased.
   for (const box of cut) assert.ok(box.minX >= -1 - 1e-9 && box.maxX <= 4 + 1e-9);
 });
+
+test("an outward cap stops a cut short of a 6 m box", () => {
+  const wall: LocalBox = { minX: -5, maxX: 5, minY: 0, maxY: 3, minZ: 0, maxZ: 6 };
+  const opening = situated(door({
+    hinge: "left",
+    yaw: 0,
+    position: [0, 0, 0],
+    size: [2, 2.1, 0.08],
+  }));
+  const cap = 1;
+  const openingDepth = -opening.opening.minZ;
+  const capped = cutDoorFromBoxes([wall], opening, [0, 0, 0], 0, true, cap);
+  const open = cutDoorFromBoxes([wall], opening, [0, 0, 0], 0);
+  assert.deepEqual(open, cutDoorFromBoxes([wall], opening, [0, 0, 0], 0, true, Infinity));
+  const inside = (boxes: readonly LocalBox[], z: number): boolean =>
+    boxes.some((box) => coversLocal(box, 1, 1, z));
+  assert.equal(inside(capped, 0.5), false);
+  assert.equal(inside(open, 0.5), false);
+  assert.equal(inside(open, 5.5), false);
+  let removed = 0;
+  for (let z = 0.05; z < 6; z += 0.05) {
+    if (!inside(capped, z)) removed += 0.05;
+    else assert.ok(z >= opening.opening.maxZ + cap - 1e-6, `hole past the cap at z ${z}`);
+  }
+  assert.ok(removed <= cap + openingDepth + 0.05, `removed ${removed} m, cap ${cap} + opening ${openingDepth}`);
+  assert.equal(inside(capped, 5.5), true);
+  assert.equal(capped.some((box) => coversLocal(box, -1, 1, 5)), true);
+  assert.equal(open.some((box) => coversLocal(box, -1, 1, 5)), true);
+});

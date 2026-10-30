@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readAssetFiles, readAssetTypes, stampPlacement } from "./asset-type.ts";
 import { PlanError } from "./errors.ts";
-import { cutBuildingGlb, meshProbe, openingInModel, openingOverlapCounts, sealedOpeningBox, uncutBuildingGlb, type MeshProbe } from "./building-mesh-cut.ts";
+import { cutBuildingGlb, extendOutlineToFacade, meshProbe, openingInModel, openingOverlapCounts, sealedOpeningBox, uncutBuildingGlb, type MeshProbe } from "./building-mesh-cut.ts";
 import { cutDoorFromBoxes, doorCutLocal, doorPanelWidth, situateDoor, subtractBox } from "./doors.ts";
 import { coarseFootprint, measureFootprint } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
@@ -132,7 +132,7 @@ export function bake(options: BakeOptions): BakeResult {
     const runs = stencilSize(measureFootprint(geometry.triangles));
     boxesByModel.set(model, {
       triangles: geometry.triangles,
-      boxes: coarseFootprint(geometry.triangles).boxes,
+      boxes: coarseFootprint(geometry.triangles, fillModelInterior(options.floorsDir, model)).boxes,
       meshNames: geometry.meshNames,
       vertexCount: geometry.vertexCount,
       fromGlb: geometry.fromGlb,
@@ -180,7 +180,7 @@ export function bake(options: BakeOptions): BakeResult {
     let grid = scaledGrids.get(key);
     if (!grid) {
       const triangles = scaleTriangles(model.triangles, placement.scale);
-      const uncut = coarseFootprint(triangles);
+      const uncut = coarseFootprint(triangles, fillModelInterior(options.floorsDir, placement.model));
       grid = { triangles, boxes: uncut.boxes, cellSize: uncut.cellSize, facetsDropped: uncut.facetsDropped };
       scaledGrids.set(key, grid);
     }
@@ -309,6 +309,8 @@ export function bake(options: BakeOptions): BakeResult {
         }
       }
     }
+    const facadeOpenings = (floors?.facades.get(placement.model)?.openings ?? [])
+      .map((opening) => extendRoomFacade(opening, model.triangles, placement.scale));
     const modelOpenings = mergeOpenings(
       exteriorCutOpenings(
         exterior,
@@ -317,7 +319,7 @@ export function bake(options: BakeOptions): BakeResult {
         placement.yaw,
         placement.scale,
       ),
-      (floors?.facades.get(placement.model)?.openings ?? []).map(facadeCut),
+      facadeOpenings.map(facadeCut),
       placement.scale,
     );
     const groups = openingsByModel.get(placement.model) ?? [];
@@ -339,7 +341,7 @@ export function bake(options: BakeOptions): BakeResult {
       });
       roomDoorPlacements.push(...placed.placements);
     }
-    const facadeBoxes = floors?.facades.get(placement.model)?.openings.map((opening) => opening.box) ?? [];
+    const facadeBoxes = facadeOpenings.map((opening) => opening.box);
     if (facadeBoxes.length > 0) cutFacadeWalls(file.obstacles, placement, facadeBoxes);
     lines.push(instanceLine(placement.id, model.meshNames, placement.scale, grid.cellSize, pieceCount, facetsDropped));
   }
@@ -632,6 +634,21 @@ function facadeCut(opening: RoomFacadeOpening): CutOpening {
     distance: opening.distance,
     axis: opening.axis,
   };
+}
+
+/**
+ * Pull the outline box out to the mesh facade. `depth` is the new slab in
+ * world metres. The same box is what `cutFacadeWalls` subtracts.
+ */
+function extendRoomFacade(
+  opening: RoomFacadeOpening,
+  triangles: readonly Triangle[],
+  scale: number,
+): RoomFacadeOpening {
+  const box = extendOutlineToFacade(triangles, opening.box, opening.axis, opening.outward, scale);
+  if (box === opening.box) return opening;
+  const span = opening.axis === 0 ? box.maxX - box.minX : box.maxZ - box.minZ;
+  return { ...opening, box, depth: Math.abs(span * scale) };
 }
 
 /**
@@ -1267,6 +1284,15 @@ function measureBounds(triangles: Triangle[]): Pick<ModelBake, "measureMinX" | "
     measureWidth: measureMaxX - measureMinX,
     measureDepth: measureMaxZ - measureMinZ,
   };
+}
+
+/**
+ * A floors file is the building's interior, so the mesh footprint stays a
+ * shell. The same path `loadFloors` reads. Models without that file stay solid.
+ */
+function fillModelInterior(floorsDir: string | undefined, model: string): boolean {
+  if (!floorsDir) return true;
+  return !existsSync(path.join(floorsDir, `${model}.floors.svg`));
 }
 
 function floorsScaleByModel(floorsDir: string | undefined, models: Iterable<string>): Map<string, number> {

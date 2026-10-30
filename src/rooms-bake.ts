@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { stampPlacement } from "./asset-type.ts";
-import { DOOR_FACE_TOL_M, cutDoorFromBoxes, doorCutLocal, situateDoor, subtractBox, type SituatedDoor } from "./doors.ts";
+import { DOOR_FACE_TOL_M, cutDoorFromBoxes, doorCutLocal, doorOutwardDepth, situateDoor, subtractBox, type SituatedDoor } from "./doors.ts";
 import { PlanError } from "./errors.ts";
 import { DEFAULT_TILE_M, readFloorsSvg, type FloorsSource, type RoomInstanceSource } from "./floors-svg.ts";
 import { defaultFloorImage, hallFloorGlb, hallFloorPiece, roomFootprintAabb } from "./hall-floor.ts";
@@ -130,12 +130,14 @@ export type RoomFacadeOpening = {
   /** `<prefab>.room.json`, resolved by the caller when it has a directory. */
   file: string;
   box: LocalBox;
-  /** Metres from the room wall face to the footprint edge. */
+  /** Metres from the room wall face to the outline edge. */
   distance: number;
   /** Slab extent along the outward normal, metres. */
   depth: number;
   /** Model axis of the outward normal. */
   axis: 0 | 2;
+  /** +1 grows the max face, −1 the min face, along `axis`. */
+  outward: 1 | -1;
 };
 
 export type RoomFacadeRejection = {
@@ -167,6 +169,9 @@ type FacadeEdge = {
 const GROUND_FLOOR_Y = 0.05;
 const SPAN_OVERLAP_M = 0.01;
 const SIZE_WARN_M = 0.05;
+
+/** Building-box door cuts stop this far past the opening. Room walls are not capped. */
+const ROOM_DOOR_BUILDING_CAP_M = 1;
 /** Nudge the doorway centre toward the outside face so situateDoor picks that face. */
 const FACE_NUDGE_M = 1e-4;
 
@@ -221,21 +226,21 @@ function assertSameMetres(
 }
 
 /**
- * Room doors whose wall lies on the building footprint, in the floors frame.
- * A door is on the facade only when its outward normal matches that edge,
- * the face is within `FACADE_BAND_M`, and the span fits the edge. Interior
- * doors are rejected. The box is GLB units: metres divided by the floors scale.
- * World placement is not an input.
+ * Room doors whose wall lies on that floor's outline, in the floors frame.
+ * A door is on the facade only when its outward normal matches an edge
+ * whose span covers the doorway, the face is within `FACADE_BAND_M`, and
+ * the span fits the edge. Interior doors are rejected. The box is GLB
+ * units: metres divided by the floors scale. World placement is not an input.
  */
 export function roomFacadeOpenings(
   source: FloorsSource,
   roomFiles: ReadonlyMap<string, RoomFile>,
 ): RoomFacadeReport {
   if (!(source.scale > 0)) throw new PlanError(`floors model "${source.model}" scale must be positive`);
-  const edges = footprintEdges(source.footprint);
   const openings: RoomFacadeOpening[] = [];
   const rejected: RoomFacadeRejection[] = [];
   for (const floor of source.floors) {
+    const edges = footprintEdges(floor.outline);
     for (const inst of floor.rooms) {
       const room = roomFiles.get(inst.prefab);
       if (!room) throw new PlanError(`room "${inst.prefab}" is not loaded`);
@@ -259,6 +264,7 @@ export function roomFacadeOpenings(
             distance: judged.distance,
             depth: judged.depth,
             axis: judged.axis,
+            outward: judged.outward,
           });
         }
       }
@@ -274,7 +280,7 @@ function judgeRoomDoor(
   inst: RoomInstanceSource,
   room: RoomFile,
   door: RoomDoor,
-): { kind: "open"; box: LocalBox; distance: number; depth: number; axis: 0 | 2 }
+): { kind: "open"; box: LocalBox; distance: number; depth: number; axis: 0 | 2; outward: 1 | -1 }
   | { kind: "reject"; reason: FacadeRejectReason; distance: number } {
   const width = room.footprint.maxX - room.footprint.minX;
   const depth = room.footprint.maxZ - room.footprint.minZ;
@@ -295,8 +301,17 @@ function judgeRoomDoor(
   const axis: 0 | 2 = Math.abs(normal.x) >= Math.abs(normal.z) ? 0 : 2;
   const faceCoord = axis === 0 ? face[0] : face[2];
 
-  const aligned = edges.filter((edge) => edge.nx * normal.x + edge.nz * normal.z > 0.99);
-  const nearest = edges.reduce((best, edge) => (
+  // A stepped outline has collinear edges. An edge counts only when its
+  // span covers the doorway midpoint, so a notch further along the line
+  // cannot win on infinite-line distance.
+  const coversMid = (edge: FacadeEdge): boolean =>
+    edge.along === alongAxis
+    && mid >= edge.spanMin - DOOR_FACE_TOL_M
+    && mid <= edge.spanMax + DOOR_FACE_TOL_M;
+  const covering = edges.filter(coversMid);
+  const aligned = covering.filter((edge) => edge.nx * normal.x + edge.nz * normal.z > 0.99);
+  const nearestSource = covering.length > 0 ? covering : edges;
+  const nearest = nearestSource.reduce((best, edge) => (
     Math.abs(edgeDistance(face[0], face[2], edge)) < Math.abs(edgeDistance(face[0], face[2], best)) ? edge : best
   ));
   if (aligned.length === 0) {
@@ -339,6 +354,7 @@ function judgeRoomDoor(
     distance,
     depth: hi - lo,
     axis,
+    outward: sign,
   };
 }
 
@@ -614,6 +630,8 @@ export type RoomWallCut = {
  * A partial overlap throws. A size mismatch warns and still merges.
  * An unmerged leaf is cut from the room walls and from the emitted building
  * boxes with `cutDoorFromBoxes`, the same opening an exterior door uses.
+ * The building cut stops 1 m past the opening, so a leaf that faces a hall
+ * cannot tunnel through a deep box to the far facade. The room-wall cut is not capped.
  * A leaf that hits a building wall is returned in `wallCuts`, in the door
  * frame. That volume is collision only. A room door on the footprint edge
  * also punches the shared mesh, from `roomFacadeOpenings`, not from here.
@@ -659,7 +677,7 @@ export function placeRoomDoors(
     .map(obstacleToLocal);
   const wallCuts: RoomWallCut[] = [];
   for (const door of unmerged) {
-    const local = doorCutLocal(wallBoxes, door, [0, 0, 0], 0);
+    const local = doorCutLocal(wallBoxes, door, [0, 0, 0], 0, ROOM_DOOR_BUILDING_CAP_M);
     if (!local) continue;
     wallCuts.push({
       id: door.placement.id,
@@ -670,7 +688,8 @@ export function placeRoomDoors(
   }
   if (unmerged.length > 0) {
     cutRoomWalls(hosts.rooms, hosts.buildingId, unmerged);
-    cutPrefixedWalls(hosts.buildings, `${hosts.buildingId}-wall-`, unmerged);
+    warnDeepBuildingDoors(hosts, unmerged, lines);
+    cutPrefixedWalls(hosts.buildings, `${hosts.buildingId}-wall-`, unmerged, ROOM_DOOR_BUILDING_CAP_M);
   }
   return { placements: out, wallCuts };
 }
@@ -694,7 +713,8 @@ export function cutRoomWalls(
  * Open `<building>-wall-*` where a room facade door's visual box sits.
  * The box is the same GLB-space slab the shared mesh uses. `placeRoomDoors`
  * already cuts a leaf that reaches the shell; this covers the setback the
- * inward door stamp does not.
+ * inward door stamp does not. A skin with zero extent on one axis is cut
+ * in the other two and kept at that coordinate.
  */
 export function cutFacadeWalls(
   obstacles: Obstacle[],
@@ -716,7 +736,7 @@ export function cutFacadeWalls(
     for (const cut of world) {
       const sliced: LocalBox[] = [];
       for (const part of parts) {
-        const kept = subtractBox(part, cut);
+        const kept = subtractFacadePart(part, cut);
         if (kept.length === 1 && kept[0] === part) {
           sliced.push(part);
           continue;
@@ -735,7 +755,7 @@ export function cutFacadeWalls(
     for (const part of parts) {
       const min = roundVec([part.minX, part.minY, part.minZ]);
       const max = roundVec([part.maxX, part.maxY, part.maxZ]);
-      if (!(max[0] > min[0] && max[1] > min[1] && max[2] > min[2])) continue;
+      if (!facadePieceLives(min, max, obstacle)) continue;
       kept.push({ id: obstacle.id, kind: "aabb", min, max });
     }
     kept.forEach((part, index) => {
@@ -746,10 +766,100 @@ export function cutFacadeWalls(
   obstacles.splice(0, obstacles.length, ...next);
 }
 
+const FACADE_CUT_EPS = 1e-6;
+
+/**
+ * A positive box uses `subtractBox`. A sheet that is flat on one axis is
+ * cut in the other two when that coordinate lies in the opening, and the
+ * flat axis stays put.
+ */
+function subtractFacadePart(part: LocalBox, cut: LocalBox): LocalBox[] {
+  const flat = flatAxis(part);
+  if (flat === undefined) return subtractBox(part, cut);
+  if (!flatInside(part, cut, flat)) return [part];
+  return subtractFlat(part, cut, flat);
+}
+
+function flatAxis(box: LocalBox): 0 | 1 | 2 | undefined {
+  const flatX = !(box.maxX > box.minX);
+  const flatY = !(box.maxY > box.minY);
+  const flatZ = !(box.maxZ > box.minZ);
+  const count = Number(flatX) + Number(flatY) + Number(flatZ);
+  if (count !== 1) return undefined;
+  if (flatX) return 0;
+  if (flatY) return 1;
+  return 2;
+}
+
+function axisLo(box: LocalBox, axis: 0 | 1 | 2): number {
+  if (axis === 0) return box.minX;
+  if (axis === 1) return box.minY;
+  return box.minZ;
+}
+
+function axisHi(box: LocalBox, axis: 0 | 1 | 2): number {
+  if (axis === 0) return box.maxX;
+  if (axis === 1) return box.maxY;
+  return box.maxZ;
+}
+
+function flatInside(part: LocalBox, cut: LocalBox, axis: 0 | 1 | 2): boolean {
+  const at = axisLo(part, axis);
+  return at >= axisLo(cut, axis) && at <= axisHi(cut, axis);
+}
+
+function setAxis(box: LocalBox, axis: 0 | 1 | 2, lo: number, hi: number): LocalBox {
+  if (axis === 0) return { ...box, minX: lo, maxX: hi };
+  if (axis === 1) return { ...box, minY: lo, maxY: hi };
+  return { ...box, minZ: lo, maxZ: hi };
+}
+
+/** Slabs on the two thick axes. The flat axis is copied through. */
+function subtractFlat(part: LocalBox, cut: LocalBox, flat: 0 | 1 | 2): LocalBox[] {
+  const others = ([0, 1, 2] as const).filter((axis) => axis !== flat);
+  const holes: Array<[number, number]> = [];
+  for (const axis of others) {
+    const lo = Math.max(axisLo(part, axis), axisLo(cut, axis));
+    const hi = Math.min(axisHi(part, axis), axisHi(cut, axis));
+    if (!(hi > lo)) return [part];
+    holes.push([lo, hi]);
+  }
+  const parts: LocalBox[] = [];
+  const a = others[0]!;
+  const b = others[1]!;
+  const a0 = axisLo(part, a);
+  const a1 = axisHi(part, a);
+  const b0 = axisLo(part, b);
+  const b1 = axisHi(part, b);
+  const [ha0, ha1] = holes[0]!;
+  const [hb0, hb1] = holes[1]!;
+  if (ha0 > a0 + FACADE_CUT_EPS) parts.push(setAxis(part, a, a0, ha0));
+  if (ha1 < a1 - FACADE_CUT_EPS) parts.push(setAxis(part, a, ha1, a1));
+  const mid = setAxis(part, a, ha0, ha1);
+  if (hb0 > b0 + FACADE_CUT_EPS) parts.push(setAxis(mid, b, b0, hb0));
+  if (hb1 < b1 - FACADE_CUT_EPS) parts.push(setAxis(mid, b, hb1, b1));
+  return parts;
+}
+
+/**
+ * Keep a sheet that was already flat on one axis. Drop a piece that lost
+ * a thick axis, and drop anything with no area.
+ */
+function facadePieceLives(min: Vec3, max: Vec3, source: Obstacle): boolean {
+  let open = 0;
+  for (const axis of [0, 1, 2] as const) {
+    const wasFlat = !(source.max[axis] > source.min[axis]);
+    if (max[axis] > min[axis]) open += 1;
+    else if (!wasFlat) return false;
+  }
+  return open >= 2;
+}
+
 function cutPrefixedWalls(
   obstacles: Obstacle[],
   prefix: string,
   doors: readonly SituatedDoor[],
+  outwardCap = Infinity,
 ): void {
   if (doors.length === 0) return;
   const next: Obstacle[] = [];
@@ -759,7 +869,7 @@ function cutPrefixedWalls(
       next.push(obstacle);
       continue;
     }
-    const parts = cutObstacle(obstacle, doors);
+    const parts = cutObstacle(obstacle, doors, outwardCap);
     if (parts.length !== 1 || parts[0] !== obstacle) changed = true;
     next.push(...parts);
   }
@@ -767,7 +877,30 @@ function cutPrefixedWalls(
   obstacles.splice(0, obstacles.length, ...next);
 }
 
-function cutObstacle(obstacle: Obstacle, doors: readonly SituatedDoor[]): Obstacle[] {
+/**
+ * A building box that reaches past the room-door cap would become a tunnel
+ * to its far face. Say which door and which box, and how deep that face is.
+ */
+function warnDeepBuildingDoors(
+  hosts: RoomDoorHosts,
+  doors: readonly SituatedDoor[],
+  lines: string[],
+): void {
+  const prefix = `${hosts.buildingId}-wall-`;
+  for (const obstacle of hosts.buildings) {
+    if (!obstacle.id.startsWith(prefix)) continue;
+    const box = obstacleToLocal(obstacle);
+    for (const door of doors) {
+      const depth = doorOutwardDepth(box, door, [0, 0, 0], 0);
+      if (depth === undefined || !(depth > ROOM_DOOR_BUILDING_CAP_M + 1e-4)) continue;
+      lines.push(
+        `warning: room door "${door.placement.id}" meets building box "${obstacle.id}" ${fmt(depth)} m deep; cut capped at 1 m`,
+      );
+    }
+  }
+}
+
+function cutObstacle(obstacle: Obstacle, doors: readonly SituatedDoor[], outwardCap = Infinity): Obstacle[] {
   let current: Array<{ id: string; box: LocalBox; fresh: boolean }> = [{
     id: obstacle.id,
     box: obstacleToLocal(obstacle),
@@ -777,7 +910,7 @@ function cutObstacle(obstacle: Obstacle, doors: readonly SituatedDoor[]): Obstac
     const next: typeof current = [];
     for (const part of current) {
       // requireHit false: this one box often belongs to another wall.
-      const cut = cutDoorFromBoxes([part.box], door, [0, 0, 0], 0, false);
+      const cut = cutDoorFromBoxes([part.box], door, [0, 0, 0], 0, false, outwardCap);
       if (cut.length === 1 && cut[0] === part.box) {
         next.push(part);
         continue;

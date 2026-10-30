@@ -249,6 +249,8 @@ export function subtractDoorOpening(wall: LocalBox, opening: LocalBox): LocalBox
  * stands proud of the hinge face is cut through too, so no sliver seals the
  * doorway. No hit at all is a plan error, unless `requireHit` is false
  * (a room wall the opening may miss). Then the boxes are returned unchanged.
+ * `outwardCap` limits how far past the opening's outer face the hole runs.
+ * Infinity, the default, still reaches the host box's far face.
  */
 export function cutDoorFromBoxes(
   modelBoxes: readonly LocalBox[],
@@ -256,6 +258,7 @@ export function cutDoorFromBoxes(
   buildingPosition: Vec3,
   buildingYaw: Yaw,
   requireHit = true,
+  outwardCap = Infinity,
 ): LocalBox[] {
   const { placement, opening } = situated;
   const out: LocalBox[] = [];
@@ -267,7 +270,7 @@ export function cutDoorFromBoxes(
       out.push(box);
       continue;
     }
-    const through: LocalBox = { ...opening, maxZ: Math.max(opening.maxZ, wallLocal.maxZ) };
+    const through = throughOpening(opening, wallLocal, outwardCap);
     if (!intersectBox(wallLocal, through)) {
       out.push(box);
       continue;
@@ -296,6 +299,7 @@ export function doorCutLocal(
   situated: SituatedDoor,
   buildingPosition: Vec3,
   buildingYaw: Yaw,
+  outwardCap = Infinity,
 ): LocalBox | undefined {
   const { placement, opening } = situated;
   let hole: LocalBox | undefined;
@@ -303,12 +307,37 @@ export function doorCutLocal(
     const wallWorld = placeBox(box, buildingPosition, buildingYaw);
     const wallLocal = toLocalBox(wallWorld, placement.position, placement.yaw);
     if (!onDoorWall(wallLocal)) continue;
-    const through: LocalBox = { ...opening, maxZ: Math.max(opening.maxZ, wallLocal.maxZ) };
+    const through = throughOpening(opening, wallLocal, outwardCap);
     const hit = intersectBox(wallLocal, through);
     if (!hit) continue;
     hole = hole ? unionBox(hole, hit) : hit;
   }
   return hole;
+}
+
+/**
+ * Metres the box extends past the opening's outer face, in the door frame.
+ * Undefined when the box is not this door's wall. +Z is outward from the
+ * hinge face. A thin shell is under a metre. A filled hall is several.
+ */
+export function doorOutwardDepth(
+  box: LocalBox,
+  situated: SituatedDoor,
+  buildingPosition: Vec3,
+  buildingYaw: Yaw,
+): number | undefined {
+  const { placement, opening } = situated;
+  const wallWorld = placeBox(box, buildingPosition, buildingYaw);
+  const wallLocal = toLocalBox(wallWorld, placement.position, placement.yaw);
+  if (!onDoorWall(wallLocal)) return undefined;
+  if (!intersectBox(wallLocal, throughOpening(opening, wallLocal, Infinity))) return undefined;
+  return wallLocal.maxZ - opening.maxZ;
+}
+
+/** Opening extended to the wall's far face, and no further than `outwardCap` past `opening.maxZ`. */
+function throughOpening(opening: LocalBox, wallLocal: LocalBox, outwardCap: number): LocalBox {
+  const far = Math.max(opening.maxZ, wallLocal.maxZ);
+  return { ...opening, maxZ: Math.min(far, opening.maxZ + outwardCap) };
 }
 
 function unionBox(a: LocalBox, b: LocalBox): LocalBox {

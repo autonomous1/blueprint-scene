@@ -12,8 +12,8 @@ import { writeTriangleGlb } from "../src/glb-write.ts";
 import { trianglesFromGlb } from "../src/glb.ts";
 import type { RoomFile } from "../src/room-file.ts";
 import { writeRoom } from "../src/room-glb.ts";
-import { placeRoomDoors, roomFacadeOpenings, type PendingRoomDoor } from "../src/rooms-bake.ts";
-import type { DoorPlacement, Obstacle, SceneDoor, Vec3 } from "../src/types.ts";
+import { cutFacadeWalls, placeRoomDoors, roomFacadeOpenings, type PendingRoomDoor } from "../src/rooms-bake.ts";
+import type { DoorPlacement, LocalBox, Obstacle, Placement, SceneDoor, Vec3 } from "../src/types.ts";
 import { placeBox } from "../src/yaw.ts";
 import { trianglesFromBox } from "./boxes.ts";
 import { writeGlb } from "./glb-writer.ts";
@@ -208,9 +208,14 @@ test("bake places rooms, merges the facade door, and hollows the building", () =
     ].filter((item) => hits(item, doorway)).map((item) => item.id);
     assert.deepEqual(doorHits, []);
     assert.equal(
-      result.file.obstacles.some((item) => covers(item, [6, 1, 10])),
+      result.file.obstacles.some((item) => item.id.startsWith("B-wall-") && covers(item, [6, 1, 10])),
+      false,
+      JSON.stringify(result.file.obstacles.filter((item) => item.id.startsWith("B-wall-"))),
+    );
+    assert.equal(
+      result.file.obstacles.some((item) => item.id.startsWith("B-wall-") && covers(item, [5.2, 1, 10])),
       true,
-      JSON.stringify(result.file.obstacles),
+      JSON.stringify(result.file.obstacles.filter((item) => item.id.startsWith("B-wall-"))),
     );
     assert.equal(result.rooms!.obstacles.some((item) => item.id.startsWith("B.r1.floor.")), false);
     const slab = result.rooms!.obstacles.find((item) => item.id === "B.r2.floor.0");
@@ -458,16 +463,37 @@ test("an interior room door is not a shared punch", () => {
   const partition: Obstacle = { id: "B.room.front", kind: "aabb", min: [0, 0, 3.8], max: [4, 3, 4.2] };
   const facade = pendingDoor("B.facade", [2, 0, 0.2], { min: [0, 0, 0], max: [4, 3, 0.2] });
   const interior = pendingDoor("B.inside", [2, 0, 4], { min: [0, 0, 3.8], max: [4, 3, 4.2] });
-  const placed = placeRoomDoors([facade, interior], [], new Map(), [], {
+  const lines: string[] = [];
+  const placed = placeRoomDoors([facade, interior], [], new Map(), lines, {
     buildingId: "B",
     rooms: [partition],
     buildings: [shell],
   });
   assert.deepEqual(placed.placements.map((door) => door.id), ["B.facade", "B.inside"]);
   assert.deepEqual(placed.wallCuts.map((cut) => cut.id), ["B.facade"]);
+  assert.deepEqual(lines, []);
   const local = placed.wallCuts[0]!.local;
   assert.ok(local.maxZ - local.minZ > 0.1, `wall cut depth ${local.maxZ - local.minZ}`);
   assert.ok(local.maxZ <= 0.2 + 1e-6 && local.minZ >= -2 - 1e-6);
+});
+
+test("a room door cuts 1 m into a deep building box and warns", () => {
+  const buildings: Obstacle[] = [{ id: "B-wall-0", kind: "aabb", min: [0, 0, 0], max: [4, 3, 6] }];
+  const host = { min: [0, 0, 0] as Vec3, max: [4, 3, 0.2] as Vec3 };
+  const lines: string[] = [];
+  placeRoomDoors([pendingDoor("B.inside", [2, 0, 0.2], host)], [], new Map(), lines, {
+    buildingId: "B",
+    rooms: [],
+    buildings,
+  });
+  assert.deepEqual(lines, [
+    'warning: room door "B.inside" meets building box "B-wall-0" 5.8 m deep; cut capped at 1 m',
+  ]);
+  const covered = (x: number, z: number): boolean => buildings.some((box) => covers(box, [x, 1, z]));
+  assert.equal(covered(2, 0.6), false);
+  assert.equal(covered(2, 2), true);
+  assert.equal(covered(2, 5), true);
+  assert.equal(covered(0.5, 0.5), true);
 });
 
 function pendingDoor(id: string, center: Vec3, host: { min: Vec3; max: Vec3 }): PendingRoomDoor {
@@ -553,6 +579,55 @@ test("an interior door several metres inside does not punch the facade", () => {
     rmSync(staged.dir, { recursive: true, force: true });
   }
 });
+
+test("an interior door facing a hall 4 m from the facade leaves the shell", () => {
+  const staged = stage();
+  try {
+    const svgPath = path.join(staged.rooms, "rm.svg");
+    writeFileSync(svgPath, roomSvg("front", true));
+    writeRoom({ svgPath, outPath: path.join(staged.rooms, "rm.glb") });
+    // 12 m shell. Shift the 6 m room so its back door sits 4 m from the inner south face.
+    writeFileSync(
+      path.join(staged.floors, "blk.floors.svg"),
+      floorsSvg(-0.5, 1, 6, { doors: false })
+        .replaceAll("matrix(10,0,0,10,0,0)", "matrix(12,0,0,12,0,0)")
+        .replaceAll('y="-4.9"', 'y="-4.7"'),
+    );
+    writeFileSync(staged.svg, sceneSvg({ x: 4, y: 24, w: 12, h: 12 }, 0));
+    const result = run(staged);
+    assert.equal(
+      result.lines.some((line) => line.startsWith("warning: room door")),
+      false,
+      result.lines.filter((line) => line.startsWith("warning:")).join("\n"),
+    );
+    const walls = result.file.obstacles.filter((item) => item.id.startsWith("B-wall-"));
+    const leaf = result.rooms!.placements.find((item) => item.id === "B.r1.d2");
+    assert.ok(leaf && "hinge" in leaf, "interior door leaf missing");
+    const door = leaf as DoorPlacement;
+    assert.equal(door.yaw, 180);
+    assert.deepEqual(door.position, [10.5, 0, 8.5]);
+    const covered = (localZ: number): boolean => walls.some((box) => covers(box, doorPoint(door, localZ, 1)));
+    for (let localZ = 0.25; localZ <= 3.9; localZ += 0.25) {
+      assert.equal(covered(localZ), false, `hall at ${localZ} m`);
+    }
+    assert.equal(covered(4.15), true, "facade 4 m out is still solid");
+  } finally {
+    rmSync(staged.dir, { recursive: true, force: true });
+  }
+});
+
+function doorPoint(door: DoorPlacement, localZ: number, localY: number): Vec3 {
+  const [width] = door.size;
+  const midX = door.hinge === "left" ? width / 2 : -width / 2;
+  return placeBox({
+    minX: midX,
+    maxX: midX,
+    minY: localY,
+    maxY: localY,
+    minZ: localZ,
+    maxZ: localZ,
+  }, door.position, door.yaw).min;
+}
 
 test("a room door on the building wall does not punch the shared mesh", () => {
   const staged = stage();
@@ -795,6 +870,145 @@ test("the same opening from doors-external and a room door is one box", () => {
   }
 });
 
+test("a room door on a floor's notch edge is an opening, and each floor uses its own outline", () => {
+  const rooms = new Map([["rm", facadeRoom(["front"])]]);
+  const square: Array<[number, number]> = [[-5, -5], [5, -5], [5, 5], [-5, 5]];
+  const plan = facadePlan(0, 0, 0);
+  const report = roomFacadeOpenings({
+    ...plan,
+    footprint: square,
+    outline: square,
+    floors: [
+      {
+        n: 1,
+        name: "floor-1",
+        elevation: 0,
+        footprint: square,
+        outline: eastNotch(3, -2, 2),
+        rooms: [{ id: "r1", prefab: "rm", center: { x: 0.8, z: 0 }, yaw: 90, drawnWidth: 4, drawnDepth: 4 }],
+        platforms: [],
+      },
+      {
+        n: 2,
+        name: "floor-2",
+        elevation: 3,
+        footprint: square,
+        outline: eastNotch(1, -2, 2),
+        rooms: [{ id: "r2", prefab: "rm", center: { x: -1.2, z: 0 }, yaw: 90, drawnWidth: 4, drawnDepth: 4 }],
+        platforms: [],
+      },
+    ],
+  }, rooms);
+  assert.equal(report.openings.length, 2, JSON.stringify(report.rejected));
+  const floor1 = report.openings.find((item) => item.id === "r1.front");
+  const floor2 = report.openings.find((item) => item.id === "r2.front");
+  assert.ok(floor1 && floor2);
+  assert.equal(floor1.outward, 1);
+  assert.equal(floor2.outward, 1);
+  assert.ok(Math.abs(floor1.distance - 0.2) < 1e-6, String(floor1.distance));
+  assert.ok(Math.abs(floor2.distance - 0.2) < 1e-6, String(floor2.distance));
+  assert.ok(Math.abs(floor1.box.minX - 0.28) < 1e-6 && Math.abs(floor1.box.maxX - 0.305) < 1e-6);
+  assert.ok(Math.abs(floor2.box.minX - 0.08) < 1e-6 && Math.abs(floor2.box.maxX - 0.105) < 1e-6);
+  const againstAabb = roomFacadeOpenings(facadePlan(0.8, 0, 90), rooms);
+  assert.deepEqual(againstAabb.openings, []);
+  assert.equal(againstAabb.rejected[0]?.reason, "distance");
+  assert.ok(Math.abs((againstAabb.rejected[0]?.distance ?? 0) - 2.2) < 1e-6, String(againstAabb.rejected[0]?.distance));
+});
+
+test("a door on a notch edge's line but outside its span is not opened by that edge", () => {
+  const rooms = new Map([["rm", facadeRoom(["front"])]]);
+  const square: Array<[number, number]> = [[-5, -5], [5, -5], [5, 5], [-5, 5]];
+  const plan = facadePlan(0, 0, 0);
+  const report = roomFacadeOpenings({
+    ...plan,
+    footprint: square,
+    outline: square,
+    floors: [{
+      n: 1,
+      name: "floor-1",
+      elevation: 0,
+      footprint: square,
+      outline: eastNotch(4, -1, 1),
+      rooms: [{ id: "r1", prefab: "rm", center: { x: 2.2, z: 3 }, yaw: 90, drawnWidth: 4, drawnDepth: 4 }],
+      platforms: [],
+    }],
+  }, rooms);
+  assert.deepEqual(report.openings, []);
+  assert.equal(report.rejected[0]?.reason, "distance");
+  assert.ok(Math.abs((report.rejected[0]?.distance ?? 0) - 0.8) < 1e-6, String(report.rejected[0]?.distance));
+});
+
+test("a mesh facade 0.6 m past the outline is cut, and one 1.5 m past is not", () => {
+  const near = facadeStage({ centerZ: 2.8, lipM: 0.6 });
+  const far = facadeStage({ centerZ: 2.8, lipM: 1.5 });
+  try {
+    const nearResult = runFacade(near);
+    const opens = nearResult.lines.filter((line) => line.startsWith("cut-open blk "));
+    assert.equal(opens.length, 1, nearResult.lines.filter((line) => line.startsWith("cut-")).join("\n"));
+    assert.match(opens[0]!, /source=room:rm\/front /);
+    assert.ok(aabbOf(opens[0]!).maxZ > 0.56, opens[0]);
+    const cut = trianglesFromGlb(readFileSync(path.join(near.models, "blk.cut.glb"))).triangles;
+    assert.equal(rayHitsZ(cut, [0, 0.1, 0], 0.555, 0.57), 0, "door rectangle still has the outer facade");
+    assert.ok(rayHitsZ(cut, [0.2, 0.1, 0], 0.555, 0.57) > 0, "outer facade removed beside the door");
+    const farResult = runFacade(far);
+    const farOpens = farResult.lines.filter((line) => line.startsWith("cut-open blk "));
+    assert.equal(farOpens.length, 1, farResult.lines.filter((line) => line.startsWith("cut-")).join("\n"));
+    assert.ok(Math.abs(aabbOf(farOpens[0]!).maxZ - 0.505) < 1e-4, farOpens[0]);
+    const farCut = trianglesFromGlb(readFileSync(path.join(far.models, "blk.cut.glb"))).triangles;
+    assert.ok(rayHitsZ(farCut, [0, 0.1, 0], 0.64, 0.66) > 0, "facade 1.5 m out was cut");
+  } finally {
+    rmSync(near.dir, { recursive: true, force: true });
+    rmSync(far.dir, { recursive: true, force: true });
+  }
+});
+
+test("a zero-thickness facade skin splits around the door and stays flat", () => {
+  const building: Placement = {
+    id: "B",
+    model: "blk",
+    position: [0, 0, 0],
+    yaw: 0,
+    scale: 1,
+  };
+  const obstacles: Obstacle[] = [{
+    id: "B-wall-1",
+    kind: "aabb",
+    min: [5, 0, 0],
+    max: [5, 4, 8],
+  }];
+  const door: LocalBox = {
+    minX: 4.5,
+    maxX: 5.5,
+    minY: 0.2,
+    maxY: 2.2,
+    minZ: 3,
+    maxZ: 4,
+  };
+  cutFacadeWalls(obstacles, building, [door]);
+  assert.ok(obstacles.length >= 2, obstacles.map((item) => item.id).join(","));
+  for (const piece of obstacles) {
+    assert.equal(piece.min[0], 5);
+    assert.equal(piece.max[0], 5);
+    assert.equal(flatCovers(piece, [5, 1, 3.5]), false, JSON.stringify(piece));
+  }
+  assert.equal(obstacles.some((piece) => piece.max[2] <= 3 && piece.min[1] < 1 && piece.max[1] > 1), true);
+  assert.equal(obstacles.some((piece) => piece.min[2] >= 4 && piece.min[1] < 1 && piece.max[1] > 1), true);
+});
+
+/** East outline with a rectangular notch. `insetX` is the notch face. */
+function eastNotch(insetX: number, z0: number, z1: number): Array<[number, number]> {
+  return [[-5, -5], [5, -5], [5, z0], [insetX, z0], [insetX, z1], [5, z1], [5, 5], [-5, 5]];
+}
+
+/** True when `point` lies in the piece on every axis that has thickness. */
+function flatCovers(obstacle: Obstacle, point: Vec3): boolean {
+  for (let axis = 0; axis < 3; axis += 1) {
+    if (!(obstacle.max[axis]! > obstacle.min[axis]!)) continue;
+    if (point[axis]! <= obstacle.min[axis]! || point[axis]! >= obstacle.max[axis]!) return false;
+  }
+  return true;
+}
+
 function facadePlan(x: number, z: number, yaw: 0 | 90 | 180 | 270): FloorsSource {
   return {
     model: "blk",
@@ -852,6 +1066,12 @@ function facadeStage(opts: {
   yaw?: 0 | 90;
   back?: boolean;
   exterior?: string;
+  /**
+   * World metres a thin sheet sits outside the +Z stencil edge. The sheet
+   * misses the 0.05 measure-cell centres, so the group scale still matches
+   * the footprint.
+   */
+  lipM?: number;
 }): Stage {
   const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-facade-"));
   const floors = path.join(dir, "floors");
@@ -883,7 +1103,12 @@ function facadeStage(opts: {
     ? [facadeRoom(["front", "back"]).doors[0]!, facadeRoom(["front", "back"]).doors[1]!]
     : facadeRoom(["front"]).doors;
   writeFileSync(path.join(rooms, "rm.room.json"), `${JSON.stringify({ ...facadeRoom(["front"]), doors })}\n`);
-  writeFileSync(path.join(models, "blk.glb"), writeTriangleGlb("blk", trianglesFromBox([-0.5, 0, -0.5], [0.5, 1, 0.5])));
+  const tris = trianglesFromBox([-0.5, 0, -0.5], [0.5, 1, 0.5]);
+  if (opts.lipM !== undefined && opts.lipM > 0) {
+    const z0 = 0.5 + opts.lipM / 10;
+    tris.push(...trianglesFromBox([-0.5, 0, z0], [0.5, 1, z0 + 0.001]));
+  }
+  writeFileSync(path.join(models, "blk.glb"), writeTriangleGlb("blk", tris));
   const svg = path.join(dir, "plan.svg");
   writeFileSync(svg, `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"

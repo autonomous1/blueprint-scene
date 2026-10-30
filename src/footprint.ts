@@ -122,8 +122,9 @@ export function footprintFromTriangles(
   triangles: Triangle[],
   cellSize = CELL_M,
   openings: readonly XzRect[] = [],
+  fillInterior = true,
 ): LocalBox[] {
-  return footprintDetail(triangles, cellSize, openings).boxes;
+  return footprintDetail(triangles, cellSize, openings, fillInterior).boxes;
 }
 
 /** Same grid as `footprintFromTriangles`, plus how many facet boxes were dropped. */
@@ -131,6 +132,7 @@ export function footprintDetail(
   triangles: Triangle[],
   cellSize = CELL_M,
   openings: readonly XzRect[] = [],
+  fillInterior = true,
 ): FootprintDetail {
   return occupancy(triangles, {
     cellSize,
@@ -139,6 +141,7 @@ export function footprintDetail(
     minThickness: MIN_THICKNESS_M,
     minLength: MIN_LENGTH_M,
     bandM: BAND_M,
+    fillInterior,
   });
 }
 
@@ -170,6 +173,12 @@ type OccupancyOptions = {
    * from the triangles that overlap the run.
    */
   bandM: number | null;
+  /**
+   * When false, skip `fillInteriors`. A closed mesh keeps its wall runs and
+   * leaves the volume between the lid and the underside empty. Omitted fills
+   * that volume. The measure path does not read this.
+   */
+  fillInterior?: boolean;
 };
 
 function occupancy(triangles: Triangle[], options: OccupancyOptions): FootprintDetail {
@@ -218,7 +227,7 @@ function bandedFootprint(
   if (!(bandM > 0)) throw new PlanError("band size must be positive");
   for (const item of items) markBands(item, options.cellSize, bandM, columns, options.floorY);
   markCaps(triangles, options.cellSize, columns);
-  fillInteriors(columns, bandM, options.floorY);
+  if (options.fillInterior !== false) fillInteriors(columns, bandM, options.floorY);
   const bandIds: number[] = [];
   const seen = new Set<number>();
   for (const column of columns.values()) {
@@ -262,13 +271,17 @@ function isFacet(box: LocalBox, minLength: number): boolean {
   return !(blocksPawn && facade);
 }
 
-/** 0.5 m grid, or 1 m when the first pass still exceeds `MAX_OBSTACLES`. */
-export function coarseFootprint(triangles: Triangle[]): CoarseFootprint {
-  const fine = footprintDetail(triangles, CELL_M);
+/**
+ * 0.5 m grid, or 1 m when the first pass still exceeds `MAX_OBSTACLES`.
+ * `fillInterior` false is the shell only. Bake passes that for a model
+ * whose floors file already describes the interior.
+ */
+export function coarseFootprint(triangles: Triangle[], fillInterior = true): CoarseFootprint {
+  const fine = footprintDetail(triangles, CELL_M, [], fillInterior);
   if (fine.boxes.length <= MAX_OBSTACLES) {
     return { boxes: fine.boxes, cellSize: CELL_M, facetsDropped: fine.facetsDropped };
   }
-  const coarse = footprintDetail(triangles, CELL_M * 2);
+  const coarse = footprintDetail(triangles, CELL_M * 2, [], fillInterior);
   return { boxes: coarse.boxes, cellSize: CELL_M * 2, facetsDropped: coarse.facetsDropped };
 }
 

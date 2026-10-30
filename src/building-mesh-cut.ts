@@ -231,6 +231,51 @@ export function extendSkinToFacade(triangles: readonly Triangle[], box: LocalBox
   };
 }
 
+/**
+ * Move a room-facade box's outer face out to the mesh.
+ * The ray starts at the box centre and runs along `outward` on `axis`.
+ * The furthest hit within `WALL_SLAB_M` world metres past that face becomes
+ * the face, plus `FACADE_SLIVER_M` further out. No such hit leaves `box`.
+ */
+export function extendOutlineToFacade(
+  triangles: readonly Triangle[],
+  box: LocalBox,
+  axis: 0 | 2,
+  outward: 1 | -1,
+  scale: number,
+): LocalBox {
+  if (!(scale > 0)) throw new PlanError("building scale must be positive");
+  const min = [box.minX, box.minY, box.minZ];
+  const max = [box.maxX, box.maxY, box.maxZ];
+  const outer = outward > 0 ? max[axis]! : min[axis]!;
+  const origin: Vec3 = [
+    (min[0]! + max[0]!) / 2,
+    (min[1]! + max[1]!) / 2,
+    (min[2]! + max[2]!) / 2,
+  ];
+  const dir: Vec3 = [0, 0, 0];
+  dir[axis] = outward;
+  const limit = WALL_SLAB_M / scale;
+  let best: number | undefined;
+  for (const hit of axisHits(triangles, origin, dir, axis)) {
+    const past = (hit - outer) * outward;
+    if (past <= 1e-6 || past > limit + 1e-6) continue;
+    if (best === undefined || hit * outward > best * outward) best = hit;
+  }
+  if (best === undefined) return box;
+  const face = best + outward * FACADE_SLIVER_M;
+  if (outward > 0) max[axis] = face;
+  else min[axis] = face;
+  return {
+    minX: min[0]!,
+    maxX: max[0]!,
+    minY: min[1]!,
+    maxY: max[1]!,
+    minZ: min[2]!,
+    maxZ: max[2]!,
+  };
+}
+
 function axisHits(triangles: readonly Triangle[], origin: Vec3, dir: Vec3, axis: 0 | 1 | 2): number[] {
   const hits: number[] = [];
   for (const [a, b, c] of triangles) {
