@@ -807,11 +807,15 @@ function facadePlan(x: number, z: number, yaw: 0 | 90 | 180 | 270): FloorsSource
       n: 1,
       name: "floor-1",
       elevation: 0,
+      outline: [[-5, -5], [5, -5], [5, 5], [-5, 5]],
+      footprint: [[-5, -5], [5, -5], [5, 5], [-5, 5]],
       rooms: [{ id: "r1", prefab: "rm", center: { x, z }, yaw, drawnWidth: 4, drawnDepth: 4 }],
       platforms: [],
     }],
     doors: [],
     props: [],
+    stairs: [],
+    elevators: [],
   };
 }
 
@@ -1138,8 +1142,10 @@ function floorsSvg(
   depth: number,
   extras: { doors?: boolean; rooms?: boolean } = {},
 ): string {
+  // 10×10 m, shifted so the 6×6 room at local (0, 1.9) sits more than 0.6 m inside.
+  // A room rect outside the outline is a PlanError. The old 0..10 triangle did not contain it.
   const fp = (id: string, z: string) =>
-    `<g id="${id}" data-model="blk" transform="matrix(10,0,0,10,0,0)" ${z}><path d="M 0 0 L 1 0 L 1 -1 Z"/></g>`;
+    `<g id="${id}" data-model="blk" transform="matrix(10,0,0,10,0,0)" ${z}><path d="M -0.4 0.2 L 0.6 0.2 L 0.6 -0.8 L -0.4 -0.8 Z"/></g>`;
   const room = (id: string) => extras.rooms === false
     ? ""
     : `<rect id="${id}" inkscape:label="model:rm" x="-3" y="-4.9" width="6" height="${depth}"/>`;

@@ -12,6 +12,7 @@ import {
   parseTransform,
   pathPoints,
   propFromElement,
+  rectBounds,
   requireId,
   stencilPose,
   svgPointToWorld,
@@ -55,11 +56,48 @@ export type FloorPlatformSource = {
   deck: number;
 };
 
+/**
+ * A `stairs:<id>` rect, in building-local metres. `bottom` and `top` are
+ * metres above the building ground. `up` is a unit vector in local XZ.
+ * `floor` is omitted for a `stairs-external` run.
+ */
+export type FloorStairsSource = {
+  id: string;
+  floor?: number;
+  polygon: Array<[number, number]>;
+  up: [number, number];
+  bottom: number;
+  top: number;
+};
+
+/** An `elevator:<id>` cab, in building-local metres. Stops are above the building ground. */
+export type FloorElevatorSource = {
+  id: string;
+  floor: number;
+  polygon: Array<[number, number]>;
+  /** Unit vector in local XZ, the side the landing sits outside. */
+  door: [number, number];
+  /** Ascending. Defaults filled in: every floor from this one up. */
+  stops: number[];
+  waitS: number;
+  speed: number;
+};
+
 export type FloorSource = {
   n: number;
   name: string;
   elevation: number;
   height?: number;
+  /** This floor's AABB, building-local, counter-clockwise. */
+  footprint: Array<[number, number]>;
+  /**
+   * This floor's stencil outline, building-local, counter-clockwise, with
+   * consecutive duplicates removed. A rectilinear path keeps its vertices.
+   * A diagonal edge or a curve falls back to `footprint`.
+   */
+  outline: Array<[number, number]>;
+  /** Set when this floor's `outline` fell back to its footprint AABB. */
+  outlineFallback?: "diagonal" | "curve";
   rooms: RoomInstanceSource[];
   platforms: FloorPlatformSource[];
   /** Set when the floor layer has `data-kind="platform"`. */
@@ -76,21 +114,25 @@ export type FloorsSource = {
   yaw: Yaw;
   /** Page-world origin of the stencil, y = 0. */
   origin: Vec3;
-  /** Building-local footprint AABB, counter-clockwise. The same on every floor. */
+  /** Floor-1's footprint AABB. The scale check and building placement use this. */
   footprint: Array<[number, number]>;
   /**
-   * Building-local stencil outline, counter-clockwise, with consecutive
+   * Floor-1's stencil outline, counter-clockwise, with consecutive
    * duplicates removed. A rectilinear path keeps its vertices. A diagonal
    * edge or a curve falls back to `footprint`.
    */
   outline: Array<[number, number]>;
-  /** Set when `outline` fell back to the footprint AABB. */
+  /** Set when floor-1's `outline` fell back to the footprint AABB. */
   outlineFallback?: "diagonal" | "curve";
   floors: FloorSource[];
   /** Building-local. `center[1]` is the sill. */
   doors: SceneDoor[];
-  /** `stairs-external`, building-local. */
+  /** `stairs-external` props, building-local. A `stairs:<id>` rect is not a prop. */
   props: SceneProp[];
+  /** `stairs:<id>` rects from floor layers and from `stairs-external`. */
+  stairs: FloorStairsSource[];
+  /** `elevator:<id>` rects from floor layers. */
+  elevators: FloorElevatorSource[];
 };
 
 type Scope =
@@ -108,6 +150,8 @@ type FloorAcc = {
   stencils: Hit[];
   rooms: Hit[];
   platforms: Hit[];
+  stairs: Hit[];
+  elevators: Hit[];
   textures: Hit[];
   asPlatform: boolean;
 };
@@ -141,6 +185,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
   const floors: FloorAcc[] = [];
   const doorHits: Hit[] = [];
   const propHits: Hit[] = [];
+  const externalStairHits: Hit[] = [];
   const textureHits = new Map<number, Hit[]>();
   const ids = new Set<string>();
   const floorNs = new Set<number>();
@@ -168,6 +213,8 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
           stencils: [],
           rooms: [],
           platforms: [],
+          stairs: [],
+          elevators: [],
           textures: [],
           asPlatform: attr(el, "data-kind")?.trim() === "platform",
         };
@@ -187,11 +234,19 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
     const matrix = mul(parent, parseTransform(attr(el, "transform")));
     if (scope?.kind === "floor") {
       const platform = platformIdOf(el);
+      const stairsId = labelledId(el, "stairs");
+      const elevatorId = labelledId(el, "elevator");
       if (attr(el, "label")?.trim() === "floor-texture") {
         scope.floor.textures.push({ el, matrix });
       } else if (platform && (name === "rect" || name === "path")) {
         claim(platform);
         scope.floor.platforms.push({ el, matrix });
+      } else if (stairsId && name === "rect") {
+        claim(stairsId);
+        scope.floor.stairs.push({ el, matrix });
+      } else if (elevatorId && name === "rect") {
+        claim(elevatorId);
+        scope.floor.elevators.push({ el, matrix });
       } else if ((name === "g" || name === "path") && stencilPose(el, matrix, frame) && taggedModel(el)) {
         scope.floor.stencils.push({ el, matrix });
       } else if (name === "rect") {
@@ -211,9 +266,17 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
       claim(requireId(el, "door"));
       doorHits.push({ el, matrix });
     } else if (scope?.kind === "stairs" && name === "rect") {
-      const tagged = taggedModel(el);
-      if (tagged) claim(tagged.id);
-      propHits.push({ el, matrix });
+      const stairsId = labelledId(el, "stairs");
+      const elevatorId = labelledId(el, "elevator");
+      if (elevatorId) throw new PlanError(`elevator "${elevatorId}" must be on a floor-<n> layer`);
+      if (stairsId) {
+        claim(stairsId);
+        externalStairHits.push({ el, matrix });
+      } else {
+        const tagged = taggedModel(el);
+        if (tagged) claim(tagged.id);
+        propHits.push({ el, matrix });
+      }
     }
     for (const child of el.children) visit(child, matrix, scope);
   };
@@ -227,7 +290,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
     const pose = poses[i]!;
     const floor = floors[i]!;
     if (!sameFootprint(first, pose)) {
-      throw new PlanError(`floor-${floor.n} footprint does not match floor-${floors[0]!.n}`);
+      throw new PlanError(`floor-${floor.n} stencil transform does not match floor-${floors[0]!.n}`);
     }
   }
   for (let i = 1; i < poses.length; i += 1) {
@@ -237,16 +300,16 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
   }
 
   const { model, scale, yaw, origin } = first;
-  const shapes = floors.map((floor, index) => {
-    const pose = poses[index]!;
-    return stencilShape(floor.stencils[0]!, frame, pose.origin, pose.yaw);
-  });
-  const shape = shapes[0]!;
+  // Each floor's path is converted with floor-1's pose, so a setback lines up
+  // by where it sits on the page. The transform itself must still match.
+  const shapes = floors.map((floor) => stencilShape(floor.stencils[0]!, frame, origin, yaw));
   for (let i = 1; i < shapes.length; i += 1) {
-    if (!sameOutline(shape.outline, shapes[i]!.outline)) {
-      throw new PlanError(`floor-${floors[i]!.n} outline does not match floor-${floors[0]!.n}`);
+    const area = outsideArea(shapes[i]!.outline, shapes[i - 1]!.outline);
+    if (area > 1e-4) {
+      console.warn(`floor-${floors[i]!.n} outline overhangs floor-${floors[i - 1]!.n} by ${formatArea(area)} m²`);
     }
   }
+  const shape = shapes[0]!;
   const footprint = shape.footprint;
   const outline = shape.outline;
   const floorSources: FloorSource[] = floors.map((floor, index) => {
@@ -269,7 +332,17 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
       });
     }
     const platforms = floor.platforms.map((hit) => readPlatform(hit, frame, units, origin, yaw));
-    const source: FloorSource = { n: floor.n, name: floor.name, elevation, rooms, platforms };
+    const floorShape = shapes[index]!;
+    const source: FloorSource = {
+      n: floor.n,
+      name: floor.name,
+      elevation,
+      footprint: floorShape.footprint,
+      outline: floorShape.outline,
+      rooms,
+      platforms,
+      ...(floorShape.fallback ? { outlineFallback: floorShape.fallback } : {}),
+    };
     const texture = readFloorTexture(
       [...floor.textures, ...(textureHits.get(floor.n) ?? [])],
       patterns,
@@ -302,6 +375,20 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
     return { ...door, center: [center.x, door.center[1], center.z] as Vec3, ...box };
   });
 
+  const elevations = poses.map((pose) => pose.elevation);
+  const stairs: FloorStairsSource[] = [];
+  const elevators: FloorElevatorSource[] = [];
+  for (let index = 0; index < floors.length; index += 1) {
+    const elevation = elevations[index]!;
+    const next = index + 1 < elevations.length ? elevations[index + 1] : undefined;
+    const floor = floors[index]!;
+    for (const hit of floor.stairs) stairs.push(readStair(hit, floor.n, elevation, next, frame, units, origin, yaw));
+    for (const hit of floor.elevators) {
+      elevators.push(readElevator(hit, floor.n, elevation, elevations, frame, units, origin, yaw));
+    }
+  }
+  for (const hit of externalStairHits) stairs.push(readStair(hit, undefined, 0, undefined, frame, units, origin, yaw));
+
   const props: SceneProp[] = [];
   for (const hit of propHits) {
     const prop = propFromElement(hit.el, hit.matrix, frame, units);
@@ -325,6 +412,8 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
     floors: floorSources,
     doors,
     props,
+    stairs,
+    elevators,
   };
 }
 
@@ -332,6 +421,15 @@ function platformIdOf(el: XmlNode): string | undefined {
   const label = attr(el, "label");
   if (!label) return undefined;
   const match = label.trim().match(/^platform:\s*([A-Za-z0-9][A-Za-z0-9_.-]*)$/);
+  return match?.[1];
+}
+
+/** `stairs:<id>` or `elevator:<id>`. A matching prefix with a bad id is an error. */
+function labelledId(el: XmlNode, kind: "stairs" | "elevator"): string | undefined {
+  const label = attr(el, "label")?.trim();
+  if (!label) return undefined;
+  const match = label.match(new RegExp(`^${kind}:\\s*([A-Za-z0-9][A-Za-z0-9_.-]*)\\s*$`));
+  if (label.startsWith(`${kind}:`) && !match) throw new PlanError(`invalid ${kind} id "${label}"`);
   return match?.[1];
 }
 
@@ -514,25 +612,266 @@ function ringArea(poly: readonly (readonly [number, number])[]): number {
   return area / 2;
 }
 
-function sameOutline(first: readonly (readonly [number, number])[], other: readonly (readonly [number, number])[]): boolean {
-  if (first.length !== other.length) return false;
-  const a = rotateStart(first);
-  const b = rotateStart(other);
-  for (let i = 0; i < a.length; i += 1) {
-    if (Math.abs(a[i]![0] - b[i]![0]) > OUTLINE_TOL_M) return false;
-    if (Math.abs(a[i]![1] - b[i]![1]) > OUTLINE_TOL_M) return false;
-  }
-  return true;
+const PAGE_DIR: Record<string, [number, number]> = {
+  "+x": [1, 0],
+  "-x": [-1, 0],
+  "+y": [0, 1],
+  "-y": [0, -1],
+};
+
+function readStair(
+  hit: Hit,
+  floor: number | undefined,
+  elevation: number,
+  next: number | undefined,
+  frame: PageFrame,
+  units: string | undefined,
+  origin: Vec3,
+  yaw: Yaw,
+): FloorStairsSource {
+  const id = labelledId(hit.el, "stairs") ?? requireId(hit.el, "stairs");
+  const polygon = rectPolygon(hit, frame, units, origin, yaw, id);
+  const up = stairUp(hit, frame, units, origin, yaw, id);
+  const bottom = optionalNumber(attr(hit.el, "data-bottom"), `stairs "${id}" data-bottom`) ?? elevation;
+  const authoredTop = optionalNumber(attr(hit.el, "data-top"), `stairs "${id}" data-top`);
+  const top = authoredTop ?? next;
+  if (top === undefined) throw new PlanError(`stairs "${id}" needs data-top`);
+  if (!(top > bottom)) throw new PlanError(`stairs "${id}" top must be above the bottom`);
+  const run = spanAlong(polygon, up);
+  if ((top - bottom) / run > 1) throw new PlanError(`stairs "${id}" slope ${(top - bottom)} / ${run} is steeper than 1`);
+  return { id, ...(floor === undefined ? {} : { floor }), polygon, up, bottom, top };
 }
 
-function rotateStart(poly: readonly (readonly [number, number])[]): Array<[number, number]> {
-  let best = 0;
-  for (let i = 1; i < poly.length; i += 1) {
-    const point = poly[i]!;
-    const at = poly[best]!;
-    if (point[0] < at[0] - 1e-6 || (Math.abs(point[0] - at[0]) <= 1e-6 && point[1] < at[1])) best = i;
+function readElevator(
+  hit: Hit,
+  floor: number,
+  elevation: number,
+  elevations: readonly number[],
+  frame: PageFrame,
+  units: string | undefined,
+  origin: Vec3,
+  yaw: Yaw,
+): FloorElevatorSource {
+  const id = labelledId(hit.el, "elevator") ?? requireId(hit.el, "elevator");
+  const polygon = rectPolygon(hit, frame, units, origin, yaw, id);
+  const door = pageVector(hit, frame, units, origin, yaw, doorDir(hit, id), `elevator "${id}"`);
+  const stops = parseStops(attr(hit.el, "data-stops"), id)
+    ?? elevations.filter((value) => value >= elevation - 1e-6);
+  if (stops.length < 2) throw new PlanError(`elevator "${id}" needs at least two stops`);
+  const waitS = positiveOr(attr(hit.el, "data-wait-s"), 8, `elevator "${id}" data-wait-s`);
+  const speed = positiveOr(attr(hit.el, "data-speed"), 1, `elevator "${id}" data-speed`);
+  return { id, floor, polygon, door, stops, waitS, speed };
+}
+
+function doorDir(hit: Hit, id: string): [number, number] {
+  const raw = attr(hit.el, "data-door-side")?.trim();
+  if (!raw) return PAGE_DIR["+y"]!;
+  const dir = PAGE_DIR[raw];
+  if (!dir) throw new PlanError(`elevator "${id}" data-door-side "${raw}" is not +x, -x, +y, or -y`);
+  return dir;
+}
+
+/** Element-local page direction, mapped through the rect matrix into building-local XZ. */
+function stairUp(
+  hit: Hit,
+  frame: PageFrame,
+  units: string | undefined,
+  origin: Vec3,
+  yaw: Yaw,
+  id: string,
+): [number, number] {
+  const raw = attr(hit.el, "data-up")?.trim();
+  if (raw) {
+    const dir = PAGE_DIR[raw];
+    if (!dir) throw new PlanError(`stairs "${id}" data-up "${raw}" is not +x, -x, +y, or -y`);
+    return pageVector(hit, frame, units, origin, yaw, dir, `stairs "${id}"`);
   }
-  return [...poly.slice(best), ...poly.slice(0, best)].map(([x, z]) => [x, z]);
+  const box = rectBox(hit, frame, units, id);
+  const alongX = pageDelta(hit, box, box.maxX - box.minX, 0);
+  const alongY = pageDelta(hit, box, 0, box.maxY - box.minY);
+  const lenX = Math.hypot(alongX[0], alongX[1]);
+  const lenY = Math.hypot(alongY[0], alongY[1]);
+  if (Math.abs(lenX - lenY) <= 1e-4) throw new PlanError(`stairs "${id}" is square and needs data-up`);
+  let [dx, dy] = lenX > lenY ? alongX : alongY;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    if (dx < 0) { dx = -dx; dy = -dy; }
+  } else if (dy < 0) {
+    dx = -dx;
+    dy = -dy;
+  }
+  const [sx, sy] = apply(hit.matrix, (box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2);
+  return svgDeltaToLocal(sx, sy, dx, dy, frame, origin, yaw, `stairs "${id}"`);
+}
+
+function pageVector(
+  hit: Hit,
+  frame: PageFrame,
+  units: string | undefined,
+  origin: Vec3,
+  yaw: Yaw,
+  dir: [number, number],
+  what: string,
+): [number, number] {
+  const box = rectBox(hit, frame, units, what);
+  const [sx, sy] = apply(hit.matrix, (box.minX + box.maxX) / 2, (box.minY + box.maxY) / 2);
+  const delta = pageDelta(hit, box, dir[0], dir[1]);
+  return svgDeltaToLocal(sx, sy, delta[0], delta[1], frame, origin, yaw, what);
+}
+
+function rectBox(
+  hit: Hit,
+  frame: PageFrame,
+  units: string | undefined,
+  id: string,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const box = rectBounds(hit.el, frame.meters, units);
+  if (!box) throw new PlanError(`${id} has no footprint`);
+  return box;
+}
+
+function pageDelta(
+  hit: Hit,
+  box: { minX: number; minY: number; maxX: number; maxY: number },
+  dx: number,
+  dy: number,
+): [number, number] {
+  const cx = (box.minX + box.maxX) / 2;
+  const cy = (box.minY + box.maxY) / 2;
+  const [x0, y0] = apply(hit.matrix, cx, cy);
+  const [x1, y1] = apply(hit.matrix, cx + dx, cy + dy);
+  return [x1 - x0, y1 - y0];
+}
+
+function svgDeltaToLocal(
+  sx: number,
+  sy: number,
+  dx: number,
+  dy: number,
+  frame: PageFrame,
+  origin: Vec3,
+  yaw: Yaw,
+  what: string,
+): [number, number] {
+  const w0 = svgPointToWorld(sx, sy, 0, frame);
+  const w1 = svgPointToWorld(sx + dx, sy + dy, 0, frame);
+  const a = toLocal(w0[0], w0[2], origin, yaw);
+  const b = toLocal(w1[0], w1[2], origin, yaw);
+  const lx = b.x - a.x;
+  const lz = b.z - a.z;
+  const len = Math.hypot(lx, lz);
+  if (len < 1e-9) throw new PlanError(`${what} has no direction`);
+  return [lx / len, lz / len];
+}
+
+function parseStops(raw: string | undefined, id: string): number[] | undefined {
+  if (raw == null || raw.trim() === "") return undefined;
+  const parts = raw.split(",").map((part) => part.trim()).filter((part) => part !== "");
+  if (parts.length < 2) throw new PlanError(`elevator "${id}" needs at least two stops`);
+  const stops = parts.map((part) => {
+    const value = Number(part);
+    if (!Number.isFinite(value)) throw new PlanError(`elevator "${id}" data-stops "${raw}" is not a list of heights`);
+    return value;
+  });
+  for (let i = 1; i < stops.length; i += 1) {
+    if (!(stops[i]! > stops[i - 1]!)) throw new PlanError(`elevator "${id}" stops must increase`);
+  }
+  return stops;
+}
+
+function positiveOr(raw: string | undefined, fallback: number, what: string): number {
+  const value = optionalNumber(raw, what) ?? fallback;
+  if (!(value > 0)) throw new PlanError(`${what} must be positive`);
+  return value;
+}
+
+function spanAlong(polygon: readonly (readonly [number, number])[], up: readonly [number, number]): number {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const [x, z] of polygon) {
+    const proj = x * up[0] + z * up[1];
+    if (proj < lo) lo = proj;
+    if (proj > hi) hi = proj;
+  }
+  return hi - lo;
+}
+
+/** Area of `upper` that sits outside `lower`, for rectilinear outlines. */
+function outsideArea(
+  upper: readonly (readonly [number, number])[],
+  lower: readonly (readonly [number, number])[],
+): number {
+  const xs = gridCoords(upper, lower, 0);
+  const zs = gridCoords(upper, lower, 1);
+  let area = 0;
+  for (let i = 0; i < xs.length - 1; i += 1) {
+    for (let k = 0; k < zs.length - 1; k += 1) {
+      const width = xs[i + 1]! - xs[i]!;
+      const depth = zs[k + 1]! - zs[k]!;
+      if (width <= 1e-8 || depth <= 1e-8) continue;
+      const cx = (xs[i]! + xs[i + 1]!) / 2;
+      const cz = (zs[k]! + zs[k + 1]!) / 2;
+      // A sliver inside the outline tolerance is the same floor, not an overhang.
+      if (pointInRing(upper, cx, cz) && !withinOutline(lower, cx, cz)) area += width * depth;
+    }
+  }
+  return area;
+}
+
+function gridCoords(
+  a: readonly (readonly [number, number])[],
+  b: readonly (readonly [number, number])[],
+  axis: 0 | 1,
+): number[] {
+  const values = [...a, ...b].map((point) => point[axis]);
+  values.sort((left, right) => left - right);
+  const out: number[] = [];
+  for (const value of values) {
+    const last = out[out.length - 1];
+    if (last === undefined || value - last > 1e-8) out.push(value);
+  }
+  return out;
+}
+
+/** Inside the ring, or within `OUTLINE_TOL_M` of an edge. */
+function withinOutline(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean {
+  if (pointInRing(polygon, x, z)) return true;
+  for (let i = 0; i < polygon.length; i += 1) {
+    const a = polygon[i]!;
+    const b = polygon[(i + 1) % polygon.length]!;
+    if (distToSeg(x, z, a, b) <= OUTLINE_TOL_M) return true;
+  }
+  return false;
+}
+
+function distToSeg(
+  x: number,
+  z: number,
+  a: readonly [number, number],
+  b: readonly [number, number],
+): number {
+  const dx = b[0] - a[0];
+  const dz = b[1] - a[1];
+  const len2 = dx * dx + dz * dz;
+  if (len2 < 1e-20) return Math.hypot(x - a[0], z - a[1]);
+  const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (z - a[1]) * dz) / len2));
+  return Math.hypot(x - (a[0] + t * dx), z - (a[1] + t * dz));
+}
+
+function pointInRing(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean {
+  let hits = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+    const xi = polygon[i]![0];
+    const zi = polygon[i]![1];
+    const xj = polygon[j]![0];
+    const zj = polygon[j]![1];
+    const crosses = (zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi;
+    if (crosses) hits = !hits;
+  }
+  return hits;
+}
+
+function formatArea(area: number): string {
+  return String(Math.round(area * 1e4) / 1e4);
 }
 
 function classifyLayer(

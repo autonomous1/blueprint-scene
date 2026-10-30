@@ -12,7 +12,7 @@ import type { RoomFile } from "./room-file.ts";
 import { readFloorsSvg } from "./floors-svg.ts";
 import { cutFacadeWalls, cutRoomWalls, loadFloors, placeRoomDoors, resolveExteriorDoors, type FloorBake, type RoomFacadeOpening, type RoomFacadeRejection, type RoomsLightsFile, type RoomsPlacementsFile } from "./rooms-bake.ts";
 import { boundsOfTriangles, stencilBoxes, stencilSize } from "./stencil.ts";
-import type { BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, Placement, PlacementsFile, ScenePlace, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds, Yaw } from "./types.ts";
+import type { AnyPlace, BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, Placement, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds, Yaw } from "./types.ts";
 import { inverseYaw, placeBox, transformXz } from "./yaw.ts";
 
 const DEFAULT_MODELS = path.join("web", "assets", "models");
@@ -96,7 +96,7 @@ export type BakeResult = {
   /** Room lights. Omitted when there are no rooms. */
   lights?: RoomsLightsFile;
   /** In memory only. Not written (scene-graph.json is a later task). */
-  places: ScenePlace[];
+  places: AnyPlace[];
   lines: string[];
 };
 
@@ -483,7 +483,7 @@ function scenePlaces(
   buildings: readonly Placement[],
   taken: ReadonlySet<string>,
   measures: ReadonlyMap<string, { width: number; depth: number }>,
-): { places: ScenePlace[]; warnings: string[] } {
+): { places: AnyPlace[]; warnings: string[] } {
   if (!options.floorsDir) return { places: [], warnings: [] };
   const floorsDir = options.floorsDir;
   const roomsDir = options.roomsDir;

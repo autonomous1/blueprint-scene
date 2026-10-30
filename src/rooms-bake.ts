@@ -514,13 +514,13 @@ export function loadFloors(input: LoadInput): FloorBake {
         }
         roomCount += 1;
       }
-      // Ground floors stand on the arena ground. An elevated hall is the
-      // outline minus the room slabs, so the two floors do not stack.
+      // Ground floors stand on the arena ground. An elevated hall is that
+      // floor's outline minus the room slabs, so the two floors do not stack.
       // The mesh placement reuses the hall place id. The asset id
       // `${model}.floor-${n}.hall` is shared by every placement of the model.
       const worldY = building.position[1] + floor.elevation;
       if (worldY > GROUND_FLOOR_Y) {
-        const piece = hallFloorPiece(floor.elevation, source.outline, roomAabbs);
+        const piece = hallFloorPiece(floor.elevation, floor.outline, roomAabbs);
         if (!piece) {
           input.warnings.push(`hall floor "${building.id}.floor-${floor.n}" covers no area outside rooms; no slab`);
         } else {

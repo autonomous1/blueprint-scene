@@ -126,7 +126,7 @@ test("floors files reject a bad layer, footprint, elevation, room, or door", () 
   fails(svgWrap(layer("floor-1", fp + footprint("c", "bldg", "matrix(0,30,-30,0,10,10)"))), /floor-1 needs exactly one footprint/);
   fails(
     svgWrap(layer("floor-1", fp) + layer("floor-2", footprint("b", "bldg", "matrix(0,30,-30,0,11,10)", 'z="2.75"'))),
-    /floor-2 footprint does not match floor-1/,
+    /floor-2 stencil transform does not match floor-1/,
   );
   fails(
     svgWrap(layer("floor-1", footprint("a", "bldg", "matrix(0,30,-30,0,10,10)", 'z="5"')) + layer("floor-2", footprint("b", "bldg", "matrix(0,30,-30,0,10,10)", 'z="1"'))),
@@ -179,12 +179,39 @@ test("an L-shaped stencil keeps a 6-point outline and a diagonal falls back to t
   assert.equal(curve.outlineFallback, "curve");
   assert.deepEqual(curve.outline, curve.footprint);
 
-  fails(
-    svgWrap(
+  const warnings: string[] = [];
+  const orig = console.warn;
+  console.warn = (msg?: unknown) => { warnings.push(String(msg)); };
+  try {
+    const setback = readFloorsSvg(svgWrap(
       layer("floor-1", `<g id="a" data-model="bldg" transform="matrix(1,0,0,1,0,20)"><path d="M 0 0 L 2 0 L 2 -1 L 0 -1 Z"/></g>`)
       + layer("floor-2", `<g id="b" data-model="bldg" transform="matrix(1,0,0,1,0,20)" z="1"><path d="M 0 0 L 2 0 L 2 -1 L 1 -1 L 1 -2 L 0 -2 Z"/></g>`),
-    ),
-    /floor-2 outline does not match floor-1/,
+    ));
+    assert.deepEqual(setback.floors[0]!.outline, [[0, 0], [2, 0], [2, 1], [0, 1]]);
+    assert.equal(setback.floors[1]!.outline.length, 6);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0]!, /floor-2/);
+    assert.match(warnings[0]!, /overhangs floor-1/);
+    assert.match(warnings[0]!, /1 m²/);
+  } finally {
+    console.warn = orig;
+  }
+});
+
+test("a smaller upper floor keeps its own outline, and a moved stencil throws", () => {
+  const big = `<g id="a" data-model="bldg" transform="matrix(1,0,0,1,0,20)"><path d="M 0 0 L 4 0 L 4 -3 L 0 -3 Z"/></g>`;
+  const mid = `<g id="b" data-model="bldg" transform="matrix(1,0,0,1,0,20)" z="1"><path d="M 0 0 L 4 0 L 4 -3 L 0 -3 Z"/></g>`;
+  const top = `<g id="c" data-model="bldg" transform="matrix(1,0,0,1,0,20)" z="2"><path d="M 0 0 L 2 0 L 2 -2 L 0 -2 Z"/></g>`;
+  const source = readFloorsSvg(svgWrap(layer("floor-1", big) + layer("floor-2", mid) + layer("floor-3", top)));
+  assert.deepEqual(source.outline, [[0, 0], [4, 0], [4, 3], [0, 3]]);
+  assert.deepEqual(source.floors[0]!.outline, source.outline);
+  assert.deepEqual(source.floors[1]!.outline, source.outline);
+  assert.deepEqual(source.floors[2]!.outline, [[0, 0], [2, 0], [2, 2], [0, 2]]);
+  assert.deepEqual(source.floors[2]!.footprint, source.floors[2]!.outline);
+  const moved = `<g id="c" data-model="bldg" transform="matrix(1,0,0,1,1,20)" z="2"><path d="M 0 0 L 2 0 L 2 -2 L 0 -2 Z"/></g>`;
+  fails(
+    svgWrap(layer("floor-1", big) + layer("floor-2", mid) + layer("floor-3", moved)),
+    /floor-3 stencil transform does not match floor-1/,
   );
 });
 

@@ -1,5 +1,5 @@
 import { PlanError } from "./errors.ts";
-import type { DoorHinge, SceneDoor, ScenePlace, SceneProp, SceneSpawn, Vec3, XzBounds, Yaw } from "./types.ts";
+import type { AnyPlace, DoorHinge, SceneDoor, SceneProp, SceneSpawn, Vec3, XzBounds, Yaw } from "./types.ts";
 import { attr, localName, parseXml, type XmlNode } from "./xml.ts";
 
 /**
@@ -93,10 +93,10 @@ export type PlanScene = {
   playerSpawns: SceneSpawn[];
   doors: SceneDoor[];
   /**
-   * Walkable rooms, halls, and platforms. `readScene` leaves this empty.
+   * Walkable rooms, halls, platforms, stairs, and elevators. `readScene` leaves this empty.
    * Bake fills it from floors files and room prefabs.
    */
-  places: ScenePlace[];
+  places: AnyPlace[];
 };
 
 /**

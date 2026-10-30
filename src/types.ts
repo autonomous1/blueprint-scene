@@ -216,7 +216,7 @@ export type CollisionFile = {
 
 export type PlaceKind = "room" | "hall" | "platform" | "stairs" | "elevator";
 
-/** One walkable region. Stairs and elevator places are filled by a later task. */
+/** One walkable region. Stairs and elevators add the fields on {@link StairsPlace} and {@link ElevatorPlace}. */
 export type ScenePlace = {
   id: string;
   kind: PlaceKind;
@@ -228,5 +228,32 @@ export type ScenePlace = {
   polygon: Array<[number, number]>;
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 };
+
+/** A stair run. `top` and the landing `y` values are world metres. */
+export type StairsPlace = ScenePlace & {
+  kind: "stairs";
+  /** World y of the top of the run. */
+  top: number;
+  width: number;
+  run: number;
+  landings: { bottom: Vec3; top: Vec3 };
+  /** Place ids. Absent when that end is outside ground or matches no place. */
+  joins: { from?: string; to?: string };
+};
+
+/** An elevator shaft. `stops` and landing `y` values are world metres. */
+export type ElevatorPlace = ScenePlace & {
+  kind: "elevator";
+  /** World y, ascending. */
+  stops: number[];
+  waitS: number;
+  speed: number;
+  /** One landing per stop. */
+  landings: Vec3[];
+  /** One place id per stop. Missing when that stop matches no place. */
+  joins: Array<string | undefined>;
+};
+
+export type AnyPlace = ScenePlace | StairsPlace | ElevatorPlace;
 
 export type Triangle = [Vec3, Vec3, Vec3];
