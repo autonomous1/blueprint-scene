@@ -7,12 +7,13 @@ import { cutDoorFromBoxes, doorCutLocal, doorPanelWidth, situateDoor, subtractBo
 import { coarseFootprint, measureFootprint } from "./footprint.ts";
 import { trianglesFromGlb, type GlbLoad } from "./glb.ts";
 import { derivePlaces } from "./places.ts";
+import { buildSceneGraph } from "./scene-graph.ts";
 import { readScene, type PlanPlacement } from "./plan.ts";
 import type { RoomFile } from "./room-file.ts";
 import { readFloorsSvg } from "./floors-svg.ts";
 import { cutFacadeWalls, cutRoomWalls, loadFloors, placeRoomDoors, resolveExteriorDoors, type FloorBake, type RoomFacadeOpening, type RoomFacadeRejection, type RoomsLightsFile, type RoomsPlacementsFile } from "./rooms-bake.ts";
 import { boundsOfTriangles, stencilBoxes, stencilSize } from "./stencil.ts";
-import type { AnyPlace, BoundsFile, CollisionFile, DoorPlacement, DoorsFile, LocalBox, Placement, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds, Yaw } from "./types.ts";
+import type { AnyPlace, BoundsFile, CollisionFile, DoorPlacement, DoorsFile, ElevatorPlace, LocalBox, Placement, PlacementsFile, SceneProp, SpawnPoint, Triangle, Vec3, XzBounds, Yaw } from "./types.ts";
 import { inverseYaw, placeBox, transformXz } from "./yaw.ts";
 
 const DEFAULT_MODELS = path.join("web", "assets", "models");
@@ -95,7 +96,7 @@ export type BakeResult = {
   rooms?: RoomsPlacementsFile;
   /** Room lights. Omitted when there are no rooms. */
   lights?: RoomsLightsFile;
-  /** In memory only. Not written (scene-graph.json is a later task). */
+  /** Walkable regions. Elevators are written to elevators.json. The full list is also written to scene-graph.json when it is not empty. */
   places: AnyPlace[];
   lines: string[];
 };
@@ -108,6 +109,8 @@ const RESERVED_OUTPUTS = new Set([
   "doors.placements.json",
   "rooms.placements.json",
   "rooms.lights.json",
+  "scene-graph.json",
+  "elevators.json",
 ]);
 
 export function bake(options: BakeOptions): BakeResult {
@@ -360,12 +363,19 @@ export function bake(options: BakeOptions): BakeResult {
   writeJson(outputs.spawns, spawns);
   writeJson(outputs.players, playerSpawns);
   writeJson(outputs.doors, doors);
+  const elevators = {
+    formatVersion: 1,
+    units: "meters" as const,
+    elevators: scene.places.filter((place): place is ElevatorPlace => place.kind === "elevator"),
+  };
+  writeJson(outputs.elevators, elevators);
   lines.push(`wrote ${outputs.buildings}`);
   lines.push(`wrote ${outputs.bounds}`);
   lines.push(`wrote ${outputs.props}`);
   lines.push(`wrote ${outputs.spawns}`);
   lines.push(`wrote ${outputs.players}`);
   lines.push(`wrote ${outputs.doors}`);
+  lines.push(`wrote ${outputs.elevators}`);
 
   let roomsFile: RoomsPlacementsFile | undefined;
   let lightsFile: RoomsLightsFile | undefined;
@@ -400,6 +410,17 @@ export function bake(options: BakeOptions): BakeResult {
     writeJson(outputs.lights, lightsFile);
     lines.push(`wrote ${outputs.rooms}`);
     lines.push(`wrote ${outputs.lights}`);
+  }
+
+  if (scene.places.length > 0) {
+    const linked = buildSceneGraph({
+      places: scene.places,
+      doors: [...doorPlacements, ...roomDoorPlacements],
+      bounds,
+    });
+    writeJson(outputs.sceneGraph, linked.graph);
+    lines.push(`wrote ${outputs.sceneGraph}`);
+    for (const warning of linked.warnings) lines.push(warning);
   }
 
   lines.push(
@@ -907,6 +928,8 @@ function layerPaths(outPath: string): {
   doors: string;
   rooms: string;
   lights: string;
+  sceneGraph: string;
+  elevators: string;
 } {
   const base = path.basename(outPath);
   if (RESERVED_OUTPUTS.has(base)) {
@@ -922,6 +945,8 @@ function layerPaths(outPath: string): {
     doors: path.join(dir, "doors.placements.json"),
     rooms: path.join(dir, "rooms.placements.json"),
     lights: path.join(dir, "rooms.lights.json"),
+    sceneGraph: path.join(dir, "scene-graph.json"),
+    elevators: path.join(dir, "elevators.json"),
   };
 }
 

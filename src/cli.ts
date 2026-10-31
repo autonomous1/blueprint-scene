@@ -4,11 +4,15 @@ import { pathToFileURL } from "node:url";
 import { bake } from "./bake.ts";
 import { PlanError } from "./errors.ts";
 import { measure } from "./measure.ts";
+import { derivePlaces } from "./places.ts";
 import { writeCrateProp } from "./crate.ts";
 import { writeDoorProp } from "./prop.ts";
 import { writeRoom } from "./room-glb.ts";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { buildSceneGraph } from "./scene-graph.ts";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { readFloorsSvg } from "./floors-svg.ts";
+import type { BoundsFile, DoorPlacement, Placement } from "./types.ts";
+import type { RoomFile } from "./room-file.ts";
 
 const USAGE = `blueprint-scene measure --glb model.glb --out buildings/<id>.json --svg buildings/<id>.svg
 blueprint-scene bake --svg plan.svg --models ./models --out web/game/buildings.placements.json
@@ -18,6 +22,9 @@ blueprint-scene prop --shape door --svg door.svg --out props/door.glb
 blueprint-scene prop --shape crate --svg crate.svg --out props/cover-crate.glb
 blueprint-scene room --svg room.svg --out room.glb [--glb blender.glb]
 blueprint-scene floors --svg buildings/<id>.floors.svg
+blueprint-scene scene-graph --buildings web/game/buildings.placements.json --floors <dir> --rooms <dir>
+        --doors web/game/doors.placements.json [--room-doors web/game/rooms.placements.json]
+        --bounds web/game/bounds.json --out web/game/scene-graph.json
 
 Inkscape drawing scale is 1 mm = 1 m. A rectangle 8 mm wide is an 8 m facade.
 The toolbar is the room: x → x and toolbar y → z. Yaw is snapped to 0, 90, 180, or 270.
@@ -74,6 +81,8 @@ that file gets the file's external doors, stairs, and room instances.
 --rooms is the directory of <prefab>.room.json, required when a floors file
 has a room. With at least one room, bake also writes rooms.placements.json
 and rooms.lights.json beside --out. Without --floors those files are not written.
+With at least one place, bake also writes scene-graph.json beside --out.
+Without --floors that file is not written.
 
 prop --shape door reads a door-design layer. Part ids are data-part-frame,
 data-part-door, data-part-hinge, and data-part-texture. The texture image is
@@ -108,7 +117,12 @@ PNG or JPEG. Doors, windows,
 openings and holes are cut out of the faces. A window gets a pane
 unless data-glass="false".
 
-floors reads layers floor-<n>, doors-external, stairs-external, and ignore, then prints the model, floor elevations, and the room, door, and stair counts without writing a file.`;
+floors reads layers floor-<n>, doors-external, stairs-external, and ignore, then prints the model, floor elevations, and the room, door, and stair counts without writing a file.
+
+scene-graph reads the already-baked buildings, doors, bounds, and floors files and
+writes one scene-graph.json. It does not read GLBs. --room-doors is a
+rooms.placements.json; only placements that have hinge are doors. A place
+with no portal is a warning, not an error.`;
 
 export function main(argv: string[]): number {
   try {
@@ -139,6 +153,10 @@ export function main(argv: string[]): number {
     }
     if (command === "floors") {
       runFloors(argv.slice(1));
+      return 0;
+    }
+    if (command === "scene-graph") {
+      runSceneGraph(argv.slice(1));
       return 0;
     }
     throw new PlanError(`unknown command "${command}"\n${USAGE}`);
@@ -221,6 +239,78 @@ function runRoom(argv: string[]): void {
   console.log(`room ${room.id}: ${formatMetres(room.width)}\u00d7${formatMetres(room.depth)}\u00d7${formatMetres(room.height)} m, ${counts}`);
   console.log(`wrote ${flags.out}`);
   console.log(`wrote ${path.join(path.dirname(flags.out), `${room.id}.room.json`)}`);
+}
+
+function runSceneGraph(argv: string[]): void {
+  const flags = parseFlags(argv, new Set(["buildings", "floors", "rooms", "doors", "room-doors", "bounds", "out"]));
+  if (!flags.buildings) throw new PlanError(`missing --buildings\n${USAGE}`);
+  if (!flags.floors) throw new PlanError(`missing --floors\n${USAGE}`);
+  if (!flags.rooms) throw new PlanError(`missing --rooms\n${USAGE}`);
+  if (!flags.doors) throw new PlanError(`missing --doors\n${USAGE}`);
+  if (!flags.bounds) throw new PlanError(`missing --bounds\n${USAGE}`);
+  if (!flags.out) throw new PlanError(`missing --out\n${USAGE}`);
+  const buildings = readPlacements(flags.buildings);
+  const doors = [
+    ...readDoorPlacements(flags.doors),
+    ...(flags["room-doors"] ? readRoomDoors(flags["room-doors"]) : []),
+  ];
+  const bounds = readBounds(flags.bounds);
+  const floorsDir = flags.floors;
+  const roomsDir = flags.rooms;
+  const derived = derivePlaces({
+    buildings,
+    floorsFor: (model) => {
+      const floorsPath = path.join(floorsDir, `${model}.floors.svg`);
+      if (!existsSync(floorsPath)) return undefined;
+      return readFloorsSvg(readFileSync(floorsPath, "utf8"), floorsPath);
+    },
+    roomFileFor: (prefab) => {
+      const filePath = path.join(roomsDir, `${prefab}.room.json`);
+      if (!existsSync(filePath)) return undefined;
+      return JSON.parse(readFileSync(filePath, "utf8")) as RoomFile;
+    },
+    taken: new Set([...buildings.map((building) => building.id), ...doors.map((door) => door.id)]),
+  });
+  const linked = buildSceneGraph({ places: derived.places, doors, bounds });
+  mkdirSync(path.dirname(path.resolve(flags.out)), { recursive: true });
+  writeFileSync(flags.out, `${JSON.stringify(linked.graph, null, 2)}\n`);
+  for (const warning of derived.warnings) console.log(warning);
+  for (const warning of linked.warnings) console.log(warning);
+  console.log(`wrote ${flags.out}`);
+}
+
+function readPlacements(filePath: string): Placement[] {
+  const parsed = readJson(filePath) as { placements?: Placement[] };
+  if (!Array.isArray(parsed.placements)) throw new PlanError(`${filePath} has no placements`);
+  return parsed.placements;
+}
+
+function readDoorPlacements(filePath: string): DoorPlacement[] {
+  const parsed = readJson(filePath) as { placements?: DoorPlacement[] };
+  if (!Array.isArray(parsed.placements)) throw new PlanError(`${filePath} has no placements`);
+  return parsed.placements;
+}
+
+/** Room files mix room meshes and doors. A door is a placement that has `hinge`. */
+function readRoomDoors(filePath: string): DoorPlacement[] {
+  return readDoorPlacements(filePath).filter((placement) => placement.hinge === "left" || placement.hinge === "right");
+}
+
+function readBounds(filePath: string): BoundsFile {
+  const parsed = readJson(filePath) as Partial<BoundsFile>;
+  for (const key of ["minX", "maxX", "minY", "maxY", "minZ", "maxZ"] as const) {
+    if (typeof parsed[key] !== "number") throw new PlanError(`${filePath} is not a bounds file`);
+  }
+  return parsed as BoundsFile;
+}
+
+function readJson(filePath: string): unknown {
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8")) as unknown;
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new PlanError(`cannot read ${filePath}: ${detail}`);
+  }
 }
 
 function runFloors(argv: string[]): void {

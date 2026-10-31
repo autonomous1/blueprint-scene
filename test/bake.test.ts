@@ -396,6 +396,11 @@ test("each layer is its own file, and a toolbar square at -24 stays at -24", () 
     assert.deepEqual(kept.map((spawn) => spawn.id), ["cross", "corner"]);
     assert.deepEqual(result.playerSpawns, []);
     assert.deepEqual(JSON.parse(readFileSync(path.join(dir, "player-spawns.json"), "utf8")), []);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(dir, "elevators.json"), "utf8")), {
+      formatVersion: 1,
+      units: "meters",
+      elevators: [],
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1175,6 +1180,55 @@ test("a model-scoped opening is cut into the shared glb and a placement-scoped o
     assert.equal(alone.lines.some((line) => line.includes(".cut.glb")), false);
     assert.ok(alone.lines.some((line) => line.includes("external doors are not on every placement")));
     assert.throws(() => readFileSync(path.join(aloneDir, "m.cut.glb")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a floors elevator is written to elevators.json with stops and landings", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-elevators-"));
+  const floors = path.join(dir, "floors");
+  mkdirSync(floors);
+  const ns = `xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"`;
+  const footprint = (id: string, attrs: string) =>
+    `<g id="${id}" data-model="bldg" transform="matrix(10,0,0,10,0,40)" ${attrs}><path d="M 0 0 L 2 0 L 2 -1 L 0 -1 Z"/></g>`;
+  const elevator = `<rect id="e1" inkscape:label="elevator:e1" x="2" y="36" width="2" height="2"/>`;
+  writeFileSync(path.join(floors, "bldg.floors.svg"), `<?xml version="1.0" encoding="UTF-8"?>
+<svg ${ns} width="40mm" height="40mm" viewBox="0 0 40 40">
+  <sodipodi:namedview inkscape:document-units="mm" inkscape:document-scale="1"/>
+  <g inkscape:groupmode="layer" inkscape:label="floor-1">${footprint("fp1", "")}${elevator}</g>
+  <g inkscape:groupmode="layer" inkscape:label="floor-2">${footprint("fp2", 'z="2.75"')}</g>
+</svg>`);
+  const svg = path.join(dir, "plan.svg");
+  writeFileSync(svg, `<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="40mm" height="40mm" viewBox="0 0 40 40">
+    <g inkscape:groupmode="layer" inkscape:label="bounds"><rect id="yard" x="0" y="0" width="40" height="40"/></g>
+    <g inkscape:groupmode="layer" inkscape:label="buildings"><rect id="hall-b" data-model="bldg" x="5" y="5" width="20" height="10"/></g>
+  </svg>`);
+  try {
+    const out = path.join(dir, "buildings.placements.json");
+    bake({
+      svgPath: svg,
+      outPath: out,
+      floorsDir: floors,
+      collisionDir: path.join(dir, "buildings"),
+      modelsDir: path.join(dir, "models"),
+      walls: { bldg: trianglesFromBox([-1, 0, -0.5], [1, 1, 0.5]) },
+    });
+    const doc = JSON.parse(readFileSync(path.join(dir, "elevators.json"), "utf8")) as {
+      formatVersion: number;
+      units: string;
+      elevators: Array<{ id: string; kind: string; stops: number[]; landings: number[][]; polygon: number[][] }>;
+    };
+    assert.equal(doc.formatVersion, 1);
+    assert.equal(doc.units, "meters");
+    assert.equal(doc.elevators.length, 1);
+    const cab = doc.elevators[0]!;
+    assert.equal(cab.id, "hall-b.e1");
+    assert.equal(cab.kind, "elevator");
+    assert.deepEqual(cab.stops, [0, 2.75]);
+    assert.equal(cab.landings.length, cab.stops.length);
+    assert.ok(cab.polygon.length >= 3);
+    assert.equal(cab.landings[0]!.length, 3);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
