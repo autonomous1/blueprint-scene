@@ -1286,7 +1286,8 @@ function hostBox(wall: WallFace, width: number, depth: number, height: number): 
   };
 }
 
-function wallNormal(wall: WallFace): { x: number; z: number } {
+/** Outward normal of a room-local wall. +Z is front. */
+export function wallNormal(wall: WallFace): { x: number; z: number } {
   switch (wall) {
     case "front":
       return { x: 0, z: 1 };

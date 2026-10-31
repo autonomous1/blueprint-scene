@@ -252,6 +252,8 @@ export type ElevatorPlace = ScenePlace & {
   landings: Vec3[];
   /** One place id per stop. Missing when that stop matches no place. */
   joins: Array<string | undefined>;
+  /** Room placement that rides with the cab. Absent when no room covers the shaft. */
+  room?: string;
 };
 
 export type AnyPlace = ScenePlace | StairsPlace | ElevatorPlace;

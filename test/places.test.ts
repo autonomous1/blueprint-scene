@@ -6,7 +6,7 @@ import { readFloorsSvg } from "../src/floors-svg.ts";
 import { derivePlaces } from "../src/places.ts";
 import { readScene } from "../src/plan.ts";
 import type { RoomFile } from "../src/room-file.ts";
-import type { ScenePlace, Vec3, Yaw } from "../src/types.ts";
+import type { ElevatorPlace, ScenePlace, Vec3, Yaw } from "../src/types.ts";
 
 const ARENA_FLOORS = "/home/tim/dev/conveyor-engine-arena/dev/scenes/arena-1/designs/floorplans/brutalist-building-2-cbake.floors.svg";
 
@@ -206,6 +206,64 @@ test("building-2 floor-2 hall does not cover the stencil notch", () => {
   assert.equal(inside(source.footprint, notch[0], notch[1]), true);
 });
 
+test("a room rect over the shaft binds the cab and lands outside the room door", () => {
+  const svg = cabFloors(cabRoom("cab"));
+  const result = deriveCab(svg, cabFile("left"));
+  assert.deepEqual(result.warnings, []);
+  const place = cabPlace(result.places);
+  assert.equal(place.room, "hall-b.cab");
+  assert.deepEqual(place.stops, [0, 2.75]);
+  // Door wall `left`, instance yaw 0: landing is 0.6 m past −x of the 2×2 shaft.
+  closeLanding(place.landings[0]!, [11.4, 0, 23]);
+  closeLanding(place.landings[1]!, [11.4, 2.75, 23]);
+  assert.ok(place.landings[0]![0] < place.bounds.minX);
+  assert.deepEqual(place.joins, ["hall-b.floor-1.hall", "hall-b.floor-2.hall"]);
+});
+
+test("instance yaw 90 turns the room-door landing", () => {
+  const svg = cabFloors(`<g transform="rotate(90 3 37)">${cabRoom("cab")}</g>`);
+  const result = deriveCab(svg, cabFile("left"));
+  assert.deepEqual(result.warnings, []);
+  const place = cabPlace(result.places);
+  assert.equal(place.room, "hall-b.cab");
+  // Left wall normal (−1, 0) through yaw 90 is +z.
+  closeLanding(place.landings[0]!, [13, 0, 24.6]);
+  closeLanding(place.landings[1]!, [13, 2.75, 24.6]);
+  assert.ok(place.landings[0]![2] > place.bounds.maxZ);
+});
+
+test("an explicit data-door-side that misses the room door warns; the default does not", () => {
+  const warned = deriveCab(cabFloors(cabRoom("cab"), 'data-door-side="+y"'), cabFile("left"));
+  assert.deepEqual(warned.warnings, [
+    'elevator "hall-b.e1": data-door-side +y is a wall of room hall-b.cab; landings use the room door side -x',
+  ]);
+  closeLanding(cabPlace(warned.places).landings[0]!, [11.4, 0, 23]);
+
+  const quiet = deriveCab(cabFloors(cabRoom("cab")), cabFile("left"));
+  assert.deepEqual(quiet.warnings, []);
+
+  const agreed = deriveCab(cabFloors(cabRoom("cab"), 'data-door-side="-x"'), cabFile("left"));
+  assert.deepEqual(agreed.warnings, []);
+  closeLanding(cabPlace(agreed.places).landings[0]!, [11.4, 0, 23]);
+});
+
+test("two rooms over the shaft, a room on the next floor, and a room with no door are PlanErrors", () => {
+  assert.throws(
+    () => deriveCab(cabFloors(cabRoom("cab-a") + cabRoom("cab-b")), cabFile("left")),
+    (err: unknown) => err instanceof PlanError
+      && /cab-a/.test(err.message)
+      && /cab-b/.test(err.message),
+  );
+  assert.throws(
+    () => deriveCab(cabFloors(cabRoom("cab"), "", cabRoom("above")), cabFile("left")),
+    (err: unknown) => err instanceof PlanError && /floor-2/.test(err.message) && /above/.test(err.message),
+  );
+  assert.throws(
+    () => deriveCab(cabFloors(cabRoom("cab")), cabFile(null)),
+    (err: unknown) => err instanceof PlanError && /no door/.test(err.message) && /cab/.test(err.message),
+  );
+});
+
 test("readScene leaves places empty", () => {
   const scene = readScene(`<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="10mm" height="10mm" viewBox="0 0 10 10">
@@ -273,6 +331,50 @@ function room(id: string): string {
 
 function roof(): string {
   return `<rect id="roof-1" inkscape:label="platform:roof-1" x="12" y="31" width="2" height="2" data-height="0.2"/>`;
+}
+
+const CAB_BUILDING = { id: "hall-b", model: "bldg", position: [10, 0, 20] as Vec3, yaw: 0 as Yaw, scale: 10 };
+
+function deriveCab(svg: string, file: RoomFile) {
+  return derivePlaces({
+    buildings: [CAB_BUILDING],
+    floorsFor: () => readFloorsSvg(svg),
+    roomFileFor: (prefab) => (prefab === "cab" ? file : undefined),
+  });
+}
+
+function cabPlace(places: readonly ScenePlace[]): ElevatorPlace {
+  const found = place(places, "hall-b.e1");
+  assert.equal(found.kind, "elevator");
+  return found as ElevatorPlace;
+}
+
+function closeLanding(actual: Vec3, expected: Vec3): void {
+  for (let i = 0; i < 3; i += 1) {
+    assert.ok(Math.abs(actual[i]! - expected[i]!) <= 1e-6, `${actual} vs ${expected}`);
+  }
+}
+
+function cabFile(wall: "front" | "back" | "left" | "right" | null): RoomFile {
+  return {
+    footprint: { minX: -1, maxX: 1, minZ: -1, maxZ: 1 },
+    doors: wall
+      ? [{ id: "d", model: "door", wall, center: [0, 0, 0], width: 1, height: 2, hinge: "left", open: false }]
+      : [],
+  } as RoomFile;
+}
+
+/** Shaft at page (2, 36) size 2×2, the same rectangle as `cabRoom`. */
+function cabFloors(floor1: string, elevatorAttrs = "", floor2 = ""): string {
+  const shaft = `<rect id="e1" inkscape:label="elevator:e1" x="2" y="36" width="2" height="2" ${elevatorAttrs}/>`;
+  return svgWrap(`
+    ${layer("floor-1", footprint("fp1", "") + floor1 + shaft)}
+    ${layer("floor-2", footprint("fp2", 'z="2.75"') + floor2)}
+  `);
+}
+
+function cabRoom(id: string, floorAttr = ""): string {
+  return `<rect id="${id}" inkscape:label="model:cab" x="2" y="36" width="2" height="2" ${floorAttr}/>`;
 }
 
 /** Page 20 mm. Local metres match the path: an L of area 4 inside an AABB of area 6. */

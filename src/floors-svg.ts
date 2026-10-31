@@ -77,6 +77,13 @@ export type FloorElevatorSource = {
   polygon: Array<[number, number]>;
   /** Unit vector in local XZ, the side the landing sits outside. */
   door: [number, number];
+  /**
+   * True when the shaft rect set `data-door-side`. False uses the default
+   * `+y`, which is not a disagreement with a bound room door.
+   */
+  doorExplicit: boolean;
+  /** Authored `data-door-side` token. `+y` when the attribute was omitted. */
+  doorSide: string;
   /** Ascending. Defaults filled in: every floor from this one up. */
   stops: number[];
   waitS: number;
@@ -654,21 +661,32 @@ function readElevator(
 ): FloorElevatorSource {
   const id = labelledId(hit.el, "elevator") ?? requireId(hit.el, "elevator");
   const polygon = rectPolygon(hit, frame, units, origin, yaw, id);
-  const door = pageVector(hit, frame, units, origin, yaw, doorDir(hit, id), `elevator "${id}"`);
+  const authored = doorDir(hit, id);
+  const door = pageVector(hit, frame, units, origin, yaw, authored.dir, `elevator "${id}"`);
   const stops = parseStops(attr(hit.el, "data-stops"), id)
     ?? elevations.filter((value) => value >= elevation - 1e-6);
   if (stops.length < 2) throw new PlanError(`elevator "${id}" needs at least two stops`);
   const waitS = positiveOr(attr(hit.el, "data-wait-s"), 8, `elevator "${id}" data-wait-s`);
   const speed = positiveOr(attr(hit.el, "data-speed"), 1, `elevator "${id}" data-speed`);
-  return { id, floor, polygon, door, stops, waitS, speed };
+  return {
+    id,
+    floor,
+    polygon,
+    door,
+    doorExplicit: authored.explicit,
+    doorSide: authored.side,
+    stops,
+    waitS,
+    speed,
+  };
 }
 
-function doorDir(hit: Hit, id: string): [number, number] {
+function doorDir(hit: Hit, id: string): { dir: [number, number]; explicit: boolean; side: string } {
   const raw = attr(hit.el, "data-door-side")?.trim();
-  if (!raw) return PAGE_DIR["+y"]!;
+  if (!raw) return { dir: PAGE_DIR["+y"]!, explicit: false, side: "+y" };
   const dir = PAGE_DIR[raw];
   if (!dir) throw new PlanError(`elevator "${id}" data-door-side "${raw}" is not +x, -x, +y, or -y`);
-  return dir;
+  return { dir, explicit: true, side: raw };
 }
 
 /** Element-local page direction, mapped through the rect matrix into building-local XZ. */

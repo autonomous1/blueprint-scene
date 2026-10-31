@@ -99,6 +99,7 @@ test("an elevator defaults to the floors above it and rejects a falling stop lis
   assert.equal(place.waitS, 8);
   assert.equal(place.speed, 1);
   assert.equal(place.landings.length, 2);
+  assert.equal(place.room, undefined);
   closeVec(place.landings[0]!, [13, 0, 21.4]);
   closeVec(place.landings[1]!, [13, 2.75, 21.4]);
   assert.deepEqual(place.joins, ["hall-b.floor-1.hall", "hall-b.floor-2.hall"]);

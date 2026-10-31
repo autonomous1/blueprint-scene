@@ -9,7 +9,7 @@ import type {
 } from "./floors-svg.ts";
 import { hallCells } from "./hall-floor.ts";
 import type { RoomFile } from "./room-file.ts";
-import { addYaw, buildingToWorld, roomToBuilding } from "./rooms-bake.ts";
+import { addYaw, buildingToWorld, roomToBuilding, wallNormal } from "./rooms-bake.ts";
 import type { AnyPlace, ElevatorPlace, Placement, ScenePlace, StairsPlace, Vec3, Yaw } from "./types.ts";
 import { unionAabbs } from "./union.ts";
 import { placeBox, transformXz } from "./yaw.ts";
@@ -126,7 +126,9 @@ export function derivePlaces(args: {
       }
     }
     for (const stair of source.stairs) pushStair(places, warnings, claim, building, source.floors, stair);
-    for (const elevator of source.elevators) pushElevator(places, warnings, claim, building, source.floors, elevator);
+    for (const elevator of source.elevators) {
+      pushElevator(places, warnings, claim, building, source.floors, elevator, args.roomFileFor);
+    }
   }
 
   places.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -345,18 +347,31 @@ function pushElevator(
   building: PlaceBuilding,
   floors: readonly FloorSource[],
   elevator: FloorElevatorSource,
+  roomFileFor: (prefab: string) => RoomFile | undefined,
 ): void {
   const low = elevator.stops[0]!;
   const high = elevator.stops[elevator.stops.length - 1]!;
+  const id = `${building.id}.${elevator.id}`;
   for (const floor of floors) {
     if (floor.elevation < low - 1e-4 || floor.elevation > high + 1e-4) continue;
     if (!polygonInside(elevator.polygon, floor.outline)) {
-      throw new PlanError(`elevator "${building.id}.${elevator.id}" is outside floor-${floor.n} outline`);
+      throw new PlanError(`elevator "${id}" is outside floor-${floor.n} outline`);
     }
   }
-  const [lx, lz] = sidePoint(elevator.polygon, elevator.door, 0.6);
+  const bound = elevatorRoom(building, floors, elevator, roomFileFor);
+  let door = elevator.door;
+  if (bound) {
+    const file = roomFileFor(bound.prefab);
+    door = roomDoorDir(bound, file, id);
+    if (elevator.doorExplicit && !sameDir(snapCardinal(elevator.door[0], elevator.door[1]), door)) {
+      const side = pageSideFor(elevator.doorSide, elevator.door, door);
+      warnings.push(
+        `elevator "${id}": data-door-side ${elevator.doorSide} is a wall of room ${building.id}.${bound.id}; landings use the room door side ${side}`,
+      );
+    }
+  }
+  const [lx, lz] = sidePoint(elevator.polygon, door, 0.6);
   const landings = elevator.stops.map((stop) => worldAt(building, lx, stop, lz));
-  const id = `${building.id}.${elevator.id}`;
   const joins = landings.map((landing, index) => {
     const found = elevatorJoin(places, building, floors, elevator.stops[index]!, landing, id, index, warnings);
     return found;
@@ -371,6 +386,7 @@ function pushElevator(
     speed: elevator.speed,
     landings,
     joins,
+    ...(bound ? { room: `${building.id}.${bound.id}` } : {}),
   };
   places.push(place);
 }
@@ -402,6 +418,110 @@ function stairsLandings(
     bottom: [bx - up[0] * 0.4, bottom, bz - up[1] * 0.4],
     top: [tx + up[0] * 0.4, top, tz + up[1] * 0.4],
   };
+}
+
+/** 1 cm. A drawn room rect may sit this far off the shaft and still bind. */
+const ELEVATOR_ROOM_M = 0.01;
+
+/**
+ * Room on the elevator's lowest stop whose drawn rect contains the shaft.
+ * More than one match is a plan error. Other floors in the stop range must
+ * not overlap the shaft: the cab would drive through them.
+ */
+function elevatorRoom(
+  building: PlaceBuilding,
+  floors: readonly FloorSource[],
+  elevator: FloorElevatorSource,
+  roomFileFor: (prefab: string) => RoomFile | undefined,
+): RoomInstanceSource | undefined {
+  const low = elevator.stops[0]!;
+  const high = elevator.stops[elevator.stops.length - 1]!;
+  const id = `${building.id}.${elevator.id}`;
+  const home = floors.find((floor) => Math.abs(floor.elevation - low) <= 1e-3);
+  const matches = (home?.rooms ?? []).filter((inst) => polygonInside(elevator.polygon, drawnRoom(inst), ELEVATOR_ROOM_M));
+  if (matches.length > 1) {
+    const names = matches.map((inst) => `"${building.id}.${inst.id}"`).join(" and ");
+    throw new PlanError(`elevator "${id}" matches rooms ${names}`);
+  }
+  const inst = matches[0];
+  if (!inst) return undefined;
+  const file = roomFileFor(inst.prefab);
+  if (!file || file.doors.length === 0) {
+    throw new PlanError(`elevator "${id}" room "${building.id}.${inst.id}" has no door`);
+  }
+  for (const floor of floors) {
+    if (floor === home) continue;
+    if (floor.elevation < low - 1e-4 || floor.elevation > high + 1e-4) continue;
+    for (const other of floor.rooms) {
+      if (!polygonsOverlap(elevator.polygon, drawnRoom(other))) continue;
+      throw new PlanError(`elevator "${id}" room "${building.id}.${other.id}" on floor-${floor.n} overlaps the shaft`);
+    }
+  }
+  return inst;
+}
+
+/** Room-door side in building-local XZ. Instance yaw only: `sidePoint` is local. */
+function roomDoorDir(inst: RoomInstanceSource, file: RoomFile | undefined, elevatorId: string): [number, number] {
+  const doors = file?.doors ?? [];
+  if (doors.length === 0) throw new PlanError(`elevator "${elevatorId}" room "${inst.id}" has no door`);
+  const dirs = doors.map((door) => {
+    const normal = wallNormal(door.wall);
+    const turned = transformXz(normal.x, normal.z, inst.yaw);
+    return snapCardinal(turned.x, turned.z);
+  });
+  const first = dirs[0]!;
+  for (const dir of dirs) {
+    if (!sameDir(dir, first)) {
+      throw new PlanError(`elevator "${elevatorId}" room "${inst.id}" doors face different sides`);
+    }
+  }
+  return first;
+}
+
+function snapCardinal(x: number, z: number): [number, number] {
+  if (Math.abs(x) >= Math.abs(z)) return [x >= 0 ? 1 : -1, 0];
+  return [0, z >= 0 ? 1 : -1];
+}
+
+function sameDir(a: readonly [number, number], b: readonly [number, number]): boolean {
+  return a[0] === b[0] && a[1] === b[1];
+}
+
+/**
+ * `data-door-side` token whose building-local image is `want`.
+ * Page +y maps through the same flip as `pageVector` (SVG y-down), then the
+ * rotation that carries the authored side onto `authoredLocal`.
+ */
+function pageSideFor(
+  authoredSide: string,
+  authoredLocal: readonly [number, number],
+  want: readonly [number, number],
+): string {
+  const tokens: Record<string, [number, number]> = {
+    "+x": [1, 0],
+    "-x": [-1, 0],
+    "+y": [0, 1],
+    "-y": [0, -1],
+  };
+  const src = tokens[authoredSide] ?? tokens["+y"]!;
+  const flipped: [number, number] = [src[0], -src[1]];
+  const ang = Math.atan2(authoredLocal[1], authoredLocal[0]) - Math.atan2(flipped[1], flipped[0]);
+  const cos = Math.cos(ang);
+  const sin = Math.sin(ang);
+  let best = authoredSide;
+  let bestDot = -Infinity;
+  for (const [token, dir] of Object.entries(tokens)) {
+    const fx = dir[0];
+    const fz = -dir[1];
+    const lx = cos * fx - sin * fz;
+    const lz = sin * fx + cos * fz;
+    const dot = lx * want[0] + lz * want[1];
+    if (dot > bestDot) {
+      bestDot = dot;
+      best = token;
+    }
+  }
+  return best;
 }
 
 /** Centre of the side `dir` faces, then `offset` metres further out. */
@@ -482,10 +602,11 @@ function drawnRoom(inst: RoomInstanceSource): Array<[number, number]> {
 function polygonInside(
   inner: readonly (readonly [number, number])[],
   outer: readonly (readonly [number, number])[],
+  tol = 1e-4,
 ): boolean {
   if (inner.length < 3 || outer.length < 3) return false;
   for (const [x, z] of inner) {
-    if (!pointInOrOn(outer, x, z)) return false;
+    if (!pointInOrOn(outer, x, z, tol)) return false;
   }
   for (let i = 0; i < inner.length; i += 1) {
     const a = inner[i]!;
@@ -499,12 +620,37 @@ function polygonInside(
   return true;
 }
 
-function pointInOrOn(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean {
+function pointInOrOn(
+  polygon: readonly (readonly [number, number])[],
+  x: number,
+  z: number,
+  tol = 1e-4,
+): boolean {
   if (pointInRing(polygon, x, z)) return true;
   for (let i = 0; i < polygon.length; i += 1) {
     const a = polygon[i]!;
     const b = polygon[(i + 1) % polygon.length]!;
-    if (distToSeg(x, z, a, b) <= 1e-4) return true;
+    if (distToSeg(x, z, a, b) <= tol) return true;
+  }
+  return false;
+}
+
+/** True when the polygons share area. A shared edge is not an overlap. */
+function polygonsOverlap(
+  a: readonly (readonly [number, number])[],
+  b: readonly (readonly [number, number])[],
+): boolean {
+  if (polygonInside(a, b, ELEVATOR_ROOM_M) || polygonInside(b, a, ELEVATOR_ROOM_M)) return true;
+  for (const [x, z] of a) if (pointInRing(b, x, z)) return true;
+  for (const [x, z] of b) if (pointInRing(a, x, z)) return true;
+  for (let i = 0; i < a.length; i += 1) {
+    const a0 = a[i]!;
+    const a1 = a[(i + 1) % a.length]!;
+    for (let j = 0; j < b.length; j += 1) {
+      const b0 = b[j]!;
+      const b1 = b[(j + 1) % b.length]!;
+      if (segmentsCross(a0, a1, b0, b1)) return true;
+    }
   }
   return false;
 }
