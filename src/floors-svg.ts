@@ -70,6 +70,18 @@ export type FloorStairsSource = {
   top: number;
 };
 
+/**
+ * A `landing:<id>` rect or path, in building-local metres. `elevation` is
+ * metres above the building ground, the same frame as a stair's `bottom`.
+ * `floor` is omitted for a `stairs-external` landing.
+ */
+export type FloorLandingSource = {
+  id: string;
+  floor?: number;
+  polygon: Array<[number, number]>;
+  elevation: number;
+};
+
 /** An `elevator:<id>` cab, in building-local metres. Stops are above the building ground. */
 export type FloorElevatorSource = {
   id: string;
@@ -138,6 +150,8 @@ export type FloorsSource = {
   props: SceneProp[];
   /** `stairs:<id>` rects from floor layers and from `stairs-external`. */
   stairs: FloorStairsSource[];
+  /** `landing:<id>` rects and paths from floor layers and from `stairs-external`. */
+  landings: FloorLandingSource[];
   /** `elevator:<id>` rects from floor layers. */
   elevators: FloorElevatorSource[];
 };
@@ -158,6 +172,7 @@ type FloorAcc = {
   rooms: Hit[];
   platforms: Hit[];
   stairs: Hit[];
+  landings: Hit[];
   elevators: Hit[];
   textures: Hit[];
   asPlatform: boolean;
@@ -193,6 +208,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
   const doorHits: Hit[] = [];
   const propHits: Hit[] = [];
   const externalStairHits: Hit[] = [];
+  const externalLandingHits: Hit[] = [];
   const textureHits = new Map<number, Hit[]>();
   const ids = new Set<string>();
   const floorNs = new Set<number>();
@@ -221,6 +237,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
           rooms: [],
           platforms: [],
           stairs: [],
+          landings: [],
           elevators: [],
           textures: [],
           asPlatform: attr(el, "data-kind")?.trim() === "platform",
@@ -243,6 +260,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
       const platform = platformIdOf(el);
       const stairsId = labelledId(el, "stairs");
       const elevatorId = labelledId(el, "elevator");
+      const landingId = labelledId(el, "landing");
       if (attr(el, "label")?.trim() === "floor-texture") {
         scope.floor.textures.push({ el, matrix });
       } else if (platform && (name === "rect" || name === "path")) {
@@ -254,6 +272,9 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
       } else if (elevatorId && name === "rect") {
         claim(elevatorId);
         scope.floor.elevators.push({ el, matrix });
+      } else if (landingId && (name === "rect" || name === "path")) {
+        claim(landingId);
+        scope.floor.landings.push({ el, matrix });
       } else if ((name === "g" || name === "path") && stencilPose(el, matrix, frame) && taggedModel(el)) {
         scope.floor.stencils.push({ el, matrix });
       } else if (name === "rect") {
@@ -272,17 +293,23 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
     } else if (scope?.kind === "doors" && name === "rect") {
       claim(requireId(el, "door"));
       doorHits.push({ el, matrix });
-    } else if (scope?.kind === "stairs" && name === "rect") {
-      const stairsId = labelledId(el, "stairs");
-      const elevatorId = labelledId(el, "elevator");
-      if (elevatorId) throw new PlanError(`elevator "${elevatorId}" must be on a floor-<n> layer`);
-      if (stairsId) {
-        claim(stairsId);
-        externalStairHits.push({ el, matrix });
-      } else {
-        const tagged = taggedModel(el);
-        if (tagged) claim(tagged.id);
-        propHits.push({ el, matrix });
+    } else if (scope?.kind === "stairs" && (name === "rect" || name === "path")) {
+      const landingId = labelledId(el, "landing");
+      if (landingId) {
+        claim(landingId);
+        externalLandingHits.push({ el, matrix });
+      } else if (name === "rect") {
+        const stairsId = labelledId(el, "stairs");
+        const elevatorId = labelledId(el, "elevator");
+        if (elevatorId) throw new PlanError(`elevator "${elevatorId}" must be on a floor-<n> layer`);
+        if (stairsId) {
+          claim(stairsId);
+          externalStairHits.push({ el, matrix });
+        } else {
+          const tagged = taggedModel(el);
+          if (tagged) claim(tagged.id);
+          propHits.push({ el, matrix });
+        }
       }
     }
     for (const child of el.children) visit(child, matrix, scope);
@@ -387,17 +414,20 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
 
   const elevations = poses.map((pose) => pose.elevation);
   const stairs: FloorStairsSource[] = [];
+  const landings: FloorLandingSource[] = [];
   const elevators: FloorElevatorSource[] = [];
   for (let index = 0; index < floors.length; index += 1) {
     const elevation = elevations[index]!;
     const next = index + 1 < elevations.length ? elevations[index + 1] : undefined;
     const floor = floors[index]!;
     for (const hit of floor.stairs) stairs.push(readStair(hit, floor.n, elevation, next, frame, units, origin, yaw));
+    for (const hit of floor.landings) landings.push(readLanding(hit, floor.n, frame, units, origin, yaw));
     for (const hit of floor.elevators) {
       elevators.push(readElevator(hit, floor.n, elevation, elevations, frame, units, origin, yaw));
     }
   }
   for (const hit of externalStairHits) stairs.push(readStair(hit, undefined, 0, undefined, frame, units, origin, yaw));
+  for (const hit of externalLandingHits) landings.push(readLanding(hit, undefined, frame, units, origin, yaw));
 
   const props: SceneProp[] = [];
   for (const hit of propHits) {
@@ -423,6 +453,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
     doors,
     props,
     stairs,
+    landings,
     elevators,
   };
 }
@@ -434,8 +465,8 @@ function platformIdOf(el: XmlNode): string | undefined {
   return match?.[1];
 }
 
-/** `stairs:<id>` or `elevator:<id>`. A matching prefix with a bad id is an error. */
-function labelledId(el: XmlNode, kind: "stairs" | "elevator"): string | undefined {
+/** `stairs:<id>`, `elevator:<id>`, or `landing:<id>`. A matching prefix with a bad id is an error. */
+function labelledId(el: XmlNode, kind: "stairs" | "elevator" | "landing"): string | undefined {
   const label = attr(el, "label")?.trim();
   if (!label) return undefined;
   const match = label.match(new RegExp(`^${kind}:\\s*([A-Za-z0-9][A-Za-z0-9_.-]*)\\s*$`));
@@ -650,6 +681,28 @@ function readStair(
   const run = spanAlong(polygon, up);
   if ((top - bottom) / run > 1) throw new PlanError(`stairs "${id}" slope ${(top - bottom)} / ${run} is steeper than 1`);
   return { id, ...(floor === undefined ? {} : { floor }), polygon, up, bottom, top };
+}
+
+function readLanding(
+  hit: Hit,
+  floor: number | undefined,
+  frame: PageFrame,
+  units: string | undefined,
+  origin: Vec3,
+  yaw: Yaw,
+): FloorLandingSource {
+  const id = labelledId(hit.el, "landing") ?? requireId(hit.el, "landing");
+  const elevation = optionalNumber(attr(hit.el, "data-elevation"), `landing "${id}" data-elevation`);
+  const alias = optionalNumber(attr(hit.el, "data-y"), `landing "${id}" data-y`);
+  if (elevation !== undefined && alias !== undefined && Math.abs(elevation - alias) > 1e-9) {
+    throw new PlanError(`landing "${id}" data-elevation and data-y differ`);
+  }
+  const height = elevation ?? alias;
+  if (height === undefined) throw new PlanError(`landing "${id}" needs data-elevation`);
+  const polygon = localName(hit.el.name) === "rect"
+    ? rectPolygon(hit, frame, units, origin, yaw, id)
+    : aabbPolygon(localPoints(hit.el, hit.matrix, frame, origin, yaw, id), id);
+  return { id, ...(floor === undefined ? {} : { floor }), polygon, elevation: height };
 }
 
 function readElevator(

@@ -117,7 +117,7 @@ PNG or JPEG. Doors, windows,
 openings and holes are cut out of the faces. A window gets a pane
 unless data-glass="false".
 
-floors reads layers floor-<n>, doors-external, stairs-external, and ignore, then prints the model, floor elevations, and the room, door, and stair counts without writing a file.
+floors reads layers floor-<n>, doors-external, stairs-external, and ignore. A landing:<id> rect or path, with data-elevation (data-y is an alias), is a mid-flight platform. The command prints the model, floor elevations, and the room, door, stair, and landing counts without writing a file.
 
 scene-graph reads the already-baked buildings, doors, bounds, and floors files and
 writes one scene-graph.json. It does not read GLBs. --room-doors is a
@@ -320,7 +320,7 @@ function runFloors(argv: string[]): void {
   const elevations = source.floors.map((floor) => formatMetres(floor.elevation)).join(", ");
   const rooms = source.floors.reduce((count, floor) => count + floor.rooms.length, 0);
   console.log(
-    `floors ${source.model}: ${source.floors.length} floors (z ${elevations}), ${rooms} rooms, ${source.doors.length} doors, ${source.props.length} stairs props`,
+    `floors ${source.model}: ${source.floors.length} floors (z ${elevations}), ${rooms} rooms, ${source.doors.length} doors, ${source.props.length} stairs props, ${source.landings.length} landings`,
   );
 }
 

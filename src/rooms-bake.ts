@@ -3,10 +3,10 @@ import path from "node:path";
 import { stampPlacement } from "./asset-type.ts";
 import { DOOR_FACE_TOL_M, cutDoorFromBoxes, doorCutLocal, doorOutwardDepth, situateDoor, subtractBox, type SituatedDoor } from "./doors.ts";
 import { PlanError } from "./errors.ts";
-import { DEFAULT_TILE_M, readFloorsSvg, type FloorsSource, type RoomInstanceSource } from "./floors-svg.ts";
-import { defaultFloorImage, hallFloorGlb, hallFloorPiece, roomFootprintAabb } from "./hall-floor.ts";
+import { DEFAULT_TILE_M, readFloorsSvg, type FloorLandingSource, type FloorsSource, type RoomInstanceSource } from "./floors-svg.ts";
+import { HALL_FLOOR_SINK_M, defaultFloorImage, hallFloorGlb, hallFloorPiece, roomFootprintAabb } from "./hall-floor.ts";
 import { ID_RE } from "./plan.ts";
-import { WALL_T, type RoomDoor, type RoomFile, type RoomLight } from "./room-file.ts";
+import { FLOOR_T, WALL_T, type RoomDoor, type RoomFile, type RoomLight } from "./room-file.ts";
 import { wallLine, type WallFace } from "./room-svg.ts";
 import type { AssetType, DoorPlacement, LocalBox, Obstacle, Placement, SceneDoor, SceneProp, Vec3, Yaw } from "./types.ts";
 import type { Aabb2 } from "./union.ts";
@@ -417,6 +417,70 @@ function footprintSpan(footprint: readonly (readonly [number, number])[]): { wid
   return { width: maxX - minX, depth: maxZ - minZ };
 }
 
+/** Walkable slab and one shared floor mesh per model. Emitted for ground buildings too. */
+function pushLandingSlab(
+  building: Placement,
+  landing: FloorLandingSource,
+  claim: (id: string) => void,
+  obstacles: Obstacle[],
+  placements: Placement[],
+  hallMeshes: HallFloorMesh[],
+  hallWritten: Set<string>,
+  assetTypes: ReadonlyMap<string, AssetType>,
+): void {
+  const cell = polygonAabb(landing.polygon);
+  const world = mapBox({
+    minX: cell.minX,
+    maxX: cell.maxX,
+    minY: landing.elevation - FLOOR_T,
+    maxY: landing.elevation,
+    minZ: cell.minZ,
+    maxZ: cell.maxZ,
+  }, (point) => buildingToWorld(building, point));
+  obstacles.push({
+    id: `${building.id}.${landing.id}.slab`,
+    kind: "aabb",
+    min: roundVec([world.minX, world.minY, world.minZ]),
+    max: roundVec([world.maxX, world.maxY, world.maxZ]),
+  });
+  const assetId = `${building.model}.${landing.id}.landing`;
+  const placementId = `${building.id}.${landing.id}`;
+  claim(placementId);
+  placements.push(stampPlacement({
+    id: placementId,
+    model: assetId,
+    position: roundVec(building.position),
+    yaw: building.yaw,
+    scale: 1,
+  }, assetTypes));
+  if (hallWritten.has(assetId)) return;
+  hallWritten.add(assetId);
+  hallMeshes.push({
+    id: assetId,
+    bytes: hallFloorGlb({
+      cells: [cell],
+      y: landing.elevation - HALL_FLOOR_SINK_M,
+      image: defaultFloorImage(),
+      tileX: DEFAULT_TILE_M,
+      tileZ: DEFAULT_TILE_M,
+    }),
+  });
+}
+
+function polygonAabb(polygon: readonly (readonly [number, number])[]): Aabb2 {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (const [x, z] of polygon) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  return { minX, maxX, minZ, maxZ };
+}
+
 /**
  * External doors, stairs, and room instances for every building that has a floors file.
  * Doors and props are world `SceneDoor` / `SceneProp` values to append before the bake loops.
@@ -584,6 +648,7 @@ export function loadFloors(input: LoadInput): FloorBake {
         }
       }
     }
+    for (const landing of source.landings) pushLandingSlab(building, landing, claim, obstacles, placements, hallMeshes, hallWritten, input.assetTypes);
     if (!facadeModels.has(building.model)) {
       facadeModels.add(building.model);
       const files = new Map<string, RoomFile>();

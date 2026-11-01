@@ -191,6 +191,27 @@ test("a split hall's bridge is not an opening onto the neighbouring platform", (
   }
 });
 
+test("a switchback landing portals both flights and does not open onto a hall", () => {
+  const derived = derivePlaces({
+    buildings: [{ id: "b", model: "bldg", position: [0, 0, 0], yaw: 0, scale: 1 }],
+    floorsFor: () => readFloorsSvg(switchbackSvg()),
+    roomFileFor: () => undefined,
+  });
+  assert.deepEqual(derived.warnings, []);
+  const built = buildSceneGraph({ places: derived.places, doors: [], bounds: BOUNDS });
+  const graph = built.graph;
+  const top = one(graph.portals.filter((portal) => portal.id === "b.s1a:top"));
+  const bottom = one(graph.portals.filter((portal) => portal.id === "b.s1b:bottom"));
+  assert.equal(top.kind, "landing");
+  assert.equal(bottom.kind, "landing");
+  assert.ok(links(top, "b.s1a", "b.s1-mid"));
+  assert.ok(links(bottom, "b.s1b", "b.s1-mid"));
+  assert.equal(graph.portals.some((portal) =>
+    portal.kind === "opening" && (portal.a === "b.s1-mid" || portal.b === "b.s1-mid"),
+  ), false);
+  assert.equal(built.warnings.some((warning) => warning.includes("b.s1-mid")), false);
+});
+
 test("a place with no portals warns once", () => {
   const derived = deriveHall(twoFloors());
   const lower = must(derived.places, "hall-b.floor-1.hall");
@@ -529,6 +550,23 @@ function room(id: string): string {
 
 function roof(): string {
   return `<rect id="roof-1" inkscape:label="platform:roof-1" x="12" y="31" width="2" height="2" data-height="0.2"/>`;
+}
+
+function switchbackSvg(): string {
+  const fp = (id: string, z: string) =>
+    `<g id="${id}" data-model="bldg" transform="matrix(1,0,0,1,0,20)" ${z}><path d="M 0 0 L 16 0 L 16 -20 L 0 -20 Z"/></g>`;
+  const flight = (id: string, x: number, up: string, bottom: string, top: string) =>
+    `<rect id="${id}" inkscape:label="stairs:${id}" x="${x}" y="2" width="1.2" height="2" data-up="${up}" data-bottom="${bottom}" data-top="${top}"/>`;
+  const pad = `<rect id="s1-mid" inkscape:label="landing:s1-mid" x="10" y="4" width="2.6" height="1.2" data-elevation="1.5"/>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="20mm" height="20mm" viewBox="0 0 20 20">
+  <sodipodi:namedview inkscape:document-units="mm" inkscape:document-scale="1"/>
+  <g inkscape:groupmode="layer" inkscape:label="floor-1">${fp("fp1", "")}${flight("s1a", 10, "+y", "0", "1.5")}${pad}${flight("s1b", 11.4, "-y", "1.5", "3")}</g>
+  <g inkscape:groupmode="layer" inkscape:label="floor-2">${fp("fp2", 'z="3"')}</g>
+</svg>`;
 }
 
 function stair(id: string, x: number, y: number, width: number, height: number, attrs: string): string {

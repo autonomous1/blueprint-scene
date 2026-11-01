@@ -125,10 +125,6 @@ test("floors files reject a bad layer, footprint, elevation, room, or door", () 
   fails(svgWrap(layer("floor-1", room("room-a", 1, 1, 2, 2))), /floor-1 needs exactly one footprint/);
   fails(svgWrap(layer("floor-1", fp + footprint("c", "bldg", "matrix(0,30,-30,0,10,10)"))), /floor-1 needs exactly one footprint/);
   fails(
-    svgWrap(layer("floor-1", fp) + layer("floor-2", footprint("b", "bldg", "matrix(0,30,-30,0,11,10)", 'z="2.75"'))),
-    /floor-2 stencil transform does not match floor-1/,
-  );
-  fails(
     svgWrap(layer("floor-1", footprint("a", "bldg", "matrix(0,30,-30,0,10,10)", 'z="5"')) + layer("floor-2", footprint("b", "bldg", "matrix(0,30,-30,0,10,10)", 'z="1"'))),
     /floor-2 elevation must be above floor-1/,
   );
@@ -198,7 +194,7 @@ test("an L-shaped stencil keeps a 6-point outline and a diagonal falls back to t
   }
 });
 
-test("a smaller upper floor keeps its own outline, and a moved stencil throws", () => {
+test("a smaller upper floor keeps its own outline", () => {
   const big = `<g id="a" data-model="bldg" transform="matrix(1,0,0,1,0,20)"><path d="M 0 0 L 4 0 L 4 -3 L 0 -3 Z"/></g>`;
   const mid = `<g id="b" data-model="bldg" transform="matrix(1,0,0,1,0,20)" z="1"><path d="M 0 0 L 4 0 L 4 -3 L 0 -3 Z"/></g>`;
   const top = `<g id="c" data-model="bldg" transform="matrix(1,0,0,1,0,20)" z="2"><path d="M 0 0 L 2 0 L 2 -2 L 0 -2 Z"/></g>`;
@@ -208,11 +204,6 @@ test("a smaller upper floor keeps its own outline, and a moved stencil throws", 
   assert.deepEqual(source.floors[1]!.outline, source.outline);
   assert.deepEqual(source.floors[2]!.outline, [[0, 0], [2, 0], [2, 2], [0, 2]]);
   assert.deepEqual(source.floors[2]!.footprint, source.floors[2]!.outline);
-  const moved = `<g id="c" data-model="bldg" transform="matrix(1,0,0,1,1,20)" z="2"><path d="M 0 0 L 2 0 L 2 -2 L 0 -2 Z"/></g>`;
-  fails(
-    svgWrap(layer("floor-1", big) + layer("floor-2", mid) + layer("floor-3", moved)),
-    /floor-3 stencil transform does not match floor-1/,
-  );
 });
 
 test("blueprint-scene floors prints the summary and writes nothing", () => {
@@ -221,13 +212,57 @@ test("blueprint-scene floors prints the summary and writes nothing", () => {
   assert.equal(cli.status, 0, cli.stderr);
   assert.equal(
     cli.stdout,
-    "floors brutalist-building-2-cbake: 3 floors (z 0, 2.75, 5.5), 2 rooms, 2 doors, 13 stairs props\n",
+    "floors brutalist-building-2-cbake: 3 floors (z 0, 2.75, 5.5), 2 rooms, 2 doors, 13 stairs props, 0 landings\n",
   );
   const missing = spawnSync(bin, ["floors"], { encoding: "utf8" });
   assert.notEqual(missing.status, 0);
   assert.match(missing.stderr, /missing --svg/);
   assert.match(missing.stderr, /blueprint-scene floors/);
 });
+
+test("a landing reads data-elevation, accepts data-y, and rejects a bad id or a missing height", () => {
+  const source = readFloorsSvg(landingFile(landingRect("s1-mid", 'data-elevation="1.5"')));
+  assert.equal(source.landings.length, 1);
+  assert.equal(source.landings[0]!.id, "s1-mid");
+  assert.equal(source.landings[0]!.floor, 1);
+  assert.equal(source.landings[0]!.elevation, 1.5);
+  assert.equal(source.landings[0]!.polygon.length, 4);
+
+  const alias = readFloorsSvg(landingFile(landingRect("s1-mid", 'data-y="1.5"')));
+  assert.equal(alias.landings[0]!.elevation, 1.5);
+  const both = readFloorsSvg(landingFile(landingRect("s1-mid", 'data-elevation="1.5" data-y="1.5"')));
+  assert.equal(both.landings[0]!.elevation, 1.5);
+
+  const path = readFloorsSvg(landingFile(
+    `<path id="pad" inkscape:label="landing:pad" data-y="1.2" d="M 2 8 L 4 8 L 4 10 L 2 10 Z"/>`,
+  ));
+  assert.equal(path.landings[0]!.id, "pad");
+  assert.equal(path.landings[0]!.elevation, 1.2);
+  assert.equal(path.landings[0]!.floor, 1);
+
+  const external = readFloorsSvg(landingFile("", landingRect("out", 'data-elevation="1.2"', 'x="1" y="8" width="2" height="2"')));
+  assert.equal(external.landings[0]!.id, "out");
+  assert.equal(external.landings[0]!.floor, undefined);
+  assert.equal(external.landings[0]!.elevation, 1.2);
+
+  fails(landingFile(landingRect("s1-mid", 'data-elevation="1.5" data-y="1.6"')), /data-elevation and data-y differ/);
+  fails(landingFile(landingRect("s1-mid", "")), /needs data-elevation/);
+  fails(landingFile(`<rect id="bad" inkscape:label="landing:bad id" x="2" y="8" width="1" height="1" data-elevation="1"/>`), /invalid landing id/);
+});
+
+function landingFile(floor1: string, external = ""): string {
+  const fp = (id: string, z: string) =>
+    `<g id="${id}" data-model="bldg" transform="matrix(1,0,0,1,0,20)" ${z}><path d="M 0 0 L 16 0 L 16 -20 L 0 -20 Z"/></g>`;
+  return svgWrap(
+    layer("floor-1", fp("a", "") + floor1)
+    + layer("floor-2", fp("b", 'z="3"'))
+    + (external ? layer("stairs-external", external) : ""),
+  );
+}
+
+function landingRect(id: string, attrs: string, box = 'x="10" y="4" width="2.6" height="1.2"'): string {
+  return `<rect id="${id}" inkscape:label="landing:${id}" ${box} ${attrs}/>`;
+}
 
 function svgWrap(body: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?>

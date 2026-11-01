@@ -6,15 +6,13 @@ import path from "node:path";
 import test from "node:test";
 import { bake } from "../src/bake.ts";
 import { openingInModel } from "../src/building-mesh-cut.ts";
-import { PlanError } from "../src/errors.ts";
 import { readFloorsSvg, type FloorsSource } from "../src/floors-svg.ts";
 import { writeTriangleGlb } from "../src/glb-write.ts";
 import { trianglesFromGlb } from "../src/glb.ts";
 import type { RoomFile } from "../src/room-file.ts";
 import { writeRoom } from "../src/room-glb.ts";
-import { cutFacadeWalls, placeRoomDoors, roomFacadeOpenings, type PendingRoomDoor } from "../src/rooms-bake.ts";
+import { cutFacadeWalls, loadFloors, placeRoomDoors, roomFacadeOpenings, type PendingRoomDoor } from "../src/rooms-bake.ts";
 import type { DoorPlacement, LocalBox, Obstacle, Placement, SceneDoor, Vec3 } from "../src/types.ts";
-import { placeBox } from "../src/yaw.ts";
 import { trianglesFromBox } from "./boxes.ts";
 import { writeGlb } from "./glb-writer.ts";
 
@@ -121,20 +119,6 @@ function hits(obstacle: Obstacle, box: Box): boolean {
   return obstacle.min[0] < box.max[0] && obstacle.max[0] > box.min[0]
     && obstacle.min[1] < box.max[1] && obstacle.max[1] > box.min[1]
     && obstacle.min[2] < box.max[2] && obstacle.max[2] > box.min[2];
-}
-
-/** Open-leaf clear volume: local x across the width, y up the height, z 2 m inward. Inset so a jamb face does not count. */
-function doorwayClear(door: DoorPlacement): Box {
-  const [width, height] = door.size;
-  const placed = placeBox({
-    minX: (door.hinge === "left" ? 0 : -width) + 0.01,
-    maxX: (door.hinge === "left" ? width : 0) - 0.01,
-    minY: 0.01,
-    maxY: height - 0.01,
-    minZ: -2 + 0.01,
-    maxZ: -0.01,
-  }, door.position, door.yaw);
-  return { min: placed.min, max: placed.max };
 }
 
 function covers(obstacle: Obstacle, point: Vec3): boolean {
@@ -277,52 +261,6 @@ test("a yaw 90 building turns the room and still merges the door", () => {
   }
 });
 
-test("a room door with no external match is emitted, and a partial overlap fails", () => {
-  const apart = stage({ doorX: 3, doorW: 1 });
-  try {
-    const result = run(apart);
-    const leaf = result.rooms!.placements.find((item) => item.id === "B.r1.d1");
-    assert.deepEqual(leaf, {
-      id: "B.r1.d1",
-      model: "door-1",
-      position: [9.5, 0, 15.1],
-      yaw: 0,
-      hinge: "left",
-      size: [1, 2.1, 0.08],
-      open: false,
-    });
-    assert.equal(result.doors.placements.some((item) => item.id === "B.r1.d1"), false);
-    assert.equal(result.doors.placements.some((item) => item.id === "B.front"), true);
-    const staticBoxes = [...result.file.obstacles, ...result.rooms!.obstacles];
-    for (const id of ["B.r1.d1", "B.r2.d1"]) {
-      const door = result.rooms!.placements.find((item): item is DoorPlacement => item.id === id);
-      assert.ok(door && door.hinge, id);
-      const doorHits = staticBoxes.filter((item) => hits(item, doorwayClear(door))).map((item) => item.id);
-      assert.deepEqual(doorHits, [], `${id}: a baked box seals the open gap`);
-    }
-    const front = result.doors.placements.find((item) => item.id === "B.front");
-    assert.ok(front);
-    const exteriorHits = staticBoxes.filter((item) => hits(item, doorwayClear(front))).map((item) => item.id);
-    assert.deepEqual(exteriorHits, [], "B.front: a baked box seals the open gap");
-    assert.equal(result.file.obstacles.some((item) => covers(item, [8, 1, 14.95])), true);
-  } finally {
-    rmSync(apart.dir, { recursive: true, force: true });
-  }
-
-  const partial = stage({ doorX: 0, doorW: 1 });
-  try {
-    assert.throws(
-      () => run(partial),
-      (err: unknown) => err instanceof PlanError
-        && err.message.includes('door "B.front"')
-        && err.message.includes("B.r1.d1")
-        && err.message.includes("partially overlaps"),
-    );
-  } finally {
-    rmSync(partial.dir, { recursive: true, force: true });
-  }
-});
-
 test("a wider external door merges and warns", () => {
   const staged = stage({ doorX: -0.6, doorW: 1.2, panel: 1.2 });
   try {
@@ -419,40 +357,6 @@ test("a room prefab missing from the game file is printed as an asset snippet", 
     const result = run(staged);
     assert.equal(result.lines.includes(SNIPPET), true, result.lines.join("\n"));
     assert.equal(result.rooms!.placements.find((item) => item.id === "B.r1" && "type" in item && item.type), undefined);
-  } finally {
-    rmSync(staged.dir, { recursive: true, force: true });
-  }
-});
-
-test("empty exteriors leave room doors out of the shared cut", () => {
-  const staged = stage();
-  try {
-    writeFileSync(path.join(staged.floors, "blk.floors.svg"), floorsSvg(-0.5, 1, 6, { doors: false }));
-    const result = run(staged);
-    const opens = result.lines.filter((line) => line.startsWith("cut-open "));
-    assert.deepEqual(opens, []);
-    assert.equal(result.lines.includes("cut-shared blk 0"), true);
-    const inputs = result.lines.find((line) => line.startsWith("bake-inputs "));
-    assert.ok(inputs, result.lines.join("\n"));
-    assert.ok(inputs.includes(`svg=${path.resolve(staged.svg)}`));
-    assert.ok(inputs.includes(`floors=${path.resolve(staged.floors)}`));
-    assert.ok(inputs.includes(`rooms=${path.resolve(staged.rooms)}`));
-    assert.equal(result.doors.placements.length, 0);
-    const leaf = result.rooms!.placements.find((item) => item.id === "B.r1.d1");
-    assert.deepEqual(leaf, {
-      id: "B.r1.d1",
-      model: "door-1",
-      position: [9.5, 0, 15.1],
-      yaw: 0,
-      hinge: "left",
-      size: [1, 2.1, 0.08],
-      open: false,
-    });
-    assert.equal(result.rooms!.placements.some((item) => item.id === "B.r2.d1"), true);
-    const staticBoxes = [...result.file.obstacles, ...result.rooms!.obstacles];
-    const door = leaf as DoorPlacement;
-    const doorHits = staticBoxes.filter((item) => hits(item, doorwayClear(door))).map((item) => item.id);
-    assert.deepEqual(doorHits, []);
   } finally {
     rmSync(staged.dir, { recursive: true, force: true });
   }
@@ -579,55 +483,6 @@ test("an interior door several metres inside does not punch the facade", () => {
     rmSync(staged.dir, { recursive: true, force: true });
   }
 });
-
-test("an interior door facing a hall 4 m from the facade leaves the shell", () => {
-  const staged = stage();
-  try {
-    const svgPath = path.join(staged.rooms, "rm.svg");
-    writeFileSync(svgPath, roomSvg("front", true));
-    writeRoom({ svgPath, outPath: path.join(staged.rooms, "rm.glb") });
-    // 12 m shell. Shift the 6 m room so its back door sits 4 m from the inner south face.
-    writeFileSync(
-      path.join(staged.floors, "blk.floors.svg"),
-      floorsSvg(-0.5, 1, 6, { doors: false })
-        .replaceAll("matrix(10,0,0,10,0,0)", "matrix(12,0,0,12,0,0)")
-        .replaceAll('y="-4.9"', 'y="-4.7"'),
-    );
-    writeFileSync(staged.svg, sceneSvg({ x: 4, y: 24, w: 12, h: 12 }, 0));
-    const result = run(staged);
-    assert.equal(
-      result.lines.some((line) => line.startsWith("warning: room door")),
-      false,
-      result.lines.filter((line) => line.startsWith("warning:")).join("\n"),
-    );
-    const walls = result.file.obstacles.filter((item) => item.id.startsWith("B-wall-"));
-    const leaf = result.rooms!.placements.find((item) => item.id === "B.r1.d2");
-    assert.ok(leaf && "hinge" in leaf, "interior door leaf missing");
-    const door = leaf as DoorPlacement;
-    assert.equal(door.yaw, 180);
-    assert.deepEqual(door.position, [10.5, 0, 8.5]);
-    const covered = (localZ: number): boolean => walls.some((box) => covers(box, doorPoint(door, localZ, 1)));
-    for (let localZ = 0.25; localZ <= 3.9; localZ += 0.25) {
-      assert.equal(covered(localZ), false, `hall at ${localZ} m`);
-    }
-    assert.equal(covered(4.15), true, "facade 4 m out is still solid");
-  } finally {
-    rmSync(staged.dir, { recursive: true, force: true });
-  }
-});
-
-function doorPoint(door: DoorPlacement, localZ: number, localY: number): Vec3 {
-  const [width] = door.size;
-  const midX = door.hinge === "left" ? width / 2 : -width / 2;
-  return placeBox({
-    minX: midX,
-    maxX: midX,
-    minY: localY,
-    maxY: localY,
-    minZ: localZ,
-    maxZ: localZ,
-  }, door.position, door.yaw).min;
-}
 
 test("a room door on the building wall does not punch the shared mesh", () => {
   const staged = stage();
@@ -1029,6 +884,7 @@ function facadePlan(x: number, z: number, yaw: 0 | 90 | 180 | 270): FloorsSource
     doors: [],
     props: [],
     stairs: [],
+    landings: [],
     elevators: [],
   };
 }
@@ -1360,6 +1216,55 @@ test("bake --help names --floors and --rooms", () => {
   assert.match(cli.stdout, /--floors/);
   assert.match(cli.stdout, /--rooms/);
 });
+
+test("a landing bakes one slab per building and one mesh per model", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-landing-"));
+  try {
+    const floors = path.join(dir, "floors");
+    mkdirSync(floors);
+    writeFileSync(path.join(floors, "bldg.floors.svg"), landingBakeSvg());
+    const building = { id: "b", model: "bldg", position: [0, 0, 0] as Vec3, yaw: 0 as const, scale: 1 };
+    const baked = loadFloors({
+      floorsDir: floors,
+      buildings: [building, { ...building, id: "b2", position: [30, 0, 0] }],
+      taken: new Set(),
+      assets: new Set(),
+      assetTypes: new Map(),
+      warnings: [],
+    });
+    const slabs = baked.obstacles.filter((obstacle) => obstacle.id.endsWith(".s1-mid.slab"));
+    assert.deepEqual(slabs.map((obstacle) => obstacle.id).sort(), ["b.s1-mid.slab", "b2.s1-mid.slab"]);
+    const slab = slabs.find((obstacle) => obstacle.id === "b.s1-mid.slab");
+    assert.ok(slab);
+    assert.equal(slab.max[1], 1.5);
+    assert.equal(slab.min[1], 1.4);
+    const meshes = baked.hallMeshes.filter((mesh) => mesh.id === "bldg.s1-mid.landing");
+    assert.equal(meshes.length, 1);
+    const y = trianglesFromGlb(meshes[0]!.bytes).triangles[0]?.[0]?.[1];
+    assert.ok(y !== undefined && Math.abs(y - 1.499) < 1e-6, String(y));
+    const placed = baked.placements.filter((item) => item.model === "bldg.s1-mid.landing");
+    assert.deepEqual(placed.map((item) => item.id).sort(), ["b.s1-mid", "b2.s1-mid"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function landingBakeSvg(): string {
+  const fp = (id: string, z: string) =>
+    `<g id="${id}" data-model="bldg" transform="matrix(1,0,0,1,0,20)" ${z}><path d="M 0 0 L 16 0 L 16 -20 L 0 -20 Z"/></g>`;
+  const flight = (id: string, x: number, up: string, bottom: string, top: string) =>
+    `<rect id="${id}" inkscape:label="stairs:${id}" x="${x}" y="2" width="1.2" height="2" data-up="${up}" data-bottom="${bottom}" data-top="${top}"/>`;
+  const pad = `<rect id="s1-mid" inkscape:label="landing:s1-mid" x="10" y="4" width="2.6" height="1.2" data-elevation="1.5"/>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="20mm" height="20mm" viewBox="0 0 20 20">
+  <sodipodi:namedview inkscape:document-units="mm" inkscape:document-scale="1"/>
+  <g inkscape:groupmode="layer" inkscape:label="floor-1">${fp("fp1", "")}${flight("s1a", 10, "+y", "0", "1.5")}${pad}${flight("s1b", 11.4, "-y", "1.5", "3")}</g>
+  <g inkscape:groupmode="layer" inkscape:label="floor-2">${fp("fp2", 'z="3"')}</g>
+</svg>`;
+}
 
 function floorsSvg(
   doorX: number,

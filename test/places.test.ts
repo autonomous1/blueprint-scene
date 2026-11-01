@@ -6,7 +6,7 @@ import { readFloorsSvg } from "../src/floors-svg.ts";
 import { derivePlaces } from "../src/places.ts";
 import { readScene } from "../src/plan.ts";
 import type { RoomFile } from "../src/room-file.ts";
-import type { ElevatorPlace, ScenePlace, Vec3, Yaw } from "../src/types.ts";
+import type { AnyPlace, ElevatorPlace, ScenePlace, StairsPlace, Vec3, Yaw } from "../src/types.ts";
 
 const ARENA_FLOORS = "/home/tim/dev/conveyor-engine-arena/dev/scenes/arena-1/designs/floorplans/brutalist-building-2-cbake.floors.svg";
 
@@ -264,6 +264,74 @@ test("two rooms over the shaft, a room on the next floor, and a room with no doo
   );
 });
 
+const LANDING_BUILDING = { id: "b", model: "bldg", position: [0, 0, 0] as Vec3, yaw: 0 as Yaw, scale: 1 };
+
+test("a switchback landing joins both flights between the two halls", () => {
+  const result = deriveLanding(switchbackSvg());
+  assert.deepEqual(result.warnings, []);
+  const mid = place(result.places, "b.s1-mid");
+  assert.equal(mid.kind, "landing");
+  assert.equal(mid.y, 1.5);
+  assert.equal(mid.floor, "1");
+  const lower = stairOf(result.places, "b.s1a");
+  const upper = stairOf(result.places, "b.s1b");
+  assert.equal(lower.joins.from, "b.floor-1.hall");
+  assert.equal(lower.joins.to, "b.s1-mid");
+  assert.equal(upper.joins.from, "b.s1-mid");
+  assert.equal(upper.joins.to, "b.floor-2.hall");
+});
+
+test("the same flights without a landing still warn that the top joins no place", () => {
+  const result = deriveLanding(switchbackSvg(false));
+  assert.ok(result.warnings.some((warning) => warning === 'stairs "b.s1a" top landing joins no place'));
+});
+
+test("a landing at the wrong height, on a floor, or left unjoined is reported", () => {
+  assert.throws(
+    () => deriveLanding(switchbackSvg(true, "1.6")),
+    (err: unknown) => err instanceof PlanError
+      && err.message === 'stairs "b.s1a" top is on landing "b.s1-mid" at 1.5 but ends at 1.6',
+  );
+  assert.throws(
+    () => deriveLanding(landingPage(landingRect("s1-mid", 'x="10" y="4" width="2.6" height="1.2"', 'data-elevation="0"'))),
+    (err: unknown) => err instanceof PlanError && /floor-1/.test(err.message) && /platform:/.test(err.message),
+  );
+  assert.throws(
+    () => deriveLanding(landingPage(landingRect("s1-mid", 'x="10" y="4" width="2.6" height="1.2"', 'data-elevation="3"'))),
+    (err: unknown) => err instanceof PlanError && /floor-2/.test(err.message) && /platform:/.test(err.message),
+  );
+  const orphan = deriveLanding(landingPage(landingRect("alone", 'x="2" y="8" width="2" height="2"', 'data-elevation="1.2"')));
+  assert.deepEqual(orphan.warnings, ['landing "b.alone" joins no stairs']);
+  const dead = deriveLanding(landingPage(
+    flight("s1a", 10, "+y", "0", "1.5") + landingRect("s1-mid", 'x="10" y="4" width="2.6" height="1.2"', 'data-elevation="1.5"'),
+  ));
+  assert.deepEqual(dead.warnings, ['landing "b.s1-mid" is a dead end']);
+  const outside = deriveLanding(landingPage(landingRect("out", 'x="18" y="8" width="1" height="1"', 'data-elevation="1.2"')));
+  assert.deepEqual(outside.warnings, [
+    'landing "b.out" overlaps no floor outline',
+    'landing "b.out" joins no stairs',
+  ]);
+  const shallow = deriveLanding(landingPage(
+    flight("s1a", 10, "+y", "0", "1.5")
+    + landingRect("s1-mid", 'x="10" y="4" width="2.6" height="0.5"', 'data-elevation="1.5"')
+    + flight("s1b", 11.4, "-y", "1.5", "3"),
+  ));
+  assert.deepEqual(shallow.warnings, ['landing "b.s1-mid" is shallower than 0.8 m along the flight']);
+});
+
+test("a stairs-external landing is on the ground and skips the outline warning", () => {
+  const result = deriveLanding(landingPage(
+    "",
+    landingRect("out", 'x="1" y="8" width="2" height="2"', 'data-elevation="1.2"'),
+  ));
+  assert.equal(result.warnings.some((warning) => warning.includes("overlaps")), false);
+  const found = place(result.places, "b.out");
+  assert.equal(found.kind, "landing");
+  assert.equal(found.floor, "ground");
+  assert.equal(found.y, 1.2);
+  assert.deepEqual(result.warnings, ['landing "b.out" joins no stairs']);
+});
+
 test("readScene leaves places empty", () => {
   const scene = readScene(`<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="10mm" height="10mm" viewBox="0 0 10 10">
@@ -273,6 +341,48 @@ test("readScene leaves places empty", () => {
 </svg>`);
   assert.deepEqual(scene.places, []);
 });
+
+function deriveLanding(svg: string) {
+  return derivePlaces({
+    buildings: [LANDING_BUILDING],
+    floorsFor: () => readFloorsSvg(svg),
+    roomFileFor: () => undefined,
+  });
+}
+
+function stairOf(places: readonly AnyPlace[], id: string): StairsPlace {
+  const found = place(places, id);
+  assert.equal(found.kind, "stairs");
+  return found as StairsPlace;
+}
+
+function landingPage(floor1: string, external = ""): string {
+  const fp = (id: string, z: string) =>
+    `<g id="${id}" data-model="bldg" transform="matrix(1,0,0,1,0,20)" ${z}><path d="M 0 0 L 16 0 L 16 -20 L 0 -20 Z"/></g>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="20mm" height="20mm" viewBox="0 0 20 20">
+  <sodipodi:namedview inkscape:document-units="mm" inkscape:document-scale="1"/>
+  <g inkscape:groupmode="layer" inkscape:label="floor-1">${fp("fp1", "")}${floor1}</g>
+  <g inkscape:groupmode="layer" inkscape:label="floor-2">${fp("fp2", 'z="3"')}</g>
+  ${external ? `<g inkscape:groupmode="layer" inkscape:label="stairs-external">${external}</g>` : ""}
+</svg>`;
+}
+
+function flight(id: string, x: number, up: string, bottom: string, top: string): string {
+  return `<rect id="${id}" inkscape:label="stairs:${id}" x="${x}" y="2" width="1.2" height="2" data-up="${up}" data-bottom="${bottom}" data-top="${top}"/>`;
+}
+
+function landingRect(id: string, box: string, attrs: string): string {
+  return `<rect id="${id}" inkscape:label="landing:${id}" ${box} ${attrs}/>`;
+}
+
+function switchbackSvg(landing = true, top = "1.5"): string {
+  const mid = landing ? landingRect("s1-mid", 'x="10" y="4" width="2.6" height="1.2"', 'data-elevation="1.5"') : "";
+  return landingPage(flight("s1a", 10, "+y", "0", top) + mid + flight("s1b", 11.4, "-y", "1.5", "3"));
+}
 
 function place(places: readonly ScenePlace[], id: string): ScenePlace {
   const found = places.find((item) => item.id === id);

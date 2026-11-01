@@ -214,7 +214,7 @@ export type CollisionFile = {
   boxes: CollisionBox[];
 };
 
-export type PlaceKind = "room" | "hall" | "platform" | "stairs" | "elevator";
+export type PlaceKind = "room" | "hall" | "platform" | "stairs" | "elevator" | "landing";
 
 /** One walkable region. Stairs and elevators add the fields on {@link StairsPlace} and {@link ElevatorPlace}. */
 export type ScenePlace = {

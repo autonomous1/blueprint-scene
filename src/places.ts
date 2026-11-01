@@ -1,6 +1,7 @@
 import { PlanError } from "./errors.ts";
 import type {
   FloorElevatorSource,
+  FloorLandingSource,
   FloorPlatformSource,
   FloorSource,
   FloorStairsSource,
@@ -50,7 +51,7 @@ function footprintScaleOff(
 }
 
 /**
- * Rooms, halls, platforms, stairs, and elevators from floors files and room prefabs.
+ * Rooms, halls, platforms, landings, stairs, and elevators from floors files and room prefabs.
  * A building with no floors file adds nothing.
  */
 export function derivePlaces(args: {
@@ -125,7 +126,9 @@ export function derivePlaces(args: {
         pushPlatform(places, claim, building, floorName, y, platform);
       }
     }
+    for (const landing of source.landings) pushLanding(places, warnings, claim, building, source.floors, landing);
     for (const stair of source.stairs) pushStair(places, warnings, claim, building, source.floors, stair);
+    checkLandings(places, warnings, building, source);
     for (const elevator of source.elevators) {
       pushElevator(places, warnings, claim, building, source.floors, elevator, args.roomFileFor);
     }
@@ -133,6 +136,38 @@ export function derivePlaces(args: {
 
   places.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return { places, warnings };
+}
+
+/** A stair end this far outside the landing polygon still joins. The authored point sits 0.4 m inside. */
+const LANDING_JOIN_M = 0.05;
+/** Shallower than this along the flight is a warning. The 0.4 m end offset needs the rest of the slab. */
+const LANDING_MIN_DEPTH_M = 0.8;
+
+function pushLanding(
+  places: AnyPlace[],
+  warnings: string[],
+  claim: (id: string) => void,
+  building: PlaceBuilding,
+  floors: readonly FloorSource[],
+  landing: FloorLandingSource,
+): void {
+  const id = `${building.id}.${landing.id}`;
+  for (const floor of floors) {
+    if (Math.abs(floor.elevation - landing.elevation) > 1e-3) continue;
+    throw new PlanError(`landing "${id}" elevation matches floor-${floor.n}; use the floor or a platform:`);
+  }
+  if (landing.floor !== undefined && !floors.some((floor) => polygonsOverlap(landing.polygon, floor.outline))) {
+    warnings.push(`landing "${id}" overlaps no floor outline`);
+  }
+  claim(id);
+  places.push(makePlace(
+    id,
+    "landing",
+    building.id,
+    landing.floor === undefined ? "ground" : String(landing.floor),
+    building.position[1] + landing.elevation,
+    worldPoly(building, landing.polygon),
+  ));
 }
 
 function pushPlatform(
@@ -544,6 +579,8 @@ function landingJoin(
   id: string,
   warnings: string[],
 ): string | undefined {
+  const landing = landingAt(places, building.id, point);
+  if (landing) return landing;
   const floor = floors.find((item) => Math.abs(item.elevation - elevation) <= 1e-3);
   if (floor && !pointInOrOn(worldPoly(building, floor.outline), point[0], point[2])) {
     if (end === "bottom" && floor.n === 1) return undefined;
@@ -552,6 +589,84 @@ function landingJoin(
   const found = smallestPlace(places, building.id, point);
   if (!found && end === "top") warnings.push(`stairs "${id}" top landing joins no place`);
   return found?.id;
+}
+
+/** Smallest landing in this building whose walk height matches `point` and whose polygon contains it. */
+function landingAt(places: readonly AnyPlace[], buildingId: string, point: Vec3): string | undefined {
+  const hits = places.filter((place) =>
+    place.building === buildingId
+    && place.kind === "landing"
+    && Math.abs(place.y - point[1]) <= 1e-3
+    && pointInOrOn(place.polygon, point[0], point[2], LANDING_JOIN_M),
+  );
+  hits.sort((a, b) => Math.abs(signedArea(a.polygon)) - Math.abs(signedArea(b.polygon)) || (a.id < b.id ? -1 : 1));
+  return hits[0]?.id;
+}
+
+/**
+ * Orphan and dead-end landings warn. A stair end that sits on a landing at
+ * the wrong height is an error. A landing shallower than {@link LANDING_MIN_DEPTH_M}
+ * along a joined flight warns.
+ */
+function isStairsPlace(place: AnyPlace): place is StairsPlace {
+  return place.kind === "stairs" && "run" in place;
+}
+
+function checkLandings(
+  places: readonly AnyPlace[],
+  warnings: string[],
+  building: PlaceBuilding,
+  source: FloorsSource,
+): void {
+  const landings = places
+    .filter((place) => place.building === building.id && place.kind === "landing")
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  for (const landing of landings) {
+    let joins = 0;
+    for (const place of places) {
+      if (!isStairsPlace(place) || place.building !== building.id) continue;
+      if (place.joins.from === landing.id) joins += 1;
+      if (place.joins.to === landing.id) joins += 1;
+    }
+    if (joins === 0) warnings.push(`landing "${landing.id}" joins no stairs`);
+    else if (joins === 1) warnings.push(`landing "${landing.id}" is a dead end`);
+    const authored = source.landings.find((item) => `${building.id}.${item.id}` === landing.id);
+    if (!authored || joins === 0) continue;
+    for (const stair of source.stairs) {
+      const stairPlace = places.find((place) => place.id === `${building.id}.${stair.id}`);
+      if (!stairPlace || !isStairsPlace(stairPlace)) continue;
+      if (stairPlace.joins.from !== landing.id && stairPlace.joins.to !== landing.id) continue;
+      if (spanAlong(authored.polygon, stair.up) >= LANDING_MIN_DEPTH_M - 1e-6) continue;
+      warnings.push(`landing "${landing.id}" is shallower than 0.8 m along the flight`);
+      break;
+    }
+  }
+  for (const stair of source.stairs) {
+    const stairId = `${building.id}.${stair.id}`;
+    const place = places.find((item) => item.id === stairId);
+    if (!place || !isStairsPlace(place)) continue;
+    for (const end of ["bottom", "top"] as const) {
+      const point = place.landings[end];
+      for (const landing of landings) {
+        if (Math.abs(landing.y - point[1]) <= 1e-3) continue;
+        if (!pointInOrOn(landing.polygon, point[0], point[2], LANDING_JOIN_M)) continue;
+        throw new PlanError(
+          `stairs "${stairId}" ${end} is on landing "${landing.id}" at ${roundM(landing.y)} but ends at ${roundM(point[1])}`,
+        );
+      }
+    }
+  }
+}
+
+function spanAlong(polygon: readonly (readonly [number, number])[], up: readonly [number, number]): number {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const [x, z] of polygon) {
+    const proj = x * up[0] + z * up[1];
+    if (proj < lo) lo = proj;
+    if (proj > hi) hi = proj;
+  }
+  return hi - lo;
 }
 
 function elevatorJoin(
