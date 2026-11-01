@@ -200,8 +200,8 @@ function doorMeshes(design: DoorDesign, image: Uint8Array | undefined): NamedMes
     {
       name: "door",
       primitives: [
-        { corners: door.front, ...(image ? { image } : {}) },
-        { corners: door.back, ...(image ? { image } : {}) },
+        { corners: door.front, ...(image ? { image, blend: true } : {}) },
+        { corners: door.back,  ...(image ? { image, blend: true } : {}) },
         { corners: door.edges },
       ],
     },
