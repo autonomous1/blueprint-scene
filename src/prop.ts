@@ -173,16 +173,16 @@ function doorMeshes(design: DoorDesign, image: Uint8Array | undefined): NamedMes
     ? (position: Vec3) => placedUv(position, hingeX, hingeY, texture)
     : undefined;
   const door = boxParts(
-    toModel(design.door.minX, design.door.minY, -FRAME_DEPTH_M / 2),
-    toModel(design.door.maxX, design.door.maxY, FRAME_DEPTH_M / 2),
+    toModel(design.door.minX, design.door.minY, -DOOR_LEAF_DEPTH_M / 2),
+    toModel(design.door.maxX, design.door.maxY,  DOOR_LEAF_DEPTH_M / 2),
     uvAt,
   );
   const bars = frameBars(design.frame, design.door);
   if (bars.length === 0) throw new PlanError("frame has no border");
   const frame = bars.map((bar): NamedMesh => {
     const parts = boxParts(
-      toModel(bar.minX, bar.minY, -DOOR_LEAF_DEPTH_M / 2),
-      toModel(bar.maxX, bar.maxY, DOOR_LEAF_DEPTH_M / 2),
+      toModel(bar.minX, bar.minY, -FRAME_DEPTH_M / 2),
+      toModel(bar.maxX, bar.maxY,  FRAME_DEPTH_M / 2),
       uvAt,
     );
     return {
