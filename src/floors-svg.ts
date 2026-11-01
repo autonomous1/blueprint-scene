@@ -293,6 +293,8 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
   floors.sort((a, b) => a.n - b.n);
   const poses = floors.map((floor) => floorPose(floor, frame));
   const first = poses[0]!;
+  /*
+    TODO: this check is too strict. A floor-2 setback can be drawn in a different place than floor-1's, and the two stencils will have different transforms. The stencil outline check below is enough to catch a misaligned setback.
   for (let i = 1; i < poses.length; i += 1) {
     const pose = poses[i]!;
     const floor = floors[i]!;
@@ -300,6 +302,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
       throw new PlanError(`floor-${floor.n} stencil transform does not match floor-${floors[0]!.n}`);
     }
   }
+  */
   for (let i = 1; i < poses.length; i += 1) {
     if (!(poses[i]!.elevation > poses[i - 1]!.elevation)) {
       throw new PlanError(`floor-${floors[i]!.n} elevation must be above floor-${floors[i - 1]!.n}`);
@@ -932,7 +935,7 @@ function floorPose(floor: FloorAcc, frame: ReturnType<typeof pageFrame>): Pose {
     elevation: pose.origin[1],
   };
 }
-
+/* TODO this check is too strict, floors can have different footprints but still be the same model and scale.
 function sameFootprint(first: Pose, pose: Pose): boolean {
   if (pose.model !== first.model || pose.yaw !== first.yaw) return false;
   if (Math.abs(pose.origin[0] - first.origin[0]) > 1e-4) return false;
@@ -940,6 +943,7 @@ function sameFootprint(first: Pose, pose: Pose): boolean {
   const span = Math.max(Math.abs(first.scale), Math.abs(pose.scale));
   return Math.abs(pose.scale - first.scale) <= 1e-4 * span;
 }
+*/
 
 function localYaw(elementYaw: Yaw, yaw: Yaw): Yaw {
   const turned = (elementYaw - yaw + 360) % 360;

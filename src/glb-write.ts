@@ -113,6 +113,7 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
       metallicFactor: 0,
       roughnessFactor: 1,
     },
+    doubleSided: true,
   }];
   const materialForImage = new Map<number, number>();
   const materialForPane = new Map<string, number>();
@@ -133,6 +134,7 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
         roughnessFactor: 1,
       },
       ...(blend ? { alphaMode: "BLEND" as const, doubleSided: true } : {}),
+      doubleSided:true,
     });
     materialForPane.set(key, index);
     return index;
@@ -187,6 +189,7 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
                 metallicFactor: 0,
                 roughnessFactor: 1,
               },
+              doubleSided:true,
             });
           }
         }
