@@ -1264,7 +1264,7 @@ function hostBox(wall: WallFace, width: number, depth: number, height: number): 
   const hz = depth / 2;
   if (line.axis === "z") {
     const z0 = line.at;
-    const z1 = line.at + n.z * WALL_T;
+    const z1 = line.at - n.z * WALL_T;
     return {
       minX: -hx,
       maxX: hx,
@@ -1275,7 +1275,7 @@ function hostBox(wall: WallFace, width: number, depth: number, height: number): 
     };
   }
   const x0 = line.at;
-  const x1 = line.at + n.x * WALL_T;
+  const x1 = line.at - n.x * WALL_T;
   return {
     minX: Math.min(x0, x1),
     maxX: Math.max(x0, x1),

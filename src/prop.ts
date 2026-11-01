@@ -12,7 +12,7 @@ export type DoorPropOptions = {
 };
 
 /** The frame does not swing. Its depth is the wall thickness of the ring. */
-export const FRAME_DEPTH_M = -0.12;
+export const FRAME_DEPTH_M = 0.12;
 
 /** The panel is thinner than the frame and sits against the back of the ring. */
 export const DOOR_LEAF_DEPTH_M = 0.08;
@@ -173,16 +173,16 @@ function doorMeshes(design: DoorDesign, image: Uint8Array | undefined): NamedMes
     ? (position: Vec3) => placedUv(position, hingeX, hingeY, texture)
     : undefined;
   const door = boxParts(
-    toModel(design.door.minX, design.door.minY, FRAME_DEPTH_M),
-    toModel(design.door.maxX, design.door.maxY, FRAME_DEPTH_M + DOOR_LEAF_DEPTH_M),
+    toModel(design.door.minX, design.door.minY, -FRAME_DEPTH_M / 2),
+    toModel(design.door.maxX, design.door.maxY, FRAME_DEPTH_M / 2),
     uvAt,
   );
   const bars = frameBars(design.frame, design.door);
   if (bars.length === 0) throw new PlanError("frame has no border");
   const frame = bars.map((bar): NamedMesh => {
     const parts = boxParts(
-      toModel(bar.minX, bar.minY, FRAME_DEPTH_M),
-      toModel(bar.maxX, bar.maxY, 0),
+      toModel(bar.minX, bar.minY, -DOOR_LEAF_DEPTH_M / 2),
+      toModel(bar.maxX, bar.maxY, DOOR_LEAF_DEPTH_M / 2),
       uvAt,
     );
     return {
