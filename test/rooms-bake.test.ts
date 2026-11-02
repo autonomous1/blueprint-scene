@@ -1345,3 +1345,49 @@ function roomSvg(doorWall: "front" | "left" = "front", backDoor = false): string
   </g>
 </svg>`;
 }
+
+test("stairs bake one step box per riser and one closed stepped mesh per model", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-stairs-"));
+  try {
+    const floors = path.join(dir, "floors");
+    mkdirSync(floors);
+    writeFileSync(path.join(floors, "bldg.floors.svg"), landingBakeSvg());
+    const building = { id: "b", model: "bldg", position: [0, 0, 0] as Vec3, yaw: 0 as const, scale: 1 };
+    const baked = loadFloors({
+      floorsDir: floors,
+      buildings: [building, { ...building, id: "b2", position: [30, 0, 0], yaw: 90 as const }],
+      taken: new Set(),
+      assets: new Set(),
+      assetTypes: new Map(),
+      warnings: [],
+    });
+    for (const [bid, flight, bottom, top] of [["b", "s1a", 0, 1.5], ["b", "s1b", 1.5, 3], ["b2", "s1a", 0, 1.5]] as const) {
+      const steps = baked.obstacles.filter((o) => o.id.startsWith(`${bid}.${flight}.step`));
+      const count = Math.ceil((top - bottom) / 0.18);
+      assert.equal(steps.length, count, flight);
+      const rises = steps.map((o) => o.max[1]).sort((a, b) => a - b);
+      assert.ok(Math.abs(rises.at(-1)! - top) < 1e-9);
+      assert.ok(steps.every((o) => o.min[1] >= bottom - 1e-9 && o.max[1] - o.min[1] <= 0.3 + 1e-9));
+      let prev: number = bottom;
+      for (const y of rises) { assert.ok(y - prev <= 0.18 + 1e-9 && y > prev); prev = y; }
+      // Steps tile the 1.2 × 2 m rect with no gap.
+      const area = steps.reduce((sum, o) => sum + (o.max[0] - o.min[0]) * (o.max[2] - o.min[2]), 0);
+      assert.ok(Math.abs(area - 2.4) < 1e-3, String(area));
+    }
+    // s1a climbs +y toward page y 4, which is local −z here; its highest step is at the landing end.
+    const s1a = baked.obstacles.filter((o) => o.id.startsWith("b.s1a.step"));
+    const topStep = s1a.reduce((a, o) => (o.max[1] > a.max[1] ? o : a));
+    const lowStep = s1a.reduce((a, o) => (o.max[1] < a.max[1] ? o : a));
+    assert.notEqual(topStep.min[2], lowStep.min[2]);
+    const meshes = baked.hallMeshes.filter((mesh) => mesh.id === "bldg.s1a.stairs");
+    assert.equal(meshes.length, 1);
+    const tris = trianglesFromGlb(meshes[0]!.bytes).triangles;
+    assert.equal(tris.length, Math.ceil(1.5 / 0.18) * 12);
+    const maxY = Math.max(...tris.flatMap((t) => t.map((p) => p[1])));
+    assert.ok(Math.abs(maxY - 1.5) < 1e-6);
+    const placed = baked.placements.filter((item) => item.model === "bldg.s1a.stairs");
+    assert.deepEqual(placed.map((item) => item.id).sort(), ["b.s1a", "b2.s1a"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

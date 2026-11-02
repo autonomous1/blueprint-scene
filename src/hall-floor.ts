@@ -131,13 +131,27 @@ export type HallFloorPiece = {
   slabMaxY: number;
 };
 
+/** A floor's outline pieces: `outlines`, or `[outline]` when it has one. */
+export function outlinePieces(floor: { outline: Array<[number, number]>; outlines?: Array<Array<[number, number]>> }): Array<Array<[number, number]>> {
+  return floor.outlines ?? [floor.outline];
+}
+
+/** `hallCells` of each outline piece, concatenated. One piece is the same as `hallCells`. */
+export function hallCellsOf(
+  outlines: readonly (readonly (readonly [number, number])[])[],
+  rooms: readonly Aabb2[],
+): Aabb2[] {
+  if (outlines.length === 1) return hallCells(outlines[0]!, rooms);
+  return outlines.flatMap((outline) => hallCells(outline, rooms));
+}
+
 /** Elevated-floor hall in building-local metres. Undefined when the hall has no area. */
 export function hallFloorPiece(
   elevation: number,
-  outline: readonly (readonly [number, number])[],
+  outlines: readonly (readonly (readonly [number, number])[])[],
   rooms: readonly Aabb2[],
 ): HallFloorPiece | undefined {
-  const cells = hallCells(outline, rooms);
+  const cells = hallCellsOf(outlines, rooms);
   if (cells.length === 0) return undefined;
   return {
     cells,

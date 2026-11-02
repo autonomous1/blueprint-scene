@@ -8,7 +8,7 @@ import type {
   FloorsSource,
   RoomInstanceSource,
 } from "./floors-svg.ts";
-import { hallCells } from "./hall-floor.ts";
+import { hallCellsOf, outlinePieces } from "./hall-floor.ts";
 import type { RoomFile } from "./room-file.ts";
 import { addYaw, buildingToWorld, roomToBuilding, wallNormal } from "./rooms-bake.ts";
 import type { AnyPlace, ElevatorPlace, Placement, ScenePlace, StairsPlace, Vec3, Yaw } from "./types.ts";
@@ -91,14 +91,17 @@ export function derivePlaces(args: {
       }
       const y = building.position[1] + floor.elevation;
       const floorName = String(floor.n);
-      const outline = worldPoly(building, floor.outline);
+      const outline = outlinePieces(floor).length === 1
+        ? worldPoly(building, floor.outline)
+        : stitch(outlinePieces(floor).map((piece) => worldPoly(building, piece)))!;
+      const pieces = outlinePieces(floor).map((piece) => worldPoly(building, piece));
       const roomPolys: Array<Array<[number, number]>> = [];
       for (const inst of floor.rooms) {
         const file = args.roomFileFor(inst.prefab);
         if (!file) {
           throw new PlanError(`room "${building.id}.${inst.id}" prefab "${inst.prefab}" has no .room.json`);
         }
-        if (!polygonInside(drawnRoom(inst), floor.outline)) {
+        if (!insideSomePiece(drawnRoom(inst), floor)) {
           throw new PlanError(`room "${building.id}.${inst.id}" is outside floor-${floor.n} outline`);
         }
         const id = `${building.id}.${inst.id}`;
@@ -115,7 +118,7 @@ export function derivePlaces(args: {
         building.id,
         floorName,
         y,
-        hallPolygon(outline, roomPolys, warnings, hallId),
+        hallPolygon(outline, pieces, roomPolys, warnings, hallId),
       ));
       if (floor.platformDeck !== undefined) {
         const id = `${building.id}.floor-${floor.n}.platform`;
@@ -245,11 +248,12 @@ function placementOf(building: PlaceBuilding): Placement {
  */
 function hallPolygon(
   outline: Array<[number, number]>,
+  pieces: readonly (readonly (readonly [number, number])[])[],
   rooms: readonly (readonly (readonly [number, number])[])[],
   warnings: string[],
   id: string,
 ): Array<[number, number]> {
-  const cells = hallCells(outline, rooms.map((polygon) => rectOf(polygon)));
+  const cells = hallCellsOf(pieces, rooms.map((polygon) => rectOf(polygon)));
   if (cells.length === 0) {
     warnings.push(`hall "${id}" difference is empty; using the outline`);
     return outline;
@@ -340,13 +344,10 @@ function pushStair(
   floors: readonly FloorSource[],
   stair: FloorStairsSource,
 ): void {
-  if (stair.floor !== undefined) {
-    for (const floor of floors) {
-      if (floor.elevation < stair.bottom - 1e-4 || floor.elevation > stair.top + 1e-4) continue;
-      if (!polygonInside(stair.polygon, floor.outline)) {
-        throw new PlanError(`stairs "${building.id}.${stair.id}" is outside floor-${floor.n} outline`);
-      }
-    }
+  // The flight may rise through a stairwell cut out of a floor, so only the
+  // building extent is checked here. Each end is checked against its floor below.
+  if (stair.floor !== undefined && !polygonInside(stair.polygon, buildingExtent(floors))) {
+    throw new PlanError(`stairs "${building.id}.${stair.id}" is outside the building footprint`);
   }
   const metrics = stairsLandings(stair.polygon, stair.up, stair.bottom, stair.top);
   const bottom = worldAt(building, metrics.bottom[0], metrics.bottom[1], metrics.bottom[2]);
@@ -384,9 +385,9 @@ function pushElevator(
   elevator: FloorElevatorSource,
   roomFileFor: (prefab: string) => RoomFile | undefined,
 ): void {
+  const id = `${building.id}.${elevator.id}`;
   const low = elevator.stops[0]!;
   const high = elevator.stops[elevator.stops.length - 1]!;
-  const id = `${building.id}.${elevator.id}`;
   for (const floor of floors) {
     if (floor.elevation < low - 1e-4 || floor.elevation > high + 1e-4) continue;
     if (!polygonInside(elevator.polygon, floor.outline)) {
@@ -582,7 +583,7 @@ function landingJoin(
   const landing = landingAt(places, building.id, point);
   if (landing) return landing;
   const floor = floors.find((item) => Math.abs(item.elevation - elevation) <= 1e-3);
-  if (floor && !pointInOrOn(worldPoly(building, floor.outline), point[0], point[2])) {
+  if (floor && !outlinePieces(floor).some((piece) => pointInOrOn(worldPoly(building, piece), point[0], point[2]))) {
     if (end === "bottom" && floor.n === 1) return undefined;
     throw new PlanError(`stairs "${id}" ${end} landing is outside floor-${floor.n} outline`);
   }
@@ -647,8 +648,14 @@ function checkLandings(
     if (!place || !isStairsPlace(place)) continue;
     for (const end of ["bottom", "top"] as const) {
       const point = place.landings[end];
+      // A resolved end (joined a floor or a landing at its own height) is fine,
+      // even when another level's landing is stacked right above or below it.
+      if (end === "bottom" ? place.joins.from : place.joins.to) continue;
       for (const landing of landings) {
-        if (Math.abs(landing.y - point[1]) <= 1e-3) continue;
+        const dy = Math.abs(landing.y - point[1]);
+        if (dy <= 1e-3) continue;
+        // Only a near miss (within one floor's worth, < 1 m) is an authoring error.
+        if (dy >= 1) continue;
         if (!pointInOrOn(landing.polygon, point[0], point[2], LANDING_JOIN_M)) continue;
         throw new PlanError(
           `stairs "${stairId}" ${end} is on landing "${landing.id}" at ${roundM(landing.y)} but ends at ${roundM(point[1])}`,
@@ -680,7 +687,7 @@ function elevatorJoin(
   warnings: string[],
 ): string | undefined {
   const floor = floors.find((item) => Math.abs(item.elevation - elevation) <= 1e-3);
-  if (floor && !pointInOrOn(worldPoly(building, floor.outline), point[0], point[2])) {
+  if (floor && !outlinePieces(floor).some((piece) => pointInOrOn(worldPoly(building, piece), point[0], point[2]))) {
     throw new PlanError(`elevator "${id}" landing is outside floor-${floor.n} outline`);
   }
   const found = smallestPlace(places, building.id, point);
@@ -712,6 +719,23 @@ function drawnRoom(inst: RoomInstanceSource): Array<[number, number]> {
     const turned = transformXz(x, z, inst.yaw);
     return [inst.center.x + turned.x, inst.center.z + turned.z];
   });
+}
+
+/** AABB of every floor's footprint: the building extent. */
+function buildingExtent(floors: readonly FloorSource[]): Array<[number, number]> {
+  const points = floors.flatMap((floor) => floor.footprint);
+  const xs = points.map(([x]) => x);
+  const zs = points.map(([, z]) => z);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minZ = Math.min(...zs);
+  const maxZ = Math.max(...zs);
+  return [[minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]];
+}
+
+/** Inside one of the floor's outline pieces. */
+function insideSomePiece(polygon: readonly (readonly [number, number])[], floor: FloorSource): boolean {
+  return outlinePieces(floor).some((piece) => polygonInside(polygon, piece));
 }
 
 function polygonInside(

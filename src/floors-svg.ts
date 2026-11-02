@@ -117,6 +117,12 @@ export type FloorSource = {
   outline: Array<[number, number]>;
   /** Set when this floor's `outline` fell back to its footprint AABB. */
   outlineFallback?: "diagonal" | "curve";
+  /**
+   * One ring per closed subpath of the stencil path. Absent for a single-subpath
+   * floor; read it as `[outline]`. With several pieces, `outline` is the AABB of all of them and
+   * each piece falls back to its own AABB on a curve or diagonal edge.
+   */
+  outlines?: Array<Array<[number, number]>>;
   rooms: RoomInstanceSource[];
   platforms: FloorPlatformSource[];
   /** Set when the floor layer has `data-kind="platform"`. */
@@ -143,6 +149,8 @@ export type FloorsSource = {
   outline: Array<[number, number]>;
   /** Set when floor-1's `outline` fell back to the footprint AABB. */
   outlineFallback?: "diagonal" | "curve";
+  /** Floor-1's outline pieces. See `FloorSource.outlines`. */
+  outlines?: Array<Array<[number, number]>>;
   floors: FloorSource[];
   /** Building-local. `center[1]` is the sill. */
   doors: SceneDoor[];
@@ -341,7 +349,8 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
   // by where it sits on the page. The transform itself must still match.
   const shapes = floors.map((floor) => stencilShape(floor.stencils[0]!, frame, origin, yaw));
   for (let i = 1; i < shapes.length; i += 1) {
-    const area = outsideArea(shapes[i]!.outline, shapes[i - 1]!.outline);
+    let area = 0;
+    for (const piece of shapes[i]!.outlines) area += outsideArea(piece, shapes[i - 1]!.outlines);
     if (area > 1e-4) {
       console.warn(`floor-${floors[i]!.n} outline overhangs floor-${floors[i - 1]!.n} by ${formatArea(area)} m²`);
     }
@@ -376,6 +385,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
       elevation,
       footprint: floorShape.footprint,
       outline: floorShape.outline,
+      ...(floorShape.outlines.length > 1 ? { outlines: floorShape.outlines } : {}),
       rooms,
       platforms,
       ...(floorShape.fallback ? { outlineFallback: floorShape.fallback } : {}),
@@ -449,6 +459,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
     footprint,
     outline,
     ...(shape.fallback ? { outlineFallback: shape.fallback } : {}),
+    ...(shape.outlines.length > 1 ? { outlines: shape.outlines } : {}),
     floors: floorSources,
     doors,
     props,
@@ -474,20 +485,63 @@ function labelledId(el: XmlNode, kind: "stairs" | "elevator" | "landing"): strin
   return match?.[1];
 }
 
-function stencilShape(
-  hit: Hit,
-  frame: PageFrame,
-  origin: Vec3,
-  yaw: Yaw,
-): { footprint: Array<[number, number]>; outline: Array<[number, number]>; fallback?: "diagonal" | "curve" } {
+type StencilShape = {
+  footprint: Array<[number, number]>;
+  outline: Array<[number, number]>;
+  outlines: Array<Array<[number, number]>>;
+  fallback?: "diagonal" | "curve";
+};
+
+function stencilShape(hit: Hit, frame: PageFrame, origin: Vec3, yaw: Yaw): StencilShape {
   const id = attr(hit.el, "id")?.trim() || "footprint";
   const path = pathOf(hit.el, id);
   const points = localPoints(hit.el, hit.matrix, frame, origin, yaw, id);
   const footprint = aabbPolygon(points, id);
-  if (pathHasCurve(attr(path, "d"))) return { footprint, outline: footprint, fallback: "curve" };
-  const ring = rectilinearRing(points);
-  if (!ring) return { footprint, outline: footprint, fallback: "diagonal" };
-  return { footprint, outline: ring };
+  const raw = attr(path, "d");
+  const counts = subpathCounts(raw, id);
+  if (counts.length <= 1) {
+    if (pathHasCurve(raw)) return { footprint, outline: footprint, outlines: [footprint], fallback: "curve" };
+    const ring = rectilinearRing(points);
+    if (!ring) return { footprint, outline: footprint, outlines: [footprint], fallback: "diagonal" };
+    return { footprint, outline: ring, outlines: [ring] };
+  }
+  // Several closed subpaths: each is its own piece. `outline` is the AABB of all.
+  const curve = pathHasCurve(raw);
+  let fallback: "diagonal" | "curve" | undefined;
+  const outlines: Array<Array<[number, number]>> = [];
+  let start = 0;
+  for (const count of counts) {
+    const piece = points.slice(start, start + count);
+    start += count;
+    if (piece.length < 3) continue;
+    const box = aabbPolygon(piece, id);
+    const ring = curve ? undefined : rectilinearRing(piece);
+    if (!ring) fallback ??= curve ? "curve" : "diagonal";
+    outlines.push(ring ?? box);
+  }
+  if (outlines.length === 0) throw new PlanError(`"${id}" has no area`);
+  return { footprint, outline: footprint, outlines, ...(fallback ? { fallback } : {}) };
+}
+
+/**
+ * Point count of each subpath in `d`, in `pathPoints` order. A subpath starts
+ * at each M/m. Counts come from parsing growing prefixes, so a relative `m`
+ * still resolves against the previous subpath.
+ */
+function subpathCounts(raw: string | undefined, id: string): number[] {
+  const text = raw ?? "";
+  const starts: number[] = [];
+  for (const match of text.matchAll(/[Mm]/g)) starts.push(match.index!);
+  if (starts.length <= 1) return [pathPoints(text, id, "footprint").length];
+  const counts: number[] = [];
+  let seen = 0;
+  for (let k = 1; k <= starts.length; k += 1) {
+    const prefix = k < starts.length ? text.slice(0, starts[k]) : text;
+    const total = pathPoints(prefix, id, "footprint").length;
+    counts.push(total - seen);
+    seen = total;
+  }
+  return counts;
 }
 
 /** C, S, Q and A contribute control points. v1 does not flatten them. */
@@ -869,13 +923,13 @@ function spanAlong(polygon: readonly (readonly [number, number])[], up: readonly
   return hi - lo;
 }
 
-/** Area of `upper` that sits outside `lower`, for rectilinear outlines. */
+/** Area of `upper` that sits outside every ring of `lower`, for rectilinear outlines. */
 function outsideArea(
   upper: readonly (readonly [number, number])[],
-  lower: readonly (readonly [number, number])[],
+  lower: readonly (readonly (readonly [number, number])[])[],
 ): number {
-  const xs = gridCoords(upper, lower, 0);
-  const zs = gridCoords(upper, lower, 1);
+  const xs = gridCoords(upper, lower.flat(), 0);
+  const zs = gridCoords(upper, lower.flat(), 1);
   let area = 0;
   for (let i = 0; i < xs.length - 1; i += 1) {
     for (let k = 0; k < zs.length - 1; k += 1) {
@@ -885,7 +939,7 @@ function outsideArea(
       const cx = (xs[i]! + xs[i + 1]!) / 2;
       const cz = (zs[k]! + zs[k + 1]!) / 2;
       // A sliver inside the outline tolerance is the same floor, not an overhang.
-      if (pointInRing(upper, cx, cz) && !withinOutline(lower, cx, cz)) area += width * depth;
+      if (pointInRing(upper, cx, cz) && !lower.some((ring) => withinOutline(ring, cx, cz))) area += width * depth;
     }
   }
   return area;

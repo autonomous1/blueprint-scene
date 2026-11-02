@@ -3,9 +3,10 @@ import path from "node:path";
 import { stampPlacement } from "./asset-type.ts";
 import { DOOR_FACE_TOL_M, cutDoorFromBoxes, doorCutLocal, doorOutwardDepth, situateDoor, subtractBox, type SituatedDoor } from "./doors.ts";
 import { PlanError } from "./errors.ts";
-import { DEFAULT_TILE_M, readFloorsSvg, type FloorLandingSource, type FloorsSource, type RoomInstanceSource } from "./floors-svg.ts";
-import { HALL_FLOOR_SINK_M, defaultFloorImage, hallFloorGlb, hallFloorPiece, roomFootprintAabb } from "./hall-floor.ts";
+import { DEFAULT_TILE_M, readFloorsSvg, type FloorLandingSource, type FloorStairsSource, type FloorsSource, type RoomInstanceSource } from "./floors-svg.ts";
+import { HALL_FLOOR_SINK_M, defaultFloorImage, hallFloorGlb, hallFloorPiece, outlinePieces, roomFootprintAabb } from "./hall-floor.ts";
 import { ID_RE } from "./plan.ts";
+import { stairsGlb, stairsStepBoxes } from "./stairs-mesh.ts";
 import { FLOOR_T, WALL_T, type RoomDoor, type RoomFile, type RoomLight } from "./room-file.ts";
 import { wallLine, type WallFace } from "./room-svg.ts";
 import type { AssetType, DoorPlacement, LocalBox, Obstacle, Placement, SceneDoor, SceneProp, Vec3, Yaw } from "./types.ts";
@@ -240,7 +241,7 @@ export function roomFacadeOpenings(
   const openings: RoomFacadeOpening[] = [];
   const rejected: RoomFacadeRejection[] = [];
   for (const floor of source.floors) {
-    const edges = footprintEdges(floor.outline);
+    const edges = outlinePieces(floor).flatMap((piece) => footprintEdges(piece));
     for (const inst of floor.rooms) {
       const room = roomFiles.get(inst.prefab);
       if (!room) throw new PlanError(`room "${inst.prefab}" is not loaded`);
@@ -467,6 +468,45 @@ function pushLandingSlab(
   });
 }
 
+/** One AABB per step and one shared stepped mesh per model, like a landing. */
+function pushStairsSteps(
+  building: Placement,
+  stairs: FloorStairsSource,
+  claim: (id: string) => void,
+  obstacles: Obstacle[],
+  placements: Placement[],
+  hallMeshes: HallFloorMesh[],
+  hallWritten: Set<string>,
+  assetTypes: ReadonlyMap<string, AssetType>,
+): void {
+  const boxes = stairsStepBoxes(stairs.polygon, stairs.up, stairs.bottom, stairs.top);
+  boxes.forEach((box, index) => {
+    const world = mapBox(box, (point) => buildingToWorld(building, point));
+    obstacles.push({
+      id: `${building.id}.${stairs.id}.step${index + 1}`,
+      kind: "aabb",
+      min: roundVec([world.minX, world.minY, world.minZ]),
+      max: roundVec([world.maxX, world.maxY, world.maxZ]),
+    });
+  });
+  const assetId = `${building.model}.${stairs.id}.stairs`;
+  const placementId = `${building.id}.${stairs.id}`;
+  claim(placementId);
+  placements.push(stampPlacement({
+    id: placementId,
+    model: assetId,
+    position: roundVec(building.position),
+    yaw: building.yaw,
+    scale: 1,
+  }, assetTypes));
+  if (hallWritten.has(assetId)) return;
+  hallWritten.add(assetId);
+  hallMeshes.push({
+    id: assetId,
+    bytes: stairsGlb({ boxes, image: defaultFloorImage(), tileX: DEFAULT_TILE_M, tileZ: DEFAULT_TILE_M }),
+  });
+}
+
 function polygonAabb(polygon: readonly (readonly [number, number])[]): Aabb2 {
   let minX = Infinity;
   let maxX = -Infinity;
@@ -600,7 +640,7 @@ export function loadFloors(input: LoadInput): FloorBake {
       // `${model}.floor-${n}.hall` is shared by every placement of the model.
       const worldY = building.position[1] + floor.elevation;
       if (worldY > GROUND_FLOOR_Y) {
-        const piece = hallFloorPiece(floor.elevation, floor.outline, roomAabbs);
+        const piece = hallFloorPiece(floor.elevation, outlinePieces(floor), roomAabbs);
         if (!piece) {
           input.warnings.push(`hall floor "${building.id}.floor-${floor.n}" covers no area outside rooms; no slab`);
         } else {
@@ -649,6 +689,7 @@ export function loadFloors(input: LoadInput): FloorBake {
       }
     }
     for (const landing of source.landings) pushLandingSlab(building, landing, claim, obstacles, placements, hallMeshes, hallWritten, input.assetTypes);
+    for (const stairs of source.stairs) pushStairsSteps(building, stairs, claim, obstacles, placements, hallMeshes, hallWritten, input.assetTypes);
     if (!facadeModels.has(building.model)) {
       facadeModels.add(building.model);
       const files = new Map<string, RoomFile>();
