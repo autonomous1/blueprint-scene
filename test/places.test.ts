@@ -200,7 +200,9 @@ test("building-2 floor-2 hall does not cover the stencil notch", () => {
     floorsFor: () => source,
     roomFileFor: () => ({ footprint: { minX: -0.01, maxX: 0.01, minZ: -0.01, maxZ: 0.01 } }) as RoomFile,
   });
-  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.warnings, [
+    'building "b2" floor-2 stencil outline has a diagonal edge; using the bounding box',
+  ]);
   const hall = place(result.places, "b2.floor-2.hall");
   assert.equal(inside(hall.polygon, notch[0], notch[1]), false);
   assert.equal(inside(source.footprint, notch[0], notch[1]), true);

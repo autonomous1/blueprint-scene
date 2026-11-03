@@ -42,6 +42,109 @@ test("a hinge that is not on a side edge fails and writes nothing", () => {
   }
 });
 
+test("a door with no attributes is an opaque single-sided image", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-opaque-"));
+  try {
+    const outPath = path.join(dir, "door.glb");
+    writeDoorProp({ svgPath: fixture, outPath });
+    const materials = doorLeafMaterials(readGlb(readFileSync(outPath)).doc);
+    assert.equal(materials.length, 2);
+    for (const material of materials) {
+      assert.equal(material.alphaMode, undefined);
+      assert.equal(material.alphaCutoff, undefined);
+      assert.equal(material.doubleSided, false);
+      assert.equal(typeof material.pbrMetallicRoughness?.baseColorTexture?.index, "number");
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("data-alpha-mode MASK writes the cutoff", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-mask-"));
+  try {
+    const svgPath = path.join(dir, "door.svg");
+    writeFileSync(svgPath, withPart(readFileSync(fixture, "utf8"), "data-part-texture", 'data-alpha-mode="MASK" data-alpha-cutoff="0.3"'));
+    const outPath = path.join(dir, "door.glb");
+    writeDoorProp({ svgPath, outPath });
+    const materials = doorLeafMaterials(readGlb(readFileSync(outPath)).doc);
+    assert.equal(materials.length, 2);
+    for (const material of materials) {
+      assert.equal(material.alphaMode, "MASK");
+      assert.equal(material.alphaCutoff, 0.3);
+      assert.equal(material.doubleSided, false);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("BLEND and double sides match a blended double-sided leaf", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-blend-"));
+  try {
+    const svgPath = path.join(dir, "door.svg");
+    const svg = withPart(
+      withPart(readFileSync(fixture, "utf8"), "data-part-texture", 'data-alpha-mode="BLEND"'),
+      "data-part-door",
+      'data-sides="double"',
+    );
+    writeFileSync(svgPath, svg);
+    const outPath = path.join(dir, "door.glb");
+    writeDoorProp({ svgPath, outPath });
+    const materials = doorLeafMaterials(readGlb(readFileSync(outPath)).doc);
+    assert.equal(materials.length, 2);
+    assert.equal(materials[0], materials[1]);
+    assert.equal(materials[0]!.alphaMode, "BLEND");
+    assert.equal(materials[0]!.alphaCutoff, undefined);
+    assert.equal(materials[0]!.doubleSided, true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a bad door material attribute names itself", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-door-bad-"));
+  try {
+    const outPath = path.join(dir, "door.glb");
+    const write = (attrs: string, part: string): void => {
+      const svgPath = path.join(dir, `${part}.svg`);
+      writeFileSync(svgPath, withPart(readFileSync(fixture, "utf8"), part, attrs));
+      writeDoorProp({ svgPath, outPath });
+    };
+    assert.throws(
+      () => write('data-alpha-mode="ADD"', "data-part-texture"),
+      (err: unknown) => err instanceof PlanError && /data-alpha-mode/.test(err.message),
+    );
+    assert.throws(
+      () => write('data-sides="both"', "data-part-door"),
+      (err: unknown) => err instanceof PlanError && /data-sides/.test(err.message),
+    );
+    assert.throws(
+      () => write('data-alpha-cutoff="nope"', "data-part-texture"),
+      (err: unknown) => err instanceof PlanError && /data-alpha-cutoff/.test(err.message),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function withPart(svg: string, id: string, attrs: string): string {
+  return svg.replace(`id="${id}"`, `id="${id}" ${attrs}`);
+}
+
+function doorLeafMaterials(doc: GlbDoc): GlbMaterial[] {
+  const mesh = doc.meshes?.find((item) => item.name === "door");
+  if (!mesh) throw new Error("missing door mesh");
+  const materials: GlbMaterial[] = [];
+  for (const primitive of mesh.primitives ?? []) {
+    if (primitive.attributes?.TEXCOORD_0 == null) continue;
+    const material = doc.materials?.[primitive.material ?? -1];
+    if (!material) throw new Error("missing door material");
+    materials.push(material);
+  }
+  return materials;
+}
+
 function designSvg(hinge: string): string {
   const source = readFileSync(fixture, "utf8");
   return source.replace(/<rect\s+id="data-part-hinge"[\s\S]*?\/>/, hinge);
@@ -60,12 +163,20 @@ type GlbDoc = {
   animations?: unknown;
   nodes?: GlbNode[];
   meshes?: Array<{ name?: string; primitives?: GlbPrimitive[] }>;
+  materials?: GlbMaterial[];
   bufferViews?: Array<{ byteOffset?: number; byteLength: number }>;
   accessors?: Array<{ bufferView?: number; byteOffset?: number; componentType: number; count: number; type: string }>;
+};
+type GlbMaterial = {
+  alphaMode?: string;
+  alphaCutoff?: number;
+  doubleSided?: boolean;
+  pbrMetallicRoughness?: { baseColorTexture?: { index?: number } };
 };
 type GlbPrimitive = {
   attributes?: { POSITION?: number; NORMAL?: number; TEXCOORD_0?: number };
   indices?: number;
+  material?: number;
 };
 type Corner = { position: number[]; normal: number[]; uv?: number[] };
 

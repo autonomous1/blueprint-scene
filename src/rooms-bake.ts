@@ -454,16 +454,17 @@ function pushLandingSlab(
     yaw: building.yaw,
     scale: 1,
   }, assetTypes));
-  if (hallWritten.has(assetId)) return;
-  hallWritten.add(assetId);
+  const written = meshKey(assetId, landing.texture);
+  if (hallWritten.has(written)) return;
+  hallWritten.add(written);
   hallMeshes.push({
     id: assetId,
     bytes: hallFloorGlb({
       cells: [cell],
       y: landing.elevation - HALL_FLOOR_SINK_M,
-      image: defaultFloorImage(),
-      tileX: DEFAULT_TILE_M,
-      tileZ: DEFAULT_TILE_M,
+      image: landing.texture.image,
+      tileX: landing.texture.tileX,
+      tileZ: landing.texture.tileZ,
     }),
   });
 }
@@ -499,12 +500,32 @@ function pushStairsSteps(
     yaw: building.yaw,
     scale: 1,
   }, assetTypes));
-  if (hallWritten.has(assetId)) return;
-  hallWritten.add(assetId);
+  const written = meshKey(assetId, stairs.texture);
+  if (hallWritten.has(written)) return;
+  hallWritten.add(written);
   hallMeshes.push({
     id: assetId,
-    bytes: stairsGlb({ boxes, image: defaultFloorImage(), tileX: DEFAULT_TILE_M, tileZ: DEFAULT_TILE_M }),
+    bytes: stairsGlb({
+      boxes,
+      image: stairs.texture.image,
+      tileX: stairs.texture.tileX,
+      tileZ: stairs.texture.tileZ,
+    }),
   });
+}
+
+/** The image is part of the key, so two landings with different textures do not share a mesh. */
+function meshKey(assetId: string, texture: { image: Uint8Array; tileX: number; tileZ: number }): string {
+  return `${assetId}|${imageStamp(texture.image)}|${texture.tileX}|${texture.tileZ}`;
+}
+
+function imageStamp(bytes: Uint8Array): string {
+  let hash = 2166136261;
+  for (let index = 0; index < bytes.length; index += 1) {
+    hash ^= bytes[index]!;
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${bytes.length}:${hash >>> 0}`;
 }
 
 function polygonAabb(polygon: readonly (readonly [number, number])[]): Aabb2 {

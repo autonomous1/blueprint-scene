@@ -113,6 +113,12 @@ export type DesignRect = {
   part?: string;
   /** `data-part-texture` href: a data URI or a path relative to the SVG. */
   href?: string;
+  /** Raw `data-alpha-mode` on this part. Door reading validates it. */
+  alphaMode?: string;
+  /** Raw `data-alpha-cutoff` on this part. */
+  alphaCutoff?: string;
+  /** Raw `data-sides` on this part. */
+  sides?: string;
 };
 
 /**
@@ -372,6 +378,9 @@ function designPart(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | 
   if (part !== "texture" && tag !== "rect") throw new PlanError(`${id} must be a rectangle`);
   const href = part === "texture" ? attr(el, "href")?.trim() : undefined;
   if (part === "texture" && !href) throw new PlanError("data-part-texture has no image");
+  const alphaMode = attr(el, "data-alpha-mode")?.trim();
+  const alphaCutoff = attr(el, "data-alpha-cutoff")?.trim();
+  const sides = attr(el, "data-sides")?.trim();
   const local = rectBounds(el, frame.meters, units);
   if (!local) throw new PlanError(`element "${id}" has no size`);
   const corners = [
@@ -406,6 +415,9 @@ function designPart(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | 
     maxY,
     part,
     ...(href ? { href } : {}),
+    ...(alphaMode ? { alphaMode } : {}),
+    ...(alphaCutoff ? { alphaCutoff } : {}),
+    ...(sides ? { sides } : {}),
   };
 }
 

@@ -1,5 +1,8 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { loadTextureRef } from "./crate.ts";
 import { PlanError } from "./errors.ts";
+import { defaultFloorImage } from "./hall-floor.ts";
 import {
   apply,
   documentUnits,
@@ -68,6 +71,11 @@ export type FloorStairsSource = {
   up: [number, number];
   bottom: number;
   top: number;
+  /**
+   * Own `data-texture`, else this floor's `floor-<n>-texture`.
+   * A `stairs-external` run with neither is grey.
+   */
+  texture: FloorTexture;
 };
 
 /**
@@ -80,6 +88,11 @@ export type FloorLandingSource = {
   floor?: number;
   polygon: Array<[number, number]>;
   elevation: number;
+  /**
+   * Own `data-texture`, else this floor's `floor-<n>-texture`.
+   * A `stairs-external` landing with neither is grey.
+   */
+  texture: FloorTexture;
 };
 
 /** An `elevator:<id>` cab, in building-local metres. Stops are above the building ground. */
@@ -430,14 +443,23 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
     const elevation = elevations[index]!;
     const next = index + 1 < elevations.length ? elevations[index + 1] : undefined;
     const floor = floors[index]!;
-    for (const hit of floor.stairs) stairs.push(readStair(hit, floor.n, elevation, next, frame, units, origin, yaw));
-    for (const hit of floor.landings) landings.push(readLanding(hit, floor.n, frame, units, origin, yaw));
+    const floorTexture = floorSources[index]?.texture;
+    for (const hit of floor.stairs) {
+      stairs.push(readStair(hit, floor.n, elevation, next, frame, units, origin, yaw, svgPath ?? "", imageCache, floorTexture));
+    }
+    for (const hit of floor.landings) {
+      landings.push(readLanding(hit, floor.n, frame, units, origin, yaw, svgPath ?? "", imageCache, floorTexture));
+    }
     for (const hit of floor.elevators) {
       elevators.push(readElevator(hit, floor.n, elevation, elevations, frame, units, origin, yaw));
     }
   }
-  for (const hit of externalStairHits) stairs.push(readStair(hit, undefined, 0, undefined, frame, units, origin, yaw));
-  for (const hit of externalLandingHits) landings.push(readLanding(hit, undefined, frame, units, origin, yaw));
+  for (const hit of externalStairHits) {
+    stairs.push(readStair(hit, undefined, 0, undefined, frame, units, origin, yaw, svgPath ?? "", imageCache, undefined));
+  }
+  for (const hit of externalLandingHits) {
+    landings.push(readLanding(hit, undefined, frame, units, origin, yaw, svgPath ?? "", imageCache, undefined));
+  }
 
   const props: SceneProp[] = [];
   for (const hit of propHits) {
@@ -723,6 +745,9 @@ function readStair(
   units: string | undefined,
   origin: Vec3,
   yaw: Yaw,
+  svgPath: string,
+  cache: Map<string, Uint8Array>,
+  floorTexture: FloorTexture | undefined,
 ): FloorStairsSource {
   const id = labelledId(hit.el, "stairs") ?? requireId(hit.el, "stairs");
   const polygon = rectPolygon(hit, frame, units, origin, yaw, id);
@@ -734,7 +759,15 @@ function readStair(
   if (!(top > bottom)) throw new PlanError(`stairs "${id}" top must be above the bottom`);
   const run = spanAlong(polygon, up);
   if ((top - bottom) / run > 1) throw new PlanError(`stairs "${id}" slope ${(top - bottom)} / ${run} is steeper than 1`);
-  return { id, ...(floor === undefined ? {} : { floor }), polygon, up, bottom, top };
+  return {
+    id,
+    ...(floor === undefined ? {} : { floor }),
+    polygon,
+    up,
+    bottom,
+    top,
+    texture: surfaceTexture(hit.el, svgPath, `stairs "${id}"`, cache, floorTexture),
+  };
 }
 
 function readLanding(
@@ -744,6 +777,9 @@ function readLanding(
   units: string | undefined,
   origin: Vec3,
   yaw: Yaw,
+  svgPath: string,
+  cache: Map<string, Uint8Array>,
+  floorTexture: FloorTexture | undefined,
 ): FloorLandingSource {
   const id = labelledId(hit.el, "landing") ?? requireId(hit.el, "landing");
   const elevation = optionalNumber(attr(hit.el, "data-elevation"), `landing "${id}" data-elevation`);
@@ -756,7 +792,71 @@ function readLanding(
   const polygon = localName(hit.el.name) === "rect"
     ? rectPolygon(hit, frame, units, origin, yaw, id)
     : aabbPolygon(localPoints(hit.el, hit.matrix, frame, origin, yaw, id), id);
-  return { id, ...(floor === undefined ? {} : { floor }), polygon, elevation: height };
+  return {
+    id,
+    ...(floor === undefined ? {} : { floor }),
+    polygon,
+    elevation: height,
+    texture: surfaceTexture(hit.el, svgPath, `landing "${id}"`, cache, floorTexture),
+  };
+}
+
+/**
+ * `data-texture` (or a child image href, then `absref`) is this element's
+ * image. `data-tile-m` overrides the tile. Without an image, the floor
+ * texture is used, and a run with no floor is grey.
+ */
+function surfaceTexture(
+  el: XmlNode,
+  svgPath: string,
+  what: string,
+  cache: Map<string, Uint8Array>,
+  floorTexture: FloorTexture | undefined,
+): FloorTexture {
+  const own = ownImage(el, svgPath, what, cache);
+  const tile = readSurfaceTile(el, what);
+  if (own) {
+    const size = tile ?? DEFAULT_TILE_M;
+    return { image: own, tileX: size, tileZ: size };
+  }
+  if (floorTexture) {
+    if (tile == null) return floorTexture;
+    return { image: floorTexture.image, tileX: tile, tileZ: tile };
+  }
+  const size = tile ?? DEFAULT_TILE_M;
+  return { image: defaultFloorImage(), tileX: size, tileZ: size };
+}
+
+function readSurfaceTile(el: XmlNode, what: string): number | undefined {
+  const tile = optionalNumber(attr(el, "data-tile-m"), `${what} data-tile-m`);
+  if (tile !== undefined && !(tile > 0)) throw new PlanError(`${what} data-tile-m must be positive`);
+  return tile;
+}
+
+/** Same lookup as a room `data-texture`: attribute, then image href, then absref. */
+function ownImage(
+  el: XmlNode,
+  svgPath: string,
+  what: string,
+  cache: Map<string, Uint8Array>,
+): Uint8Array | undefined {
+  const data = attr(el, "data-texture")?.trim();
+  const image = localName(el.name) === "image" ? el : el.children.find((child) => localName(child.name) === "image");
+  const href = image ? attr(image, "href")?.trim() : undefined;
+  const absref = (image ? attr(image, "absref") : undefined)?.trim() || attr(el, "absref")?.trim();
+  const raw = data || href;
+  if (!raw) return undefined;
+  const ref = resolveTextureHref(svgPath, raw, absref, what);
+  return cachedImage(cache, svgPath, ref, what);
+}
+
+function resolveTextureHref(svgPath: string, raw: string, absref: string | undefined, what: string): string {
+  if (raw.startsWith("data:")) return raw;
+  const rel = path.resolve(svgPath ? path.dirname(svgPath) : "", raw);
+  if (existsSync(rel)) return rel;
+  if (absref && existsSync(absref)) return absref;
+  const tried = absref ? `${rel} or ${absref}` : rel;
+  throw new PlanError(`${what}: texture "${raw}" not found at ${tried}`);
 }
 
 function readElevator(

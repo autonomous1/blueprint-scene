@@ -47,6 +47,8 @@ export function writeDoorProp(options: DoorPropOptions): void {
   writeFileSync(options.outPath, bytes);
 }
 
+type AlphaMode = "OPAQUE" | "MASK" | "BLEND";
+
 type DoorDesign = {
   frame: Rect;
   door: Rect;
@@ -54,6 +56,10 @@ type DoorDesign = {
   /** Image rectangle in elevation meters. Absent when the design has no texture. */
   texture?: Rect;
   textureHref?: string;
+  alphaMode: AlphaMode;
+  /** Set for `MASK`. Default 0.5. */
+  alphaCutoff?: number;
+  doubleSided: boolean;
 };
 
 function readSvg(svgPath: string): string {
@@ -75,12 +81,60 @@ function readDoorDesign(svgText: string): DoorDesign {
   const doorArea = (door.maxX - door.minX) * (door.maxY - door.minY);
   if (doorArea >= frameArea - 1e-6) throw new PlanError("door fills the frame; the frame needs a border");
   if (texture && !overlaps(door, texture)) throw new PlanError("door texture does not cover the door");
+  const material = readDoorMaterial(texture, door);
   return {
     frame,
     door,
     hinge: hingeSide(door, hinge),
     ...(texture ? { texture, textureHref: texture.href } : {}),
+    alphaMode: material.alphaMode,
+    ...(material.alphaCutoff != null ? { alphaCutoff: material.alphaCutoff } : {}),
+    doubleSided: material.doubleSided,
   };
+}
+
+/** Texture attributes win. A missing one falls back to the door rectangle. */
+function readDoorMaterial(texture: DesignRect | undefined, door: DesignRect): {
+  alphaMode: AlphaMode;
+  alphaCutoff?: number;
+  doubleSided: boolean;
+} {
+  const alphaMode = parseAlphaMode(materialAttr(texture, door, "alphaMode"));
+  const alphaCutoff = parseCutoff(materialAttr(texture, door, "alphaCutoff"), alphaMode);
+  return {
+    alphaMode,
+    ...(alphaCutoff != null ? { alphaCutoff } : {}),
+    doubleSided: parseSides(materialAttr(texture, door, "sides")),
+  };
+}
+
+function materialAttr(
+  texture: DesignRect | undefined,
+  door: DesignRect,
+  key: "alphaMode" | "alphaCutoff" | "sides",
+): string | undefined {
+  return texture?.[key] || door[key];
+}
+
+function parseAlphaMode(raw: string | undefined): AlphaMode {
+  if (raw == null || raw === "") return "OPAQUE";
+  if (raw === "OPAQUE" || raw === "MASK" || raw === "BLEND") return raw;
+  throw new PlanError(`data-alpha-mode "${raw}" is not OPAQUE, MASK, or BLEND`);
+}
+
+function parseSides(raw: string | undefined): boolean {
+  if (raw == null || raw === "") return false;
+  if (raw === "single") return false;
+  if (raw === "double") return true;
+  throw new PlanError(`data-sides "${raw}" is not single or double`);
+}
+
+function parseCutoff(raw: string | undefined, mode: AlphaMode): number | undefined {
+  if (raw == null || raw === "") return mode === "MASK" ? 0.5 : undefined;
+  if (mode !== "MASK") throw new PlanError("data-alpha-cutoff is only valid when data-alpha-mode is MASK");
+  const value = Number(raw);
+  if (!Number.isFinite(value)) throw new PlanError(`data-alpha-cutoff "${raw}" is not a finite number`);
+  return value;
 }
 
 function onePart(rects: DesignRect[], part: string): DesignRect | undefined {
@@ -164,6 +218,21 @@ function assertPng(bytes: Uint8Array): Uint8Array {
   return new Uint8Array(bytes);
 }
 
+function leafImage(design: DoorDesign, image: Uint8Array | undefined): {
+  image: Uint8Array;
+  alphaMode: AlphaMode;
+  alphaCutoff?: number;
+  doubleSided: boolean;
+} | Record<string, never> {
+  if (!image) return {};
+  return {
+    image,
+    alphaMode: design.alphaMode,
+    ...(design.alphaMode === "MASK" ? { alphaCutoff: design.alphaCutoff ?? 0.5 } : {}),
+    doubleSided: design.doubleSided,
+  };
+}
+
 function doorMeshes(design: DoorDesign, image: Uint8Array | undefined): NamedMesh[] {
   const hingeX = design.hinge === "left" ? design.door.minX : design.door.maxX;
   const hingeY = (design.door.minY + design.door.maxY) / 2;
@@ -200,8 +269,8 @@ function doorMeshes(design: DoorDesign, image: Uint8Array | undefined): NamedMes
     {
       name: "door",
       primitives: [
-        { corners: door.front, ...(image ? { image, blend: true } : {}) },
-        { corners: door.back,  ...(image ? { image, blend: true } : {}) },
+        { corners: door.front, ...leafImage(design, image) },
+        { corners: door.back, ...leafImage(design, image) },
         { corners: door.edges },
       ],
     },

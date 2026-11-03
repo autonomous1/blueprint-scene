@@ -8,6 +8,7 @@ import { bake } from "../src/bake.ts";
 import { openingInModel } from "../src/building-mesh-cut.ts";
 import { readFloorsSvg, type FloorsSource } from "../src/floors-svg.ts";
 import { writeTriangleGlb } from "../src/glb-write.ts";
+import { defaultFloorImage } from "../src/hall-floor.ts";
 import { trianglesFromGlb } from "../src/glb.ts";
 import type { RoomFile } from "../src/room-file.ts";
 import { writeRoom } from "../src/room-glb.ts";
@@ -1248,6 +1249,93 @@ test("a landing bakes one slab per building and one mesh per model", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("landings and stairs take a texture, the floor texture, or grey", () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "blueprint-scene-landing-tex-"));
+  try {
+    const floorPng = markedPng(1);
+    const otherPng = markedPng(2);
+    const floors = path.join(dir, "floors");
+    mkdirSync(floors);
+    const svgPath = path.join(floors, "bldg.floors.svg");
+    writeFileSync(svgPath, texturedLandingSvg(dataUri(floorPng), dataUri(otherPng)));
+    const building = { id: "b", model: "bldg", position: [0, 0, 0] as Vec3, yaw: 0 as const, scale: 1 };
+    const baked = loadFloors({
+      floorsDir: floors,
+      buildings: [building, { ...building, id: "b2", position: [30, 0, 0] }],
+      taken: new Set(),
+      assets: new Set(),
+      assetTypes: new Map(),
+      warnings: [],
+    });
+    const plain = baked.hallMeshes.find((mesh) => mesh.id === "bldg.pad.landing");
+    const custom = baked.hallMeshes.find((mesh) => mesh.id === "bldg.other.landing");
+    const outside = baked.hallMeshes.find((mesh) => mesh.id === "bldg.out.landing");
+    const flight = baked.hallMeshes.find((mesh) => mesh.id === "bldg.s1.stairs");
+    assert.ok(plain && custom && outside && flight);
+    assert.equal(Buffer.compare(glbImage(plain.bytes), floorPng), 0);
+    assert.equal(Buffer.compare(glbImage(custom.bytes), otherPng), 0);
+    assert.equal(Buffer.compare(glbImage(outside.bytes), Buffer.from(defaultFloorImage())), 0);
+    assert.equal(Buffer.compare(glbImage(flight.bytes), floorPng), 0);
+    const landings = baked.hallMeshes.filter((mesh) => mesh.id.endsWith(".landing"));
+    assert.equal(landings.length, 3);
+    assert.equal(new Set(landings.map((mesh) => mesh.id)).size, 3);
+    assert.equal(baked.placements.filter((item) => item.model === "bldg.pad.landing").length, 2);
+    assert.equal(baked.placements.filter((item) => item.model === "bldg.other.landing").length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function texturedLandingSvg(floorHref: string, otherHref: string): string {
+  const fp = (id: string, z: string) =>
+    `<g id="${id}" data-model="bldg" transform="matrix(1,0,0,1,0,20)" ${z}><path d="M 0 0 L 16 0 L 16 -20 L 0 -20 Z"/></g>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+     xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+     width="20mm" height="20mm" viewBox="0 0 20 20">
+  <sodipodi:namedview inkscape:document-units="mm" inkscape:document-scale="1"/>
+  <g inkscape:groupmode="layer" inkscape:label="floor-1">
+    ${fp("fp1", "")}
+    <image id="floortex" inkscape:label="floor-texture" href="${floorHref}" data-tile-m="4" x="0" y="0" width="16" height="20"/>
+    <rect id="pad" inkscape:label="landing:pad" x="10" y="4" width="2" height="1.2" data-elevation="1.5"/>
+    <rect id="other" inkscape:label="landing:other" x="2" y="4" width="2" height="1.2" data-elevation="1.5" data-texture="${otherHref}"/>
+    <rect id="s1" inkscape:label="stairs:s1" x="10" y="6" width="1.2" height="2" data-up="+y" data-bottom="0" data-top="1.5"/>
+  </g>
+  <g inkscape:groupmode="layer" inkscape:label="floor-2">${fp("fp2", 'z="3"')}</g>
+  <g inkscape:groupmode="layer" inkscape:label="stairs-external">
+    <rect id="out" inkscape:label="landing:out" x="1" y="8" width="2" height="2" data-elevation="1.2"/>
+  </g>
+</svg>`;
+}
+
+function markedPng(mark: number): Buffer {
+  const bytes = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+  bytes[20] = mark;
+  return bytes;
+}
+
+function dataUri(png: Buffer): string {
+  return `data:image/png;base64,${png.toString("base64")}`;
+}
+
+function glbImage(bytes: Uint8Array): Buffer {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const jsonLength = view.getUint32(12, true);
+  const doc = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jsonLength))) as {
+    images?: Array<{ bufferView?: number }>;
+    bufferViews?: Array<{ byteOffset?: number; byteLength: number }>;
+  };
+  const binAt = 20 + jsonLength;
+  const binLength = view.getUint32(binAt, true);
+  const bin = bytes.subarray(binAt + 8, binAt + 8 + binLength);
+  const image = doc.images?.[0];
+  const bufferView = image?.bufferView == null ? undefined : doc.bufferViews?.[image.bufferView];
+  if (!bufferView) throw new Error("mesh has no image");
+  const start = bufferView.byteOffset ?? 0;
+  return Buffer.from(bin.subarray(start, start + bufferView.byteLength));
+}
 
 function landingBakeSvg(): string {
   const fp = (id: string, z: string) =>

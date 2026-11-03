@@ -175,11 +175,11 @@ test("a room rect outside its own floor outline is a PlanError", () => {
   );
 });
 
-test("brutalist-building-2 still has its step props and no stair or elevator sources", () => {
+test("brutalist-building-2 keeps its step props beside its stair sources", () => {
   const source = readFloorsSvg(readFileSync(ARENA_FLOORS, "utf8"), ARENA_FLOORS);
-  assert.equal(source.props.length, 16);
-  assert.equal(source.props.filter((prop) => prop.model === "step").length, 16);
-  assert.equal(source.stairs.length, 0);
+  assert.equal(source.props.length, 32);
+  assert.equal(source.props.filter((prop) => prop.model === "step").length, 32);
+  assert.deepEqual(source.stairs.map((stair) => stair.id), ["s1", "s2", "s2.1", "s2.2"]);
   assert.equal(source.elevators.length, 0);
 });
 

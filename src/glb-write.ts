@@ -63,8 +63,17 @@ export type MeshPrimitive = {
   quads?: boolean;
   /** Sets `baseColorFactor`. Omitted keeps the flat colour or the image-only material. */
   color?: readonly [number, number, number, number];
-  /** Adds `alphaMode: "BLEND"` and `doubleSided: true`. */
+  /**
+   * Deprecated alias for `{ alphaMode: "BLEND", doubleSided: true }`.
+   * An explicit `alphaMode` or `doubleSided` replaces that half.
+   */
   blend?: boolean;
+  /** Written only when it is not `OPAQUE`. */
+  alphaMode?: "OPAQUE" | "MASK" | "BLEND";
+  /** `MASK` only. Omitted uses 0.5. */
+  alphaCutoff?: number;
+  /** Image-only and flat materials default this to true. */
+  doubleSided?: boolean;
   /**
    * Repeat the image (`10497`) instead of clamping it (`33071`).
    * UVs outside 0..1 are further tiles. A primitive without this flag
@@ -117,12 +126,34 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
   }];
   const materialForImage = new Map<number, number>();
   const materialForPane = new Map<string, number>();
+  const appearanceOf = (primitive: MeshPrimitive): {
+    alphaMode: "OPAQUE" | "MASK" | "BLEND";
+    alphaCutoff?: number;
+    doubleSided: boolean;
+    custom: boolean;
+  } => {
+    const blended = primitive.blend === true;
+    const alphaMode = primitive.alphaMode ?? (blended ? "BLEND" : "OPAQUE");
+    return {
+      alphaMode,
+      ...(primitive.alphaCutoff != null ? { alphaCutoff: primitive.alphaCutoff } : {}),
+      doubleSided: primitive.doubleSided ?? true,
+      custom: primitive.color != null
+        || blended
+        || primitive.alphaMode != null
+        || primitive.alphaCutoff != null
+        || primitive.doubleSided != null,
+    };
+  };
   const paneMaterial = (
     image: number | undefined,
     color: readonly [number, number, number, number] | undefined,
-    blend: boolean,
+    alphaMode: "OPAQUE" | "MASK" | "BLEND",
+    alphaCutoff: number | undefined,
+    doubleSided: boolean,
   ): number => {
-    const key = `${image ?? ""}|${color ? color.join(",") : ""}|${blend ? 1 : 0}`;
+    const cutoff = alphaMode === "MASK" ? alphaCutoff ?? 0.5 : undefined;
+    const key = `${image ?? ""}|${color ? color.join(",") : ""}|${alphaMode}|${cutoff ?? ""}|${doubleSided ? 1 : 0}`;
     const existing = materialForPane.get(key);
     if (existing != null) return existing;
     const index = materials.length;
@@ -133,8 +164,9 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
         metallicFactor: 0,
         roughnessFactor: 1,
       },
-      ...(blend ? { alphaMode: "BLEND" as const, doubleSided: true } : {}),
-      doubleSided:true,
+      ...(alphaMode !== "OPAQUE" ? { alphaMode } : {}),
+      ...(cutoff != null ? { alphaCutoff: cutoff } : {}),
+      doubleSided,
     });
     materialForPane.set(key, index);
     return index;
@@ -175,8 +207,9 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
         );
         const source = imageIndexOf(primitive.image);
         if (primitive.repeat === true) repeatSources.add(source);
-        if (primitive.color != null || primitive.blend === true) {
-          material = paneMaterial(source, primitive.color, primitive.blend === true);
+        const look = appearanceOf(primitive);
+        if (look.custom) {
+          material = paneMaterial(source, primitive.color, look.alphaMode, look.alphaCutoff, look.doubleSided);
         } else {
           const existing = materialForImage.get(source);
           if (existing != null) material = existing;
@@ -189,12 +222,13 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
                 metallicFactor: 0,
                 roughnessFactor: 1,
               },
-              doubleSided:true,
+              doubleSided: primitive.doubleSided ?? true,
             });
           }
         }
-      } else if (primitive.color != null || primitive.blend === true) {
-        material = paneMaterial(undefined, primitive.color, primitive.blend === true);
+      } else {
+        const look = appearanceOf(primitive);
+        if (look.custom) material = paneMaterial(undefined, primitive.color, look.alphaMode, look.alphaCutoff, look.doubleSided);
       }
       primitives.push({ attributes, indices, material, mode: 4 });
     }
