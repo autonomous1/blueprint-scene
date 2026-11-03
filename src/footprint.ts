@@ -151,7 +151,7 @@ export function footprintDetail(
  * at least one cell. This is the measure stencil, not the bake obstacle grid.
  */
 export function measureFootprint(triangles: Triangle[]): LocalBox[] {
-  return occupancy(triangles, {
+  const boxes = occupancy(triangles, {
     cellSize: MEASURE_CELL_M,
     openings: [],
     floorY: null,
@@ -159,6 +159,76 @@ export function measureFootprint(triangles: Triangle[]): LocalBox[] {
     minLength: MEASURE_CELL_M,
     bandM: null,
   }).boxes;
+  return snapToWallPlanes(boxes, wallPlanes(triangles), MEASURE_CELL_M);
+}
+
+/** One axis-aligned vertical face: its plane coordinate, its span on the other axis, its area. */
+type WallFace = { at: number; lo: number; hi: number; area: number };
+
+/**
+ * Vertical faces whose normal is within ~5° of the X or Z axis. Faces on
+ * the same plane (to 1e-5) are kept separately so a span test can pick the
+ * ones beside a given edge.
+ */
+function wallPlanes(triangles: readonly Triangle[]): { x: WallFace[]; z: WallFace[] } {
+  const x: WallFace[] = [];
+  const z: WallFace[] = [];
+  for (const [a, b, c] of triangles) {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+    if (!(len > 1e-12)) continue;
+    const area = len / 2;
+    if (Math.abs(nx) / len > 0.996) {
+      x.push({ at: a[0], lo: Math.min(a[2], b[2], c[2]), hi: Math.max(a[2], b[2], c[2]), area });
+    } else if (Math.abs(nz) / len > 0.996) {
+      z.push({ at: a[2], lo: Math.min(a[0], b[0], c[0]), hi: Math.max(a[0], b[0], c[0]), area });
+    }
+  }
+  return { x, z };
+}
+
+/**
+ * Move each grid-snapped box edge onto the main wall plane near it. The
+ * occupancy grid only sees a wall that covers a cell centre, so an edge can
+ * sit up to a cell off the real face. Candidates are planes within one cell
+ * whose faces overlap the edge's span; the plane with the most face area
+ * there wins (a thin lip or trim face loses to the facade), nearest breaks a
+ * tie. An edge with no candidate stays.
+ */
+function snapToWallPlanes(boxes: LocalBox[], planes: { x: WallFace[]; z: WallFace[] }, cell: number): LocalBox[] {
+  const snap = (value: number, faces: readonly WallFace[], lo: number, hi: number): number => {
+    const byPlane = new Map<number, { at: number; area: number }>();
+    for (const face of faces) {
+      if (Math.abs(face.at - value) > cell + EPS) continue;
+      const overlap = Math.min(face.hi, hi) - Math.max(face.lo, lo);
+      if (!(overlap > EPS)) continue;
+      const key = Math.round(face.at * 1e5);
+      const share = face.area * Math.min(1, overlap / Math.max(face.hi - face.lo, EPS));
+      const prev = byPlane.get(key);
+      if (prev) prev.area += share;
+      else byPlane.set(key, { at: face.at, area: share });
+    }
+    let best: { at: number; area: number } | undefined;
+    for (const plane of byPlane.values()) {
+      if (!best || plane.area > best.area * (1 + 1e-6)
+        || (Math.abs(plane.area - best.area) <= best.area * 1e-6 && Math.abs(plane.at - value) < Math.abs(best.at - value))) {
+        best = plane;
+      }
+    }
+    return best ? best.at : value;
+  };
+  return boxes.map((box) => {
+    const minX = snap(box.minX, planes.x, box.minZ, box.maxZ);
+    const maxX = snap(box.maxX, planes.x, box.minZ, box.maxZ);
+    const minZ = snap(box.minZ, planes.z, box.minX, box.maxX);
+    const maxZ = snap(box.maxZ, planes.z, box.minX, box.maxX);
+    if (!(maxX > minX + EPS) || !(maxZ > minZ + EPS)) return box;
+    return { ...box, minX, maxX, minZ, maxZ };
+  });
 }
 
 type OccupancyOptions = {
