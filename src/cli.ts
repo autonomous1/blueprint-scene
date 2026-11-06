@@ -9,6 +9,7 @@ import { writeCrateProp } from "./crate.ts";
 import { writeDoorProp } from "./prop.ts";
 import { writeRoom } from "./room-glb.ts";
 import { buildSceneGraph } from "./scene-graph.ts";
+import { bakeWalkableRegions, DEFAULT_HEIGHT, DEFAULT_RADIUS, obstaclesFrom, type RegionBox } from "./regions.ts";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { readFloorsSvg } from "./floors-svg.ts";
 import type { BoundsFile, DoorPlacement, Placement } from "./types.ts";
@@ -24,6 +25,7 @@ blueprint-scene room --svg room.svg --out room.glb [--glb blender.glb]
 blueprint-scene floors --svg buildings/<id>.floors.svg
 blueprint-scene scene-graph --buildings web/game/buildings.placements.json --floors <dir> --rooms <dir>
         --doors web/game/doors.placements.json [--room-doors web/game/rooms.placements.json]
+        [--props web/game/props.placements.json] [--radius 0.5] [--height 1.8]
         --bounds web/game/bounds.json --out web/game/scene-graph.json
 
 Inkscape drawing scale is 1 mm = 1 m. A rectangle 8 mm wide is an 8 m facade.
@@ -122,7 +124,10 @@ floors reads layers floor-<n>, doors-external, stairs-external, and ignore. A la
 scene-graph reads the already-baked buildings, doors, bounds, and floors files and
 writes one scene-graph.json. It does not read GLBs. --room-doors is a
 rooms.placements.json; only placements that have hinge are doors. A place
-with no portal is a warning, not an error.`;
+with no portal is a warning, not an error. It also writes regions.json beside
+--out: walkable places partitioned around building, prop, and room obstacles.
+Doors are left open. --props is that props file. --radius and --height default
+to 0.5 and 1.8. A placements file with no obstacles array fails the bake.`;
 
 export function main(argv: string[]): number {
   try {
@@ -242,13 +247,20 @@ function runRoom(argv: string[]): void {
 }
 
 function runSceneGraph(argv: string[]): void {
-  const flags = parseFlags(argv, new Set(["buildings", "floors", "rooms", "doors", "room-doors", "bounds", "out"]));
+  const flags = parseFlags(argv, new Set(["buildings", "floors", "rooms", "doors", "room-doors", "props", "bounds", "out", "radius", "height"]));
   if (!flags.buildings) throw new PlanError(`missing --buildings\n${USAGE}`);
   if (!flags.floors) throw new PlanError(`missing --floors\n${USAGE}`);
   if (!flags.rooms) throw new PlanError(`missing --rooms\n${USAGE}`);
   if (!flags.doors) throw new PlanError(`missing --doors\n${USAGE}`);
   if (!flags.bounds) throw new PlanError(`missing --bounds\n${USAGE}`);
   if (!flags.out) throw new PlanError(`missing --out\n${USAGE}`);
+  const radius = readPositive(flags.radius, "radius", DEFAULT_RADIUS);
+  const height = readPositive(flags.height, "height", DEFAULT_HEIGHT);
+  const boxes = [
+    ...readObstacleBoxes(flags.buildings),
+    ...(flags.props ? readObstacleBoxes(flags.props) : []),
+    ...(flags["room-doors"] ? readObstacleBoxes(flags["room-doors"]) : []),
+  ];
   const buildings = readPlacements(flags.buildings);
   const doors = [
     ...readDoorPlacements(flags.doors),
@@ -272,11 +284,26 @@ function runSceneGraph(argv: string[]): void {
     taken: new Set([...buildings.map((building) => building.id), ...doors.map((door) => door.id)]),
   });
   const linked = buildSceneGraph({ places: derived.places, doors, bounds });
+  const regions = bakeWalkableRegions(linked.graph, boxes, radius, height);
+  const regionsPath = path.join(path.dirname(flags.out), "regions.json");
   mkdirSync(path.dirname(path.resolve(flags.out)), { recursive: true });
   writeFileSync(flags.out, `${JSON.stringify(linked.graph, null, 2)}\n`);
+  writeFileSync(regionsPath, `${JSON.stringify(regions, null, 2)}\n`);
   for (const warning of derived.warnings) console.log(warning);
   for (const warning of linked.warnings) console.log(warning);
   console.log(`wrote ${flags.out}`);
+  console.log(`wrote ${regionsPath}`);
+}
+
+function readPositive(value: string | undefined, name: string, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new PlanError(`--${name} must be a positive number`);
+  return parsed;
+}
+
+function readObstacleBoxes(filePath: string): RegionBox[] {
+  return obstaclesFrom(readJson(filePath), filePath);
 }
 
 function readPlacements(filePath: string): Placement[] {

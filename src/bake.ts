@@ -110,6 +110,7 @@ const RESERVED_OUTPUTS = new Set([
   "rooms.placements.json",
   "rooms.lights.json",
   "scene-graph.json",
+  "regions.json",
   "elevators.json",
 ]);
 
