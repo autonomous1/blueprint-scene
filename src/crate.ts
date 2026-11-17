@@ -10,7 +10,10 @@ export type CratePropOptions = {
   outPath: string;
 };
 
-/** Model-space box. Y is included so the AABB matches the mesh. Bake boxes stay XZ-only. */
+/**
+ * Model-space box.
+ * @why Y is included so the AABB matches the mesh. Bake boxes stay XZ-only.
+ */
 export type CrateCollisionFile = {
   id: string;
   origin: [number, number, number];
@@ -42,11 +45,9 @@ const OPPOSITE: Record<Face, Face> = {
 };
 
 /**
- * One box from an Inkscape `crate-design` layer. 1 mm = 1 m.
- * The origin is the center of the bottom face, so y = 0 is the floor.
- * Front is +Z, right is +X, top is +Y. Each face is one quad.
- * A missing opposite reuses the given side. Collision is a sibling JSON file,
- * not a property of the GLB.
+ * One box from an Inkscape `crate-design` layer. Each face is one quad.
+ * @why 1 mm = 1 m. The origin is the center of the bottom face, so y = 0 is the floor. Front is +Z, right is +X, top is +Y.
+ * @post A missing opposite reuses the given side. Collision is a sibling JSON file, not a property of the GLB.
  */
 export function writeCrateProp(options: CratePropOptions): { glbPath: string; collisionPath: string } {
   const svgText = readSvg(options.svgPath);
@@ -204,7 +205,10 @@ function loadTexture(svgPath: string, shape: LayerShape, face: string): Uint8Arr
   return loadTextureRef(svgPath, ref, face);
 }
 
-/** PNG or JPEG bytes for a face texture. `ref` is a data URI or a path. `what` is the face name. */
+/**
+ * PNG or JPEG bytes for a face texture. `what` is the face name.
+ * @pre `ref` is a data URI or a path.
+ */
 export function loadTextureRef(svgPath: string, ref: string, what: string, label = "crate texture"): Uint8Array {
   if (ref.startsWith("data:")) return imageFromDataUri(ref, what, label);
   return readImage(path.resolve(path.dirname(svgPath), ref), what, label);

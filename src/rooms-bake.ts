@@ -21,7 +21,10 @@ export function buildingToWorld(b: Placement, p: Vec3): Vec3 {
   return [b.position[0] + w.x, b.position[1] + p[1], b.position[2] + w.z];
 }
 
-/** Room-local point → building-local, for instance (center, yaw) on a floor at elevation. */
+/**
+ * Room-local point → building-local.
+ * @pre For instance (center, yaw) on a floor at elevation.
+ */
 export function roomToBuilding(center: { x: number; z: number }, yaw: Yaw, elevation: number, r: Vec3): Vec3 {
   const q = transformXz(r[0], r[2], yaw);
   return [center.x + q.x, elevation + r[1], center.z + q.z];
@@ -63,7 +66,10 @@ export type RoomsPlacementsFile = {
   obstacles: Obstacle[];
 };
 
-/** One room door, in world, ready to merge or to situate. */
+/**
+ * One room door, ready to merge or to situate.
+ * @when In world.
+ */
 export type PendingRoomDoor = {
   id: string;
   width: number;
@@ -86,8 +92,9 @@ export type BuildingRooms = {
 };
 
 /**
- * One shared hall mesh. Asset id is `${model}.floor-${n}.hall`.
- * The GLB is building-local metres, placed at the building origin with scale 1.
+ * One shared hall mesh.
+ * @post Asset id is `${model}.floor-${n}.hall`.
+ * @why The GLB is building-local metres, placed at the building origin with scale 1.
  */
 export type HallFloorMesh = {
   id: string;
@@ -112,8 +119,8 @@ export type FloorBake = {
 };
 
 /**
- * A room wall this far from the footprint edge, in metres, is still the
- * facade. 0.6 covers the room setback plus the wall thickness.
+ * A room wall this far from the footprint edge, in metres, is still the facade.
+ * @why 0.6 covers the room setback plus the wall thickness.
  */
 export const FACADE_BAND_M = 0.6;
 
@@ -122,7 +129,10 @@ const FACADE_PAST_EDGE_M = 0.05;
 
 export type FacadeRejectReason = "inner wall" | "normal" | "distance" | "span";
 
-/** One room door that cuts the shared facade, in GLB model units. */
+/**
+ * One room door that cuts the shared facade.
+ * @why In GLB model units.
+ */
 export type RoomFacadeOpening = {
   /** `<instance id>.<door id>` */
   id: string;
@@ -228,10 +238,8 @@ function assertSameMetres(
 
 /**
  * Room doors whose wall lies on that floor's outline, in the floors frame.
- * A door is on the facade only when its outward normal matches an edge
- * whose span covers the doorway, the face is within `FACADE_BAND_M`, and
- * the span fits the edge. Interior doors are rejected. The box is GLB
- * units: metres divided by the floors scale. World placement is not an input.
+ * @pre A door is on the facade only when its outward normal matches an edge whose span covers the doorway, the face is within `FACADE_BAND_M`, and the span fits the edge.
+ * @post Interior doors are rejected. The box is GLB units: metres divided by the floors scale. World placement is not an input.
  */
 export function roomFacadeOpenings(
   source: FloorsSource,
@@ -544,7 +552,7 @@ function polygonAabb(polygon: readonly (readonly [number, number])[]): Aabb2 {
 
 /**
  * External doors, stairs, and room instances for every building that has a floors file.
- * Doors and props are world `SceneDoor` / `SceneProp` values to append before the bake loops.
+ * @post Doors and props are world `SceneDoor` / `SceneProp` values to append before the bake loops.
  */
 export function loadFloors(input: LoadInput): FloorBake {
   const ids = new Set(input.taken);
@@ -744,7 +752,10 @@ export type RoomDoorHosts = {
   buildings: Obstacle[];
 };
 
-/** An unmerged room door that cut this building's wall boxes. `local` is door-local. */
+/**
+ * An unmerged room door that cut this building's wall boxes.
+ * @why `local` is door-local.
+ */
 export type RoomWallCut = {
   id: string;
   file: string;
@@ -754,14 +765,10 @@ export type RoomWallCut = {
 
 /**
  * Merge a room door into a situated door of the same opening, or return a leaf.
- * A partial overlap throws. A size mismatch warns and still merges.
- * An unmerged leaf is cut from the room walls and from the emitted building
- * boxes with `cutDoorFromBoxes`, the same opening an exterior door uses.
- * The building cut stops 1 m past the opening, so a leaf that faces a hall
- * cannot tunnel through a deep box to the far facade. The room-wall cut is not capped.
- * A leaf that hits a building wall is returned in `wallCuts`, in the door
- * frame. That volume is collision only. A room door on the footprint edge
- * also punches the shared mesh, from `roomFacadeOpenings`, not from here.
+ * An unmerged leaf is cut from the room walls and from the emitted building boxes with `cutDoorFromBoxes`, the same opening an exterior door uses.
+ * @pre A partial overlap throws.
+ * @post A size mismatch warns and still merges. A leaf that hits a building wall is returned in `wallCuts`, in the door frame. That volume is collision only.
+ * @why The building cut stops 1 m past the opening, so a leaf that faces a hall cannot tunnel through a deep box to the far facade. The room-wall cut is not capped. A room door on the footprint edge also punches the shared mesh, from `roomFacadeOpenings`, not from here.
  */
 export function placeRoomDoors(
   pending: readonly PendingRoomDoor[],
@@ -823,10 +830,8 @@ export function placeRoomDoors(
 
 /**
  * Cut each situated opening out of this building's room obstacles.
- * Those boxes are already world AABBs, so the cut uses an identity pose.
- * A door that misses a box leaves it, including its id. A split replaces
- * that id with `<id>.0`, `<id>.1`, … . Pieces thinner than the door epsilon
- * are dropped inside `cutDoorFromBoxes`.
+ * @why Those boxes are already world AABBs, so the cut uses an identity pose.
+ * @post A door that misses a box leaves it, including its id. A split replaces that id with `<id>.0`, `<id>.1`, … . Pieces thinner than the door epsilon are dropped inside `cutDoorFromBoxes`.
  */
 export function cutRoomWalls(
   obstacles: Obstacle[],
@@ -838,10 +843,9 @@ export function cutRoomWalls(
 
 /**
  * Open `<building>-wall-*` where a room facade door's visual box sits.
- * The box is the same GLB-space slab the shared mesh uses. `placeRoomDoors`
- * already cuts a leaf that reaches the shell; this covers the setback the
- * inward door stamp does not. A skin with zero extent on one axis is cut
- * in the other two and kept at that coordinate.
+ * The box is the same GLB-space slab the shared mesh uses.
+ * @post A skin with zero extent on one axis is cut in the other two and kept at that coordinate.
+ * @why `placeRoomDoors` already cuts a leaf that reaches the shell; this covers the setback the inward door stamp does not.
  */
 export function cutFacadeWalls(
   obstacles: Obstacle[],
@@ -1074,7 +1078,10 @@ function obstacleToLocal(obstacle: Obstacle): LocalBox {
   };
 }
 
-/** Inverse of `buildingToWorld`. Metres in the placement frame, not GLB units. */
+/**
+ * @see `buildingToWorld`, inverted.
+ * @why Metres in the placement frame, not GLB units.
+ */
 export function worldToBuilding(b: Placement, p: Vec3): Vec3 {
   const local = transformXz(p[0] - b.position[0], p[2] - b.position[2], inverseYaw(b.yaw));
   return [local.x, p[1] - b.position[1], local.z];
@@ -1082,7 +1089,7 @@ export function worldToBuilding(b: Placement, p: Vec3): Vec3 {
 
 /**
  * World scene door → the building-local frame `expandModelDoor` consumes.
- * The reference placement is the copy the rectangle overlaps.
+ * @pre The reference placement is the copy the rectangle overlaps.
  */
 export function doorToBuildingLocal(door: SceneDoor, building: Placement): SceneDoor {
   const center = worldToBuilding(building, door.center);
@@ -1107,10 +1114,10 @@ export function doorToBuildingLocal(door: SceneDoor, building: Placement): Scene
 }
 
 /**
- * One model-local door onto every given placement. Leaf id is
- * `${placement.id}.${door.id}`. Floors `doors-external` and a scene door
- * whose `data-building` is a model both use this, so the copy is one rule.
- * Pass only placements of that model. Static instances share one opening.
+ * One model-local door onto every given placement.
+ * @pre Pass only placements of that model.
+ * @post Leaf id is `${placement.id}.${door.id}`. Static instances share one opening.
+ * @why Floors `doors-external` and a scene door whose `data-building` is a model both use this, so the copy is one rule.
  */
 export function expandModelDoor(door: SceneDoor, placements: readonly Placement[]): SceneDoor[] {
   const local: SceneDoor = { ...door, bind: "model" };
@@ -1121,7 +1128,7 @@ type WorldAabb = { min: Vec3; max: Vec3 };
 
 /**
  * Placement of `door.building`'s model that the door rectangle overlaps.
- * No overlap: the nearest. Several overlaps: the greatest XZ area, then the nearer.
+ * @post No overlap: the nearest. Several overlaps: the greatest XZ area, then the nearer.
  */
 export function referencePlacement(
   door: SceneDoor,
@@ -1154,8 +1161,9 @@ export function referencePlacement(
 
 /**
  * Scene doors from `readScene` become one world door per target placement.
- * Model-scoped doors expand. Placement-scoped doors stay one leaf.
- * `taken` is placement and prop ids. An expanded leaf that collides throws.
+ * @pre `taken` is placement and prop ids.
+ * @post Model-scoped doors expand. Placement-scoped doors stay one leaf.
+ * @invariant An expanded leaf that collides throws. (test: exterior_door_ids_are_unique)
  */
 export function resolveExteriorDoors(
   doors: readonly SceneDoor[],
@@ -1413,7 +1421,10 @@ function hostBox(wall: WallFace, width: number, depth: number, height: number): 
   };
 }
 
-/** Outward normal of a room-local wall. +Z is front. */
+/**
+ * Outward normal of a room-local wall.
+ * @why +Z is front.
+ */
 export function wallNormal(wall: WallFace): { x: number; z: number } {
   switch (wall) {
     case "front":

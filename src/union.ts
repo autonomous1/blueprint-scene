@@ -11,16 +11,17 @@ export type Aabb2 = {
 export type XzPoint = { x: number; z: number };
 
 /**
- * One closed ring of the union. `area > 0` is an outer contour,
- * counter-clockwise in XZ (x to the right, z up). `area < 0` is a hole.
+ * One closed ring of the union.
+ * @invariant `area > 0` is an outer contour, counter-clockwise in XZ (x to the right, z up). `area < 0` is a hole. (test: union_positive_area_is_ccw)
  */
 export type Ring = { points: XzPoint[]; area: number };
 
 const EPS = 1e-6;
 
 /**
- * `outer` minus `holes`, as the grid cells whose centres lie in `outer` and
- * in no hole. A hole that only clips a corner leaves the rest of that cell.
+ * `outer` minus `holes`.
+ * @post The grid cells whose centres lie in `outer` and in no hole.
+ * @why A hole that only clips a corner leaves the rest of that cell.
  */
 export function subtractAabbs(outer: Aabb2, holes: readonly Aabb2[]): Aabb2[] {
   const xs = edges([outer.minX, outer.maxX, ...holes.flatMap((hole) => [hole.minX, hole.maxX])]);
@@ -55,9 +56,8 @@ function edges(values: number[]): number[] {
 
 /**
  * Union axis-aligned boxes the way Inkscape Path → Union does.
- * Walk with the solid on the left. A square (0,0)–(1,1) is
- * (0,0) → (1,0) → (1,1) → (0,1). A fully enclosed courtyard is a
- * clockwise hole. Boxes that only share a corner stay separate rings.
+ * @why Walk with the solid on the left. A square (0,0)–(1,1) is (0,0) → (1,0) → (1,1) → (0,1).
+ * @post A fully enclosed courtyard is a clockwise hole. Boxes that only share a corner stay separate rings.
  */
 export function unionAabbs(boxes: readonly Aabb2[]): Ring[] {
   const live = boxes.filter((box) => box.maxX > box.minX + EPS && box.maxZ > box.minZ + EPS);

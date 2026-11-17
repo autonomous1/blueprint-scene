@@ -12,8 +12,9 @@ export type DoorCorner = {
 };
 
 /**
- * One triangle mesh, positions only. No material, skin, or animation clip.
- * The chunk padding matches the glTF 2 GLB layout.
+ * One triangle mesh, positions only.
+ * @post No material, skin, or animation clip.
+ * @why The chunk padding matches the glTF 2 GLB layout.
  */
 export function writeTriangleGlb(name: string, triangles: Triangle[]): Uint8Array {
   const floats: number[] = [];
@@ -99,9 +100,8 @@ export function imageMime(bytes: Uint8Array): "image/png" | "image/jpeg" | undef
 }
 
 /**
- * One node per mesh, at the vertex origin. A mesh with `parent` hangs under
- * that group node. No skin and no animation. A primitive with `image` gets
- * TEXCOORD_0. Other faces use a flat color.
+ * One node per mesh, at the vertex origin. No skin and no animation.
+ * @when A mesh with `parent` hangs under that group node. A primitive with `image` gets TEXCOORD_0. Other faces use a flat color.
  */
 export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
   const images: Uint8Array[] = [];
@@ -272,9 +272,9 @@ export function writeMeshesGlb(meshes: readonly NamedMesh[]): Uint8Array {
  * mesh, so a loader can yaw the whole frame without picking one stile.
  */
 /**
- * Write meshes whose node transforms are already in the vertices. Image bytes
- * are copied as given. Materials, textures, and samplers keep their JSON,
- * including KTX2 / `KHR_texture_basisu`. Node names are the names passed in.
+ * @pre Write meshes whose node transforms are already in the vertices.
+ * @post Node names are the names passed in.
+ * @why Image bytes are copied as given. Materials, textures, and samplers keep their JSON, including KTX2 / `KHR_texture_basisu`.
  */
 export function writeTexturedGlb(doc: TexturedGlb): Uint8Array {
   const bin = new BinBuilder();

@@ -8,7 +8,10 @@ const STENCIL_SLIVER_M = 0.05;
 
 export type ModelBounds = { min: Vec3; max: Vec3 };
 
-/** Axis-aligned bounds of every triangle vertex, in raw GLB units. */
+/**
+ * Axis-aligned bounds of every triangle vertex.
+ * @why In raw GLB units.
+ */
 export function boundsOfTriangles(triangles: Triangle[]): ModelBounds | undefined {
   if (triangles.length === 0) return undefined;
   let minX = Infinity;
@@ -31,10 +34,9 @@ export function boundsOfTriangles(triangles: Triangle[]): ModelBounds | undefine
 }
 
 /**
- * One rectangle, the XZ extent plans are scaled against. Paper-thin
- * triangles are left out. A mesh with no thicker triangle uses the raw
- * bounds, so a copied plan still has a scale. The measure SVG does not
- * draw this rectangle; it draws the union of the collision runs.
+ * One rectangle, the XZ extent plans are scaled against.
+ * @why Paper-thin triangles are left out. The measure SVG does not draw this rectangle; it draws the union of the collision runs.
+ * @post A mesh with no thicker triangle uses the raw bounds, so a copied plan still has a scale.
  */
 export function stencilBoxes(triangles: Triangle[]): LocalBox[] {
   let minX = Infinity;
@@ -80,7 +82,9 @@ export function stencilBoxes(triangles: Triangle[]): LocalBox[] {
   }];
 }
 
-/** Union of the stencil on X (width) and Z (depth), in model meters. */
+/**
+ * @post Union of the stencil on X (width) and Z (depth), in model meters.
+ */
 export function stencilSize(boxes: readonly LocalBox[]): { width: number; depth: number } {
   if (boxes.length === 0) return { width: 0, depth: 0 };
   let minX = Infinity;

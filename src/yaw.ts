@@ -1,10 +1,8 @@
 import type { LocalBox, Vec3, Yaw } from "./types.ts";
 
 /**
- * Yaw is degrees about +Y, right-handed: the same turn as Three.js
- * `Object3D.rotation.y` and a glTF quaternion about +Y.
- * 0 leaves model axes in place. 90 sends model +X to world −Z and model +Z to world +X.
- * Placements only use 0, 90, 180, and 270 (`yawConvention: "y-up-90"`).
+ * @why Yaw is degrees about +Y, right-handed: the same turn as Three.js `Object3D.rotation.y` and a glTF quaternion about +Y. Placements only use 0, 90, 180, and 270 (`yawConvention: "y-up-90"`).
+ * @post 0 leaves model axes in place. 90 sends model +X to world −Z and model +Z to world +X.
  */
 export function transformXz(x: number, z: number, yaw: Yaw): { x: number; z: number } {
   switch (yaw) {
@@ -19,7 +17,10 @@ export function transformXz(x: number, z: number, yaw: Yaw): { x: number; z: num
   }
 }
 
-/** Inverse of `transformXz`. 90° and 270° swap; 0° and 180° are their own inverses. */
+/**
+ * @see `transformXz`, inverted.
+ * @post 90° and 270° swap; 0° and 180° are their own inverses.
+ */
 export function inverseYaw(yaw: Yaw): Yaw {
   if (yaw === 90) return 270;
   if (yaw === 270) return 90;
@@ -31,7 +32,10 @@ function xz(x: number, z: number): { x: number; z: number } {
   return { x: x === 0 ? 0 : x, z: z === 0 ? 0 : z };
 }
 
-/** Model-space AABB to world AABB. Yaw turns XZ; Y is unchanged. */
+/**
+ * Model-space AABB to world AABB.
+ * @post Yaw turns XZ; Y is unchanged.
+ */
 export function placeBox(box: LocalBox, position: Vec3, yaw: Yaw): { min: Vec3; max: Vec3 } {
   let minX = Infinity;
   let maxX = -Infinity;

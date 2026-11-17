@@ -7,10 +7,14 @@ import { faceCorners } from "./room-glb.ts";
 import type { RoomLightSource, RoomSource, WallFace } from "./room-svg.ts";
 import type { DoorHinge, LocalBox, Vec3, Yaw } from "./types.ts";
 
-/** Wall boxes sit this far behind the face, outside the room. */
+/**
+ * @why Wall boxes sit this far behind the face, outside the room.
+ */
 export const WALL_T = 0.2;
 
-/** Floor boxes sit this far below y = 0. */
+/**
+ * @why Floor boxes sit this far below y = 0.
+ */
 export const FLOOR_T = 0.1;
 
 export const MAX_ROOM_OBSTACLES = 64;
@@ -121,7 +125,10 @@ function roomDoor(door: RoomSource["doors"][number]): RoomDoor {
   };
 }
 
-/** Collision boxes, walkable floor rects, and doors. Numbers are rounded to 1e-6 m. */
+/**
+ * Collision boxes, walkable floor rects, and doors.
+ * @post Numbers are rounded to 1e-6 m.
+ */
 export function roomFile(room: RoomSource, glb: string, source: "svg" | "blender"): RoomFile {
   const hx = room.width / 2;
   const hz = room.depth / 2;

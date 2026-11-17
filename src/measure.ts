@@ -40,10 +40,8 @@ export type MeasureResult = {
 };
 
 /**
- * Raw GLB bounds and an SVG footprint group, both in GLB units. One GLB unit
- * is 1 mm on the page. The path is the union of the 0.05-unit runs. It is
- * not scaled to arena meters, not a layout, and not a collider. The bake's
- * 1 m cutoff is not applied.
+ * Raw GLB bounds and an SVG footprint group, both in GLB units.
+ * @why One GLB unit is 1 mm on the page. The path is the union of the 0.05-unit runs. It is not scaled to arena meters, not a layout, and not a collider. The bake's 1 m cutoff is not applied.
  */
 export function measure(options: MeasureOptions): MeasureResult {
   const id = path.basename(options.outPath, path.extname(options.outPath));
@@ -84,12 +82,9 @@ export function measure(options: MeasureOptions): MeasureResult {
 }
 
 /**
- * Model Z → SVG −y, so +Z stays at the top of the page. Model X is reflected
- * inside that footprint (`x = minX + maxX − x`), so +X sits on the left.
- * The viewBox is the unflipped box, so the center and the scale extents do
- * not move. One filled path: the union of the runs. A courtyard that is
- * fully enclosed stays a hole (`fill-rule="evenodd"`). This is not the outer
- * bounds rectangle.
+ * One filled path: the union of the runs.
+ * @why Model Z → SVG −y, so +Z stays at the top of the page. Model X is reflected inside that footprint (`x = minX + maxX − x`), so +X sits on the left. The viewBox is the unflipped box, so the center and the scale extents do not move.
+ * @post A courtyard that is fully enclosed stays a hole (`fill-rule="evenodd"`). This is not the outer bounds rectangle.
  */
 export function stencilSvg(id: string, boxes: readonly LocalBox[]): string {
   const rings = unionAabbs(boxes);

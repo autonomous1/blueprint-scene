@@ -6,7 +6,10 @@
   "bin": {
     "blueprint-scene": "./dist/cli.js"
   },
-  "files": ["dist", "bin"],
+  "files": [
+    "dist",
+    "bin"
+  ],
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepare": "npm run build",
@@ -22,6 +25,11 @@
   "license": "ISC",
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/three": "^0.187.0",
     "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "three": "^0.187.0",
+    "three-mesh-bvh": "^0.9.18"
   }
 }

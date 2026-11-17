@@ -11,10 +11,14 @@ export type DoorPropOptions = {
   outPath: string;
 };
 
-/** The frame does not swing. Its depth is the wall thickness of the ring. */
+/**
+ * @why The frame does not swing. Its depth is the wall thickness of the ring.
+ */
 export const FRAME_DEPTH_M = 0.12;
 
-/** The panel is thinner than the frame and sits against the back of the ring. */
+/**
+ * @why The panel is thinner than the frame and sits against the back of the ring.
+ */
 export const DOOR_LEAF_DEPTH_M = 0.08;
 
 const EDGE_EPS = 1e-3;
@@ -24,19 +28,11 @@ type HingeSide = "left" | "right";
 
 /**
  * One GLB from an Inkscape `door-design` layer.
- * Part ids are `data-part-frame`, `data-part-door`, `data-part-hinge`,
- * and `data-part-texture`.
- * The frame is four boxes, the outer rectangle minus the door, parented
- * under a node named `frame`. That node does not swing. Depth is 0.12 m.
- * `door` is the panel. Its origin is the hinge edge, midway up, on the
- * back of the frame (z = 0). The panel extends toward +Z, the outward face.
- *
- * A left hinge occupies x 0..width. A right hinge occupies x −width..0.
- * Check, left hinge, door 1 m by 2.1 m inside a 1.2 m by 2.4 m frame: the
- * back hinge edge is x = 0, y = ±1.05, z = 0. The left stile is x −0.1..0.
- * The texture image is the full face. Each frame piece samples the strip
- * of that image it covers, so the left stile reads the left edge. The door
- * front and back sample only the door rectangle. V = 0 is the top of the PNG.
+ * Part ids are `data-part-frame`, `data-part-door`, `data-part-hinge`, and `data-part-texture`.
+ * The frame is four boxes, the outer rectangle minus the door, parented under a node named `frame`.
+ * Check, left hinge, door 1 m by 2.1 m inside a 1.2 m by 2.4 m frame: the back hinge edge is x = 0, y = ±1.05, z = 0. The left stile is x −0.1..0.
+ * @why That node does not swing. Depth is 0.12 m. The texture image is the full face. Each frame piece samples the strip of that image it covers, so the left stile reads the left edge. The door front and back sample only the door rectangle. V = 0 is the top of the PNG.
+ * @post `door` is the panel. Its origin is the hinge edge, midway up, on the back of the frame (z = 0). The panel extends toward +Z, the outward face. A left hinge occupies x 0..width. A right hinge occupies x −width..0.
  */
 export function writeDoorProp(options: DoorPropOptions): void {
   const svgText = readSvg(options.svgPath);

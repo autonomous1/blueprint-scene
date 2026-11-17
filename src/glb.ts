@@ -90,8 +90,9 @@ export type GlbLoadOptions = {
 };
 
 /**
- * Triangle meshes in model space, with glTF node transforms applied.
- * Empty primitives are skipped. Throws when the scene has no triangle positions.
+ * Triangle meshes in model space.
+ * @post glTF node transforms are applied. Empty primitives are skipped.
+ * @why Throws when the scene has no triangle positions.
  */
 export function trianglesFromGlb(bytes: Uint8Array, options?: GlbLoadOptions): GlbLoad {
   const { json, bin } = parseGlb(bytes);
@@ -361,9 +362,9 @@ export type TexturedImage = {
 };
 
 /**
- * Textured triangle meshes in the same space as `trianglesFromGlb`: node
- * transforms are applied, placement scale is not. Image payloads and material
- * objects are copied so a writer can embed them again without recompressing.
+ * Textured triangle meshes in the same space as `trianglesFromGlb`.
+ * @post Node transforms are applied, placement scale is not.
+ * @why Image payloads and material objects are copied so a writer can embed them again without recompressing.
  */
 export type TexturedGlb = {
   meshes: TexturedMesh[];
@@ -385,8 +386,8 @@ type TexGltf = Gltf & {
 };
 
 /**
- * Read every triangle primitive with positions, normals, UVs, and the
- * material/image it references. External images and non-float attributes fail.
+ * Read every triangle primitive with positions, normals, UVs, and the material/image it references.
+ * @pre External images and non-float attributes fail.
  */
 export function readTexturedGlb(bytes: Uint8Array): TexturedGlb {
   const { json, bin } = parseGlb(bytes);

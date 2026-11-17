@@ -1,11 +1,14 @@
 export type Vec3 = [number, number, number];
 
-/** Quarter-turn about +Y, in degrees. See `transformXz`. */
+/**
+ * Quarter-turn about +Y, in degrees.
+ * @see `transformXz`
+ */
 export type Yaw = 0 | 90 | 180 | 270;
 
 /**
- * `type` on an asset in `arena.game.json`. `kind` on that asset stays
- * `model` or `texture`. This list is not read from an Inkscape label.
+ * `type` on an asset in `arena.game.json`.
+ * @why `kind` on that asset stays `model` or `texture`. This list is not read from an Inkscape label.
  */
 export const ASSET_TYPES = [
   "sky",
@@ -45,7 +48,7 @@ export type Obstacle = {
 
 /**
  * Room rectangle from the Inkscape `bounds` layer, in world metres.
- * `minY` / `maxY` are set only when the rectangle carries `data-min-y` / `data-max-y`.
+ * @when `minY` / `maxY` are set only when the rectangle carries `data-min-y` / `data-max-y`.
  */
 export type XzBounds = {
   minX: number;
@@ -56,7 +59,10 @@ export type XzBounds = {
   maxY?: number;
 };
 
-/** File the manifest points at with `scene.bounds`. Vertical span defaults to −2..12. */
+/**
+ * File the manifest points at with `scene.bounds`.
+ * @why Vertical span defaults to −2..12.
+ */
 export type BoundsFile = {
   minX: number;
   maxX: number;
@@ -67,10 +73,9 @@ export type BoundsFile = {
 };
 
 /**
- * A tagged rectangle on the `props` layer. Position is the center.
- * `scale` is the uniform SVG scale (1 when the rectangle is not scaled).
- * The obstacle is the model bounds when that GLB is loaded, otherwise this
- * rectangle. Neither box is grown by the pawn radius.
+ * A tagged rectangle on the `props` layer.
+ * @why Position is the center. `scale` is the uniform SVG scale (1 when the rectangle is not scaled). Neither box is grown by the pawn radius.
+ * @post The obstacle is the model bounds when that GLB is loaded, otherwise this rectangle.
  */
 export type SceneProp = {
   id: string;
@@ -95,8 +100,9 @@ export type SceneSpawn = {
 export type DoorHinge = "left" | "right";
 
 /**
- * A rectangle on the `doors` layer, before it is pushed onto a wall.
- * `center` is the rectangle center. `width` is set only by `data-width`.
+ * A rectangle on the `doors` layer.
+ * @when Before it is pushed onto a wall.
+ * @why `center` is the rectangle center. `width` is set only by `data-width`.
  */
 export type SceneDoor = {
   id: string;
@@ -136,15 +142,9 @@ export type SceneDoor = {
 };
 
 /**
- * One hinged panel. `position` is the hinge on the wall face: the hinge
- * edge of the plan rectangle (left hinge: its local −X end, right hinge: its
- * +X end), pushed onto that face. The arena mounts the GLB origin, which is
- * the hinge, there, so the mesh and the opening start at the drawn
- * rectangle's hinge edge. `size` is `[width, height, depth]` in meters.
- * The width is `data-width`, else the door GLB's panel width, else the
- * drawn span. There is no obstacle.
- * The clear opening is not centered on `position`. A left hinge occupies
- * local x 0..width and a right hinge local x −width..0, from y 0 to `size[1]`.
+ * One hinged panel. `size` is `[width, height, depth]` in meters.
+ * @why `position` is the hinge on the wall face: the hinge edge of the plan rectangle (left hinge: its local −X end, right hinge: its +X end), pushed onto that face. The arena mounts the GLB origin, which is the hinge, there, so the mesh and the opening start at the drawn rectangle's hinge edge. There is no obstacle.
+ * @post The width is `data-width`, else the door GLB's panel width, else the drawn span. The clear opening is not centered on `position`. A left hinge occupies local x 0..width and a right hinge local x −width..0, from y 0 to `size[1]`.
  */
 export type DoorPlacement = {
   id: string;
@@ -172,7 +172,8 @@ export type DoorsFile = {
 
 /**
  * File the manifest points at with `scene.spawnPoints` or `scene.playerSpawnPoints`.
- * `y` is 0. Player pads are the same shape, written to `player-spawns.json`.
+ * @post `y` is 0.
+ * @why Player pads are the same shape, written to `player-spawns.json`.
  */
 export type SpawnPoint = {
   id: string;
@@ -189,7 +190,10 @@ export type PlacementsFile = {
   obstacles: Obstacle[];
 };
 
-/** Model-space wall run. Y is kept for world obstacles and omitted from the collision file. */
+/**
+ * Model-space wall run.
+ * @why Y is kept for world obstacles and omitted from the collision file.
+ */
 export type LocalBox = {
   minX: number;
   maxX: number;
@@ -216,7 +220,10 @@ export type CollisionFile = {
 
 export type PlaceKind = "room" | "hall" | "platform" | "stairs" | "elevator" | "landing";
 
-/** One walkable region. Stairs and elevators add the fields on {@link StairsPlace} and {@link ElevatorPlace}. */
+/**
+ * One walkable region.
+ * @see `StairsPlace` and `ElevatorPlace` for the fields stairs and elevators add.
+ */
 export type ScenePlace = {
   id: string;
   kind: PlaceKind;
@@ -229,7 +236,10 @@ export type ScenePlace = {
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
 };
 
-/** A stair run. `top` and the landing `y` values are world metres. */
+/**
+ * A stair run.
+ * @why `top` and the landing `y` values are world metres.
+ */
 export type StairsPlace = ScenePlace & {
   kind: "stairs";
   /** World y of the top of the run. */
@@ -241,7 +251,10 @@ export type StairsPlace = ScenePlace & {
   joins: { from?: string; to?: string };
 };
 
-/** An elevator shaft. `stops` and landing `y` values are world metres. */
+/**
+ * An elevator shaft.
+ * @why `stops` and landing `y` values are world metres.
+ */
 export type ElevatorPlace = ScenePlace & {
   kind: "elevator";
   /** World y, ascending. */

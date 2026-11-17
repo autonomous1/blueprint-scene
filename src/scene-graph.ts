@@ -65,8 +65,9 @@ type Xz = readonly [number, number];
 
 /**
  * Link places through doors, stairs, elevators, and hall/platform openings.
- * `places` is the `derivePlaces` list. `doors` is building doors plus room doors.
- * A probe that matches nothing does not fail the bake; it is a warning and no portal.
+ * @pre `places` is the `derivePlaces` list. `doors` is building doors plus room doors.
+ * @post A probe that matches nothing does not fail the bake; it is a warning and no portal.
+ * @invariant A linking door's portal id is that door's id, so distinct door ids stay distinct portal ids. (test: scene_graph_door_portal_ids)
  */
 export function buildSceneGraph(args: {
   places: readonly AnyPlace[];
@@ -128,8 +129,8 @@ export function buildSceneGraph(args: {
 
 /**
  * World point of the opening's middle, `localZ` metres along door local +Z.
- * Local +X is `(cos θ, −sin θ)` and local +Z is `(sin θ, cos θ)`, θ the yaw.
- * A left hinge's middle is `+width/2`; a right hinge's middle is `−width/2`.
+ * @why Local +X is `(cos θ, −sin θ)` and local +Z is `(sin θ, cos θ)`, θ the yaw.
+ * @post A left hinge's middle is `+width/2`; a right hinge's middle is `−width/2`.
  */
 export function doorProbe(door: DoorPlacement, localZ: number): Vec3 {
   const theta = (door.yaw * Math.PI) / 180;

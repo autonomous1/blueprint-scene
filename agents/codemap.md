@@ -8,47 +8,55 @@ Per file: `imports` = local modules it imports, `pkgs` = packages, `used by` = l
 ## Files
 
 ```text
-src/ (29 files, 14759 lines)
-  asset-type.ts 101L 3x
+src/ (30 files, 14955 lines)
+  asset-type.ts 103L 3x
   bake.ts 1358L 3x
-  building-mesh-cut.ts 655L 10x
-  cli.ts 388L 1x
-  crate.ts 321L 4x
-  doors.ts 496L 13x
+  building-mesh-cut.ts 646L 10x
+  cli.ts 408L 1x
+  crate.ts 325L 4x
+  doors.ts 467L 13x
   errors.ts 6L 1x
-  floors-svg.ts 1382L 10x
-  footprint.ts 1174L 11x
+  floors-svg.ts 1391L 10x
+  footprint.ts 1178L 11x
   glb-write.ts 552L 7x
-  glb.ts 549L 9x
-  hall-floor.ts 289L 11x
-  measure.ts 155L 5x
+  glb.ts 550L 9x
+  hall-floor.ts 295L 11x
+  measure.ts 150L 5x
   places.ts 845L 1x
-  plan.ts 1171L 33x
-  prop.ts 339L 4x
-  regions.ts 618L 15x — Walkable region adjacency for one flat floor.
-  room-cut.ts 185L 6x
-  room-file.ts 220L 8x
-  room-glb.ts 235L 3x
-  room-svg.ts 845L 12x
-  rooms-bake.ts 1503L 29x
-  scene-graph.ts 504L 6x
-  stairs-mesh.ts 67L 4x
-  stencil.ts 97L 4x
-  types.ts 261L 25x
+  plan.ts 1175L 33x
+  prop.ts 335L 4x
+  regions.ts 624L 15x — Walkable region adjacency for one flat floor.
+  room-cut.ts 195L 6x
+  room-file.ts 227L 8x
+  room-glb.ts 238L 3x
+  room-svg.ts 850L 12x
+  rooms-bake.ts 1514L 29x
+  scene-graph.ts 505L 6x
+  spatial-dag.ts 121L 1x — Static spatial DAG output: merged obstacle chunks plus a place hierarchy.
+  stairs-mesh.ts 75L 4x
+  stencil.ts 101L 4x
+  types.ts 274L 25x
   union.ts 240L 5x
   xml.ts 150L 4x
-  yaw.ts 53L 3x
+  yaw.ts 57L 3x
 ```
 
 ## Modules
 
-### src/asset-type.ts (101)
+### src/asset-type.ts (103)
 imports: src/errors.ts, src/types.ts
 used by: src/bake.ts, src/rooms-bake.ts
 - `ASSET_TYPE_SET` const (local) :4 `: ReadonlySet<string>`
-- `readAssetTypes` fn :11 `(text: string, filePath: string): Map<string, AssetType>` — Asset id to placement type, from `arena.game.json`.
-- `readAssetFiles` fn :48 `(text: string, filePath: string): Map<string, string>` — Asset id to the file name its `uri` ends in, from `arena.game.json`.
-- `stampPlacement` fn :75 `<T extends { model: string }>(placement: T, types: ReadonlyMap<string, AssetType>): T` — Copy the asset type onto a placement, after `model`.
+- `readAssetTypes` fn :12 `(text: string, filePath: string): Map<string, AssetType>` — Asset id to placement type, from `arena.game.json`.
+  `@pre` `assets` may be an array of `{ id, type }` or an object of those records.
+  `@post` An asset with no type is absent from the map.
+  `@why` `kind` (model or texture) is ignored.
+- `readAssetFiles` fn :49 `(text: string, filePath: string): Map<string, string>` — Asset id to the file name its `uri` ends in, from `arena.game.json`.
+  `@post` `door-1` declared with "uri": "/assets/models/door1.glb" maps to `door1.glb`. Assets with no string `uri` are absent.
+  `@why` Types are not checked here.
+- `stampPlacement` fn :77 `<T extends { model: string }>(placement: T, types: ReadonlyMap<string, AssetType>): T` — Copy the asset type onto a placement, after `model`.
+  `@post` No asset type leaves the field off.
+  `@why` A leftover `kind` is not written.
 
 ### src/bake.ts (1358)
 imports: src/asset-type.ts, src/building-mesh-cut.ts, src/doors.ts, src/errors.ts, src/floors-svg.ts, src/footprint.ts, src/glb.ts, src/places.ts, src/plan.ts, src/room-file.ts, src/rooms-bake.ts, src/scene-graph.ts, src/stencil.ts, src/types.ts, src/yaw.ts
@@ -121,315 +129,386 @@ used by: src/cli.ts
 - `roundM` fn (local) :1352 `(n: number): number`
 - `roundVec` fn (local) :1356 `(v: Vec3): Vec3`
 
-### src/building-mesh-cut.ts (655)
+### src/building-mesh-cut.ts (646)
 imports: src/doors.ts, src/errors.ts, src/glb-write.ts, src/glb.ts, src/types.ts, src/yaw.ts
 used by: src/bake.ts
 - `PLANE_EPS` const (local) :13 `= 1e-8` — A point this far outside a plane is outside the opening.
 - `Vert` type (local) :15 `= { p: Vec3; n?: Vec3; uv?: readonly [number, number]; }`
-- `openingInModel` fn :32 `(placement: DoorPlacement, buildingPosition: Vec3, buildingYaw: Yaw, buildingScale: number): LocalBox` — The door gap in the building GLB's space.
-- `boxInModel` fn :47 `(placement: DoorPlacement, local: LocalBox, buildingPosition: Vec3, buildingYaw: Yaw, buildingScale: number): LocalBox` — `local` is in the door frame (`doorClearLocal`: hinge at the origin, −Z inward).
-- `SKIN_M` const (local) :83 `= 0.02` — A collision skin thinner than this, in model units, may stop short of the facade.
-- `SKIN_REACH_M` const (local) :90 `= 0.02` — How far past a thin skin a center-ray hit may pull the punch, in model units.
-- `FACADE_SLIVER_M` const (local) :96 `= 0.002` — A through-cut already spans the wall, but the facade vertex can still sit a fraction of a millimetre outside that face.
-- `WALL_SLAB_M` const (local) :103 `= 1` — Visual punch depth, in world metres.
-- `sealedOpeningBox` fn :112 `(triangles: readonly Triangle[], placement: DoorPlacement, local: LocalBox, buildingPosition: Vec3, buildingYaw: Yaw, buildingScale: number): { box: LocalBox; …` — Door-local cut volume in model space, shrunk to the wall slab on the door normal, then grown onto a facade face it only just misses.
-- `depthFrame` fn (local) :132 `(placement: DoorPlacement, local: LocalBox, buildingPosition: Vec3, buildingYaw: Yaw, buildingScale: number): { axis: 0 | 2; face: number }` — Model axis of the door normal, and the door-face coordinate on it.
-- `clampToWallSlab` fn (local) :152 `(triangles: readonly Triangle[], box: LocalBox, frame: { axis: 0 | 2; face: number }, scale: number): LocalBox` — Replace the depth span of `box` with the mesh slab at `frame.face`.
-- `extendSkinToFacade` fn :198 `(triangles: readonly Triangle[], box: LocalBox): LocalBox` — Grow `box` out to a mesh face the doorway center actually hits.
-- `extendOutlineToFacade` fn :240 `(triangles: readonly Triangle[], box: LocalBox, axis: 0 | 2, outward: 1 | -1, scale: number): LocalBox` — Move a room-facade box's outer face out to the mesh.
-- `axisHits` fn (local) :279 `(triangles: readonly Triangle[], origin: Vec3, dir: Vec3, axis: 0 | 1 | 2): number[]`
-- `openingOverlapCounts` fn :314 `(bytes: Uint8Array, openings: readonly LocalBox[]): number[]` — Source triangles that are not strictly outside `opening`, one count per opening.
-- `MeshProbe` type :330 `= { maxY: number; blocks(opening: LocalBox, axis: 0 | 2, direction: -1 | 1): boolean; }`
-- `meshProbe` fn :345 `(bytes: Uint8Array): MeshProbe` — Triangles of a textured GLB in `openingInModel` space, for doorway probes.
-- `rayHitsBox` fn (local) :383 `(tris: readonly Triangle[], origin: Vec3, dir: Vec3, min: readonly number[], max: readonly number[]): boolean`
-- `cutBuildingGlb` fn :430 `(bytes: Uint8Array, openings: readonly LocalBox[]): Uint8Array` — Punch `openings` out of a textured building GLB.
-- `uncutBuildingGlb` fn :443 `(bytes: Uint8Array): Uint8Array` — Source mesh in the cut-file form: node transforms baked, identity nodes, no door punches.
-- `cutTexturedGlb` fn (local) :447 `(doc: TexturedGlb, openings: readonly LocalBox[]): TexturedGlb`
-- `cutPrimitive` fn (local) :458 `(primitive: TexturedPrimitive, openings: readonly LocalBox[]): TexturedPrimitive`
-- `vertexAt` fn (local) :488 `(primitive: TexturedPrimitive, index: number): Vert`
-- `toVertex` fn (local) :498 `(vert: Vert): TexturedVertex`
-- `disjoint` fn (local) :507 `(tri: readonly Vert[], box: LocalBox): boolean` — True when every vertex is strictly outside one and the same face of the box.
-- `subtractBox` fn (local) :526 `(tri: Vert[], box: LocalBox): Vert[][]` — Keep the parts of one triangle that lie outside `box`.
-- `splitPoly` fn (local) :551 `(poly: readonly Vert[], amount: (vert: Vert) => number): { outside: Vert[]; inside: Vert[] }`
-- `lerpVert` fn (local) :576 `(from: Vert, to: Vert, t: number): Vert`
-- `clean` fn (local) :588 `(poly: readonly Vert[]): Vert[]`
-- `fan` fn (local) :599 `(poly: readonly Vert[]): Vert[][]`
-- `area2` fn (local) :608 `(tri: readonly Vert[]): number`
-- `nearPoint` fn (local) :619 `(a: Vec3, b: Vec3): boolean`
-- `mix3` fn (local) :625 `(a: Vec3, b: Vec3, t: number): Vec3`
-- `sub3` fn (local) :633 `(a: Vec3, b: Vec3): Vec3`
-- `unit` fn (local) :637 `(n: Vec3): Vec3`
-- `doorToWorld` fn (local) :643 `(placement: DoorPlacement, x: number, y: number, z: number): Vec3`
-- `worldToModel` fn (local) :652 `(world: Vec3, origin: Vec3, yaw: Yaw, scale: number): Vec3`
+- `openingInModel` fn :29 `(placement: DoorPlacement, buildingPosition: Vec3, buildingYaw: Yaw, buildingScale: number): LocalBox` — The door gap in the building GLB's space.
+  `@pre` That space is the one `trianglesFromGlb` returns: node transforms applied, placement scale not. The gap is `doorClearLocal` — X along the wall, Y up from the sill, Z from `-DOOR_GAP_DEPTH_M` (inward) to 0 (the face).
+  `@why` Eight corners go door → world → model. Cardinal yaw keeps the result an AABB.
+- `boxInModel` fn :43 `(placement: DoorPlacement, local: LocalBox, buildingPosition: Vec3, buildingYaw: Yaw, buildingScale: number): LocalBox`
+  `@pre` `local` is in the door frame (`doorClearLocal`: hinge at the origin, −Z inward).
+  `@why` Eight corners go door → world → model. Cardinal yaw keeps an AABB. A wall cut passes the thicker box `doorCutLocal` measured, so the punch includes the proud face.
+  `@see` `openingInModel` is this for the 2 m inward stamp.
+- `SKIN_M` const (local) :79 `= 0.02` — A collision skin thinner than this, in model units, may stop short of the facade.
+- `SKIN_REACH_M` const (local) :86 `= 0.02` — How far past a thin skin a center-ray hit may pull the punch, in model units.
+- `FACADE_SLIVER_M` const (local) :92 `= 0.002` — A through-cut already spans the wall, but the facade vertex can still sit a fraction of a millimetre outside that face.
+- `WALL_SLAB_M` const (local) :99 `= 1` — Visual punch depth, in world metres.
+- `sealedOpeningBox` fn :106 `(triangles: readonly Triangle[], placement: DoorPlacement, local: LocalBox, buildingPosition: Vec3, buildingYaw: Yaw, buildingScale: number): { box: LocalBox; …` — Door-local cut volume in model space.
+  `@post` The face is door-local z = 0. Inward is −Z. A hit more than `WALL_SLAB_M` from the face is left in the mesh.
+  `@why` Shrunk to the wall slab on the door normal, then grown onto a facade face it only just misses. `depth` is that slab's extent in world metres.
+- `depthFrame` fn (local) :126 `(placement: DoorPlacement, local: LocalBox, buildingPosition: Vec3, buildingYaw: Yaw, buildingScale: number): { axis: 0 | 2; face: number }` — Model axis of the door normal, and the door-face coordinate on it.
+- `clampToWallSlab` fn (local) :146 `(triangles: readonly Triangle[], box: LocalBox, frame: { axis: 0 | 2; face: number }, scale: number): LocalBox` — Replace the depth span of `box` with the mesh slab at `frame.face`.
+- `extendSkinToFacade` fn :191 `(triangles: readonly Triangle[], box: LocalBox): LocalBox` — Grow `box` out to a mesh face the doorway center actually hits.
+  `@post` The door width is not grown out to the next wall.
+  `@why` A thin axis may reach `SKIN_REACH_M`. Any axis may reach `FACADE_SLIVER_M`, so a punch that stops just short of the facade removes that face.
+- `extendOutlineToFacade` fn :232 `(triangles: readonly Triangle[], box: LocalBox, axis: 0 | 2, outward: 1 | -1, scale: number): LocalBox` — Move a room-facade box's outer face out to the mesh.
+  `@pre` The ray starts at the box centre and runs along `outward` on `axis`.
+  `@post` The furthest hit within `WALL_SLAB_M` world metres past that face becomes the face, plus `FACADE_SLIVER_M` further out. No such hit leaves `box`.
+- `axisHits` fn (local) :271 `(triangles: readonly Triangle[], origin: Vec3, dir: Vec3, axis: 0 | 1 | 2): number[]`
+- `openingOverlapCounts` fn :306 `(bytes: Uint8Array, openings: readonly LocalBox[]): number[]` — Source triangles that are not strictly outside `opening`, one count per opening.
+  `@post` A triangle that only touches the box from the outside is not counted.
+  `@why` The bake logs this as the triangles the punch removes.
+- `MeshProbe` type :322 `= { maxY: number; blocks(opening: LocalBox, axis: 0 | 2, direction: -1 | 1): boolean; }`
+- `meshProbe` fn :337 `(bytes: Uint8Array): MeshProbe` — Triangles of a textured GLB in `openingInModel` space, for doorway probes.
+  `@why` One parse serves every instance of a shared room mesh.
+- `rayHitsBox` fn (local) :375 `(tris: readonly Triangle[], origin: Vec3, dir: Vec3, min: readonly number[], max: readonly number[]): boolean`
+- `cutBuildingGlb` fn :422 `(bytes: Uint8Array, openings: readonly LocalBox[]): Uint8Array` — Punch `openings` out of a textured building GLB.
+  `@pre` Each opening is an AABB in the mesh's model space.
+  `@post` Triangles that miss an opening keep their vertices. An empty opening list returns `bytes` unchanged.
+  `@why` Image bytes and materials are copied through.
+- `uncutBuildingGlb` fn :434 `(bytes: Uint8Array): Uint8Array` — Source mesh in the cut-file form.
+  `@post` Node transforms baked, identity nodes, no door punches.
+  `@why` `cutBuildingGlb` with an empty list returns `bytes` unchanged, which would keep a source node's scale. A stale `.cut.glb` has to be replaced with this instead.
+- `cutTexturedGlb` fn (local) :438 `(doc: TexturedGlb, openings: readonly LocalBox[]): TexturedGlb`
+- `cutPrimitive` fn (local) :449 `(primitive: TexturedPrimitive, openings: readonly LocalBox[]): TexturedPrimitive`
+- `vertexAt` fn (local) :479 `(primitive: TexturedPrimitive, index: number): Vert`
+- `toVertex` fn (local) :489 `(vert: Vert): TexturedVertex`
+- `disjoint` fn (local) :498 `(tri: readonly Vert[], box: LocalBox): boolean` — True when every vertex is strictly outside one and the same face of the box.
+- `subtractBox` fn (local) :517 `(tri: Vert[], box: LocalBox): Vert[][]` — Keep the parts of one triangle that lie outside `box`.
+- `splitPoly` fn (local) :542 `(poly: readonly Vert[], amount: (vert: Vert) => number): { outside: Vert[]; inside: Vert[] }`
+- `lerpVert` fn (local) :567 `(from: Vert, to: Vert, t: number): Vert`
+- `clean` fn (local) :579 `(poly: readonly Vert[]): Vert[]`
+- `fan` fn (local) :590 `(poly: readonly Vert[]): Vert[][]`
+- `area2` fn (local) :599 `(tri: readonly Vert[]): number`
+- `nearPoint` fn (local) :610 `(a: Vec3, b: Vec3): boolean`
+- `mix3` fn (local) :616 `(a: Vec3, b: Vec3, t: number): Vec3`
+- `sub3` fn (local) :624 `(a: Vec3, b: Vec3): Vec3`
+- `unit` fn (local) :628 `(n: Vec3): Vec3`
+- `doorToWorld` fn (local) :634 `(placement: DoorPlacement, x: number, y: number, z: number): Vec3`
+- `worldToModel` fn (local) :643 `(world: Vec3, origin: Vec3, yaw: Yaw, scale: number): Vec3`
 
-### src/cli.ts (388)
-imports: src/bake.ts, src/crate.ts, src/errors.ts, src/floors-svg.ts, src/measure.ts, src/places.ts, src/prop.ts, src/regions.ts, src/room-file.ts, src/room-glb.ts, src/scene-graph.ts, src/types.ts
+### src/cli.ts (408)
+imports: src/bake.ts, src/crate.ts, src/errors.ts, src/floors-svg.ts, src/measure.ts, src/places.ts, src/prop.ts, src/regions.ts, src/room-file.ts, src/room-glb.ts, src/scene-graph.ts, src/spatial-dag.ts, src/types.ts
 pkgs: node:fs, node:path, node:url
-- `USAGE` const (local) :18 `= `blueprint-scene measure --glb model.glb --out buildings/<id>.json --svg buildings/<id>.svg blueprint-scene bake --svg plan.svg --models ./models --out web/g…`
-- `main` fn :132 `(argv: string[]): number`
-- `runMeasure` fn (local) :176 `(argv: string[]): void`
-- `runBake` fn (local) :187 `(argv: string[]): void`
-- `defaultGamePath` fn (local) :205 `(): string | undefined` — Arena checkouts keep the asset catalog here.
-- `runProp` fn (local) :210 `(argv: string[]): void`
-- `runRoom` fn (local) :229 `(argv: string[]): void`
-- `runSceneGraph` fn (local) :249 `(argv: string[]): void`
-- `readPositive` fn (local) :298 `(value: string | undefined, name: string, fallback: number): number`
-- `readObstacleBoxes` fn (local) :305 `(filePath: string): RegionBox[]`
-- `readPlacements` fn (local) :309 `(filePath: string): Placement[]`
-- `readDoorPlacements` fn (local) :315 `(filePath: string): DoorPlacement[]`
-- `readRoomDoors` fn (local) :322 `(filePath: string): DoorPlacement[]` — Room files mix room meshes and doors.
-- `readBounds` fn (local) :326 `(filePath: string): BoundsFile`
-- `readJson` fn (local) :334 `(filePath: string): unknown`
-- `runFloors` fn (local) :343 `(argv: string[]): void`
-- `formatMetres` fn (local) :354 `(n: number): string`
-- `parseFlags` fn (local) :360 `(argv: string[], known: Set<string>): Record<string, string>`
-- `entry` const (local) :385 `= process.argv[1]`
+- `USAGE` const (local) :19 `= `blueprint-scene measure --glb model.glb --out buildings/<id>.json --svg buildings/<id>.svg blueprint-scene bake --svg plan.svg --models ./models --out web/g…`
+- `main` fn :133 `(argv: string[]): number`
+- `runMeasure` fn (local) :181 `(argv: string[]): void`
+- `runBake` fn (local) :192 `(argv: string[]): void`
+- `defaultGamePath` fn (local) :210 `(): string | undefined` — Arena checkouts keep the asset catalog here.
+- `runSpatialDag` fn (local) :215 `(argv: string[]): void`
+- `runProp` fn (local) :230 `(argv: string[]): void`
+- `runRoom` fn (local) :249 `(argv: string[]): void`
+- `runSceneGraph` fn (local) :269 `(argv: string[]): void`
+- `readPositive` fn (local) :318 `(value: string | undefined, name: string, fallback: number): number`
+- `readObstacleBoxes` fn (local) :325 `(filePath: string): RegionBox[]`
+- `readPlacements` fn (local) :329 `(filePath: string): Placement[]`
+- `readDoorPlacements` fn (local) :335 `(filePath: string): DoorPlacement[]`
+- `readRoomDoors` fn (local) :342 `(filePath: string): DoorPlacement[]` — Room files mix room meshes and doors.
+- `readBounds` fn (local) :346 `(filePath: string): BoundsFile`
+- `readJson` fn (local) :354 `(filePath: string): unknown`
+- `runFloors` fn (local) :363 `(argv: string[]): void`
+- `formatMetres` fn (local) :374 `(n: number): string`
+- `parseFlags` fn (local) :380 `(argv: string[], known: Set<string>): Record<string, string>`
+- `entry` const (local) :405 `= process.argv[1]`
 
-### src/crate.ts (321)
+### src/crate.ts (325)
 imports: src/errors.ts, src/glb-write.ts, src/plan.ts, src/types.ts
 pkgs: node:fs, node:path
 used by: src/cli.ts, src/floors-svg.ts, src/room-glb.ts, src/room-svg.ts
 - `CratePropOptions` type :8 `= { svgPath: string; outPath: string; }`
-- `CrateCollisionFile` type :14 `= { id: string; origin: [number, number, number]; yawConvention: "y-up-90"; boxes: [{ id: "box"; minX: number; maxX: number; minY: number; maxY: number; minZ: …` — Model-space box.
-- `FACES` const (local) :29 `= … as const`
-- `Face` type (local) :30 `= (typeof FACES)[number]`
-- `EDGE_M` const (local) :33 `= 1e-2` — Shared edges within this many meters are the same length.
-- `OPPOSITE` const (local) :35 `: Record<Face, Face>`
-- `writeCrateProp` fn :51 `(options: CratePropOptions): { glbPath: string; collisionPath: string }` — One box from an Inkscape `crate-design` layer.
-- `Size` type (local) :66 `= { width: number; height: number; depth: number }`
-- `CrateDesign` type (local) :68 `= { size: Size; source: Record<Face, Face>; shapes: Map<Face, LayerShape>; }`
-- `readSvg` fn (local) :75 `(svgPath: string): string`
-- `readCrateDesign` fn (local) :83 `(svgText: string): CrateDesign`
-- `unlabeledDesign` fn (local) :105 `(shapes: LayerShape[]): CrateDesign`
-- `labeledDesign` fn (local) :116 `(faces: Map<Face, LayerShape>): CrateDesign`
-- `faceOf` fn (local) :153 `(shape: LayerShape): Face | undefined`
-- `requireFace` fn (local) :159 `(raw: string, what: string): Face`
-- `knownFace` fn (local) :165 `(raw: string): Face | undefined`
-- `spanX` fn (local) :170 `(shape: LayerShape): number`
-- `spanY` fn (local) :174 `(shape: LayerShape): number`
-- `expectEdge` fn (local) :178 `(face: Face, got: number, expected: number, edge: string, against: string): void`
-- `trimNum` fn (local) :183 `(n: number): string`
-- `loadFaces` fn (local) :187 `(svgPath: string, design: CrateDesign): Record<Face, Uint8Array>`
-- `loadTexture` fn (local) :201 `(svgPath: string, shape: LayerShape, face: string): Uint8Array`
-- `loadTextureRef` fn :208 `(svgPath: string, ref: string, what: string, label = "crate texture"): Uint8Array` — PNG or JPEG bytes for a face texture.
-- `imageFromDataUri` fn (local) :213 `(value: string, face: string, label: string): Uint8Array`
-- `readImage` fn (local) :223 `(file: string, face: string, label: string): Uint8Array`
-- `assertImage` fn (local) :233 `(bytes: Uint8Array, face: string, label: string): Uint8Array`
-- `crateMesh` fn (local) :243 `(size: Size, images: Record<Face, Uint8Array>): NamedMesh` — 24 corners, four per face, wound counter-clockwise from outside.
-- `collisionFile` fn (local) :296 `(id: string, size: Size): CrateCollisionFile`
-- `collisionPathFor` fn (local) :315 `(outPath: string): string`
-- `round6` fn (local) :319 `(n: number): number`
+- `CrateCollisionFile` type :17 `= { id: string; origin: [number, number, number]; yawConvention: "y-up-90"; boxes: [{ id: "box"; minX: number; maxX: number; minY: number; maxY: number; minZ: …` — Model-space box.
+  `@why` Y is included so the AABB matches the mesh. Bake boxes stay XZ-only.
+- `FACES` const (local) :32 `= … as const`
+- `Face` type (local) :33 `= (typeof FACES)[number]`
+- `EDGE_M` const (local) :36 `= 1e-2` — Shared edges within this many meters are the same length.
+- `OPPOSITE` const (local) :38 `: Record<Face, Face>`
+- `writeCrateProp` fn :52 `(options: CratePropOptions): { glbPath: string; collisionPath: string }` — One box from an Inkscape `crate-design` layer.
+  `@post` A missing opposite reuses the given side. Collision is a sibling JSON file, not a property of the GLB.
+  `@why` 1 mm = 1 m. The origin is the center of the bottom face, so y = 0 is the floor. Front is +Z, right is +X, top is +Y.
+- `Size` type (local) :67 `= { width: number; height: number; depth: number }`
+- `CrateDesign` type (local) :69 `= { size: Size; source: Record<Face, Face>; shapes: Map<Face, LayerShape>; }`
+- `readSvg` fn (local) :76 `(svgPath: string): string`
+- `readCrateDesign` fn (local) :84 `(svgText: string): CrateDesign`
+- `unlabeledDesign` fn (local) :106 `(shapes: LayerShape[]): CrateDesign`
+- `labeledDesign` fn (local) :117 `(faces: Map<Face, LayerShape>): CrateDesign`
+- `faceOf` fn (local) :154 `(shape: LayerShape): Face | undefined`
+- `requireFace` fn (local) :160 `(raw: string, what: string): Face`
+- `knownFace` fn (local) :166 `(raw: string): Face | undefined`
+- `spanX` fn (local) :171 `(shape: LayerShape): number`
+- `spanY` fn (local) :175 `(shape: LayerShape): number`
+- `expectEdge` fn (local) :179 `(face: Face, got: number, expected: number, edge: string, against: string): void`
+- `trimNum` fn (local) :184 `(n: number): string`
+- `loadFaces` fn (local) :188 `(svgPath: string, design: CrateDesign): Record<Face, Uint8Array>`
+- `loadTexture` fn (local) :202 `(svgPath: string, shape: LayerShape, face: string): Uint8Array`
+- `loadTextureRef` fn :212 `(svgPath: string, ref: string, what: string, label = "crate texture"): Uint8Array` — PNG or JPEG bytes for a face texture.
+  `@pre` `ref` is a data URI or a path.
+- `imageFromDataUri` fn (local) :217 `(value: string, face: string, label: string): Uint8Array`
+- `readImage` fn (local) :227 `(file: string, face: string, label: string): Uint8Array`
+- `assertImage` fn (local) :237 `(bytes: Uint8Array, face: string, label: string): Uint8Array`
+- `crateMesh` fn (local) :247 `(size: Size, images: Record<Face, Uint8Array>): NamedMesh` — 24 corners, four per face, wound counter-clockwise from outside.
+- `collisionFile` fn (local) :300 `(id: string, size: Size): CrateCollisionFile`
+- `collisionPathFor` fn (local) :319 `(outPath: string): string`
+- `round6` fn (local) :323 `(n: number): number`
 
-### src/doors.ts (496)
+### src/doors.ts (467)
 imports: src/errors.ts, src/types.ts, src/yaw.ts
 used by: src/bake.ts, src/building-mesh-cut.ts, src/room-cut.ts, src/room-file.ts, src/rooms-bake.ts, src/scene-graph.ts
-- `DOOR_HEIGHT_M` const :6 `= 2.1` — Panel height when the rectangle does not set `data-height`.
-- `DOOR_DEPTH_M` const :9 `= 0.08` — Panel thickness when the rectangle does not set `data-depth`.
-- `DOOR_GAP_DEPTH_M` const :15 `= 2` — Minimum hole through the wall.
-- `DOOR_FACE_TOL_M` const :22 `= 0.5` — A wall box is on the door's wall when its outer side is within this of the face the hinge sits on.
-- `WorldBox` type (local) :24 `= { min: Vec3; max: Vec3 }`
-- `WallFace` type (local) :26 `= { axis: "x" | "z"; sign: 1 | -1; coord: number; along0: number; along1: number; yaw: Yaw; box: WorldBox; }`
-- `SituatedDoor` type :41 `= { placement: DoorPlacement; opening: LocalBox; }`
-- `BOX_EPS` const (local) :51 `= 1e-6`
-- `situateDoor` fn :75 `(door: SceneDoor, boxes: readonly WorldBox[], modelWidth?: number): SituatedDoor` — Put the hinge on the hinge edge of the drawn rectangle, on the nearest exposed wall face.
-- `hingeOnFace` fn (local) :103 `(door: SceneDoor, face: WallFace, span: number): { x: number; y: number; z: number }` — Hinge edge of a span centered on the rectangle, with the normal coordinate on `face`.
-- `doorPanelWidth` fn :117 `(triangles: readonly Triangle[]): number | undefined` — Panel width of a door GLB: the X extent of its `door` mesh (the swinging panel `prop --shape door` writes), in model meters.
-- `doorClearLocal` fn :141 `(placement: DoorPlacement): LocalBox` — Hinge-aligned opening in the door GLB's local frame.
-- `subtractBox` fn :162 `(box: LocalBox, cut: LocalBox): LocalBox[]` — AABB difference.
-- `subtractDoorOpening` fn :205 `(wall: LocalBox, opening: LocalBox): LocalBox[]` — Replace one wall AABB with the solid that remains around a door opening.
-- `cutDoorFromBoxes` fn :255 `(modelBoxes: readonly LocalBox[], situated: SituatedDoor, buildingPosition: Vec3, buildingYaw: Yaw, requireHit = true, outwardCap = Infinity): LocalBox[]` — Cut `situated.opening` out of every model-space wall box it overlaps.
-- `doorCutLocal` fn :297 `(modelBoxes: readonly LocalBox[], situated: SituatedDoor, buildingPosition: Vec3, buildingYaw: Yaw, outwardCap = Infinity): LocalBox | undefined` — Door-local AABB of the solid `cutDoorFromBoxes` removes.
-- `doorOutwardDepth` fn :323 `(box: LocalBox, situated: SituatedDoor, buildingPosition: Vec3, buildingYaw: Yaw): number | undefined` — Metres the box extends past the opening's outer face, in the door frame.
-- `throughOpening` fn (local) :338 `(opening: LocalBox, wallLocal: LocalBox, outwardCap: number): LocalBox` — Opening extended to the wall's far face, and no further than `outwardCap` past `opening.maxZ`.
-- `unionBox` fn (local) :343 `(a: LocalBox, b: LocalBox): LocalBox`
-- `onDoorWall` fn (local) :359 `(wall: LocalBox): boolean` — Door frame: the face is z = 0 and −Z is inward.
-- `spanAlong` fn (local) :363 `(door: SceneDoor, axis: "x" | "z"): number`
-- `facesOf` fn (local) :367 `(box: WorldBox): WallFace[]`
-- `nearestFace` fn (local) :382 `(x: number, y: number, z: number, boxes: readonly WorldBox[]): WallFace | undefined` — Nearest exposed face.
-- `FACE_PROBE_M` const (local) :406 `= 1e-3` — Probe a little outside the face, at mid door height.
-- `FACE_PROBE_Y_M` const (local) :407 `= 1`
-- `covered` fn (local) :409 `(face: WallFace, x: number, y: number, z: number, boxes: readonly WorldBox[]): boolean`
-- `reachesHeight` fn (local) :426 `(box: WorldBox, y: number): boolean` — The face's box stands at the door's height: it spans the probe height above the sill (`y + FACE_PROBE_Y_M`).
-- `closer` fn (local) :432 `(distance: number, face: WallFace, bestDistance: number, best: WallFace): boolean` — Smaller distance wins.
-- `distanceToFace` fn (local) :440 `(x: number, z: number, face: WallFace): number`
-- `projectToFace` fn (local) :447 `(x: number, y: number, z: number, face: WallFace): { x: number; y: number; z: number }`
-- `positiveBox` fn (local) :454 `(box: LocalBox): boolean`
-- `intersectBox` fn (local) :460 `(wall: LocalBox, opening: LocalBox): LocalBox | undefined`
-- `toLocalBox` fn (local) :473 `(world: WorldBox, origin: Vec3, yaw: Yaw): LocalBox` — World AABB into the frame whose origin and yaw are `origin` / `yaw`.
+- `DOOR_HEIGHT_M` const :8 `= 2.1`
+  `@when` Panel height when the rectangle does not set `data-height`.
+- `DOOR_DEPTH_M` const :13 `= 0.08`
+  `@when` Panel thickness when the rectangle does not set `data-depth`.
+- `DOOR_GAP_DEPTH_M` const :19 `= 2` — Minimum hole through the wall.
+  `@why` A 0.5 m pawn needs a passage deeper than the wall's outer skin, so the stamp is at least this deep.
+- `DOOR_FACE_TOL_M` const :24 `= 0.5`
+  `@why` A wall box is on the door's wall when its outer side is within this of the face the hinge sits on. A box whose outside is deeper (an interior or opposite wall the 2 m stamp reaches) is left whole.
+- `WorldBox` type (local) :26 `= { min: Vec3; max: Vec3 }`
+- `WallFace` type (local) :28 `= { axis: "x" | "z"; sign: 1 | -1; coord: number; along0: number; along1: number; yaw: Yaw; box: WorldBox; }`
+- `SituatedDoor` type :43 `= { placement: DoorPlacement; opening: LocalBox; }`
+- `BOX_EPS` const (local) :53 `= 1e-6`
+- `situateDoor` fn :65 `(door: SceneDoor, boxes: readonly WorldBox[], modelWidth?: number): SituatedDoor` — Put the hinge on the hinge edge of the drawn rectangle, on the nearest exposed wall face.
+  `@pre` The width, in order: `data-width`, centered on the rectangle (the hinge sits half that width from the center); `modelWidth`, the door GLB's panel width, measured from the hinge edge of the drawn rectangle, so a rectangle drawn wider than the model does not widen the hole; the drawn rectangle's span along the wall.
+  `@post` Local +X is `transformXz(1, 0, yaw)`. A left hinge sits on the rectangle's local −X edge, a right hinge on its +X edge. The door itself is not an obstacle.
+  `@why` The door GLB's origin is its hinge (the arena mounts that origin at `position`), and the clear opening runs one width from it, so the mesh, the opening, and the drawn rectangle share one span.
+- `hingeOnFace` fn (local) :93 `(door: SceneDoor, face: WallFace, span: number): { x: number; y: number; z: number }` — Hinge edge of a span centered on the rectangle, with the normal coordinate on `face`.
+- `doorPanelWidth` fn :107 `(triangles: readonly Triangle[]): number | undefined` — Panel width of a door GLB: the X extent of its `door` mesh (the swinging panel `prop --shape door` writes), in model meters.
+  `@post` Undefined when there is no panel mesh.
+  `@why` The frame stiles are left out; they overlap the jambs.
+- `doorClearLocal` fn :127 `(placement: DoorPlacement): LocalBox` — Hinge-aligned opening in the door GLB's local frame.
+  `@post` A left hinge occupies x 0..width. A right hinge occupies x −width..0. Y is the clear height above the placement: the frame bottom sits on that y, so the hole is 0..height, not the GLB's mid-height origin. −Z is inward.
+  `@why` The stamp is `DOOR_GAP_DEPTH_M`, deeper than the panel, so a pawn clears the skin. A thicker host keeps the solid behind that depth.
+- `subtractBox` fn :145 `(box: LocalBox, cut: LocalBox): LocalBox[]` — AABB difference.
+  `@post` The six do not overlap. A piece thinner than 1e-6 is dropped. No overlap with the cut means the original box.
+- `subtractDoorOpening` fn :186 `(wall: LocalBox, opening: LocalBox): LocalBox[]` — Replace one wall AABB with the solid that remains around a door opening.
+  `@pre` Both boxes are in the same frame: X along the wall, Y up, Z through the thickness.
+  `@post` A through-wall door is the two jambs, the lintel, and a sill when the wall extends below the opening. A host thicker than the opening also keeps the plug behind it. Pieces stay inside the wall.
+- `cutDoorFromBoxes` fn :228 `(modelBoxes: readonly LocalBox[], situated: SituatedDoor, buildingPosition: Vec3, buildingYaw: Yaw, requireHit = true, outwardCap = Infinity): LocalBox[]` — Cut `situated.opening` out of every model-space wall box it overlaps.
+  `@pre` Only boxes on the door's own wall count: the box must reach the face (outer side within `DOOR_FACE_TOL_M`) and extend inward. A box that only touches the opening along an edge or face is not a hit.
+  `@post` Untouched boxes keep their place in the list and are not re-transformed. No hit at all is a plan error, unless `requireHit` is false (a room wall the opening may miss). Then the boxes are returned unchanged. `outwardCap` limits how far past the opening's outer face the hole runs. Infinity, the default, still reaches the host box's far face.
+  `@why` A facade is often several boxes with vertical seams, so the opening can straddle two or more of them. A face skin that stands proud of the hinge face is cut through too, so no sliver seals the doorway.
+- `doorCutLocal` fn :268 `(modelBoxes: readonly LocalBox[], situated: SituatedDoor, buildingPosition: Vec3, buildingYaw: Yaw, outwardCap = Infinity): LocalBox | undefined` — Door-local AABB of the solid `cutDoorFromBoxes` removes.
+  `@pre` Same hit rule: the wall must meet the hinge face, and the stamp extends out through a skin that stands proud of that face.
+  `@post` Undefined when no wall is hit. The box is the union of those intersections, so its depth is the wall that was actually cut, not the 2 m inward stamp alone.
+- `doorOutwardDepth` fn :294 `(box: LocalBox, situated: SituatedDoor, buildingPosition: Vec3, buildingYaw: Yaw): number | undefined` — Metres the box extends past the opening's outer face, in the door frame.
+  `@post` Undefined when the box is not this door's wall.
+  `@why` +Z is outward from the hinge face. A thin shell is under a metre. A filled hall is several.
+- `throughOpening` fn (local) :309 `(opening: LocalBox, wallLocal: LocalBox, outwardCap: number): LocalBox` — Opening extended to the wall's far face, and no further than `outwardCap` past `opening.maxZ`.
+- `unionBox` fn (local) :314 `(a: LocalBox, b: LocalBox): LocalBox`
+- `onDoorWall` fn (local) :330 `(wall: LocalBox): boolean` — Door frame: the face is z = 0 and −Z is inward.
+- `spanAlong` fn (local) :334 `(door: SceneDoor, axis: "x" | "z"): number`
+- `facesOf` fn (local) :338 `(box: WorldBox): WallFace[]`
+- `nearestFace` fn (local) :353 `(x: number, y: number, z: number, boxes: readonly WorldBox[]): WallFace | undefined` — Nearest exposed face.
+- `FACE_PROBE_M` const (local) :377 `= 1e-3` — Probe a little outside the face, at mid door height.
+- `FACE_PROBE_Y_M` const (local) :378 `= 1`
+- `covered` fn (local) :380 `(face: WallFace, x: number, y: number, z: number, boxes: readonly WorldBox[]): boolean`
+- `reachesHeight` fn (local) :397 `(box: WorldBox, y: number): boolean` — The face's box stands at the door's height: it spans the probe height above the sill (`y + FACE_PROBE_Y_M`).
+- `closer` fn (local) :403 `(distance: number, face: WallFace, bestDistance: number, best: WallFace): boolean` — Smaller distance wins.
+- `distanceToFace` fn (local) :411 `(x: number, z: number, face: WallFace): number`
+- `projectToFace` fn (local) :418 `(x: number, y: number, z: number, face: WallFace): { x: number; y: number; z: number }`
+- `positiveBox` fn (local) :425 `(box: LocalBox): boolean`
+- `intersectBox` fn (local) :431 `(wall: LocalBox, opening: LocalBox): LocalBox | undefined`
+- `toLocalBox` fn (local) :444 `(world: WorldBox, origin: Vec3, yaw: Yaw): LocalBox` — World AABB into the frame whose origin and yaw are `origin` / `yaw`.
 
 ### src/errors.ts (6)
 used by: src/asset-type.ts, src/bake.ts, src/building-mesh-cut.ts, src/cli.ts, src/crate.ts, src/doors.ts, src/floors-svg.ts, src/footprint.ts, src/glb.ts, src/measure.ts, src/places.ts, src/plan.ts, src/prop.ts, src/regions.ts, src/room-cut.ts, src/room-file.ts, src/room-glb.ts, src/room-svg.ts, src/rooms-bake.ts, src/union.ts, src/xml.ts
 - `PlanError` class :1 `extends Error`
   - `constructor` ctor :2 `(message: string)`
 
-### src/floors-svg.ts (1382)
+### src/floors-svg.ts (1391)
 imports: src/crate.ts, src/errors.ts, src/hall-floor.ts, src/plan.ts, src/types.ts, src/xml.ts, src/yaw.ts
 pkgs: node:fs, node:path
 used by: src/bake.ts, src/cli.ts, src/places.ts, src/rooms-bake.ts
 - `RoomInstanceSource` type :32 `= { id: string; prefab: string; center: { x: number; z: number }; yaw: Yaw; drawnWidth: number; drawnDepth: number; }`
-- `FloorTexture` type :42 `= { image: Uint8Array; tileX: number; tileZ: number; }` — Tileable albedo for one floor's hall.
-- `DEFAULT_TILE_M` const :51 `= 2` — Used when an image has no `data-tile-m` and no pattern tile.
-- `FloorPlatformSource` type :54 `= { id: string; polygon: Array<[number, number]>; deck: number; }` — A `platform:<id>` rect or path, in building-local metres.
-- `FloorStairsSource` type :67 `= { id: string; floor?: number; polygon: Array<[number, number]>; up: [number, number]; bottom: number; top: number; texture: FloorTexture; }` — A `stairs:<id>` rect, in building-local metres.
-- `FloorLandingSource` type :86 `= { id: string; floor?: number; polygon: Array<[number, number]>; elevation: number; texture: FloorTexture; }` — A `landing:<id>` rect or path, in building-local metres.
-- `FloorElevatorSource` type :99 `= { id: string; floor: number; polygon: Array<[number, number]>; door: [number, number]; doorExplicit: boolean; doorSide: string; stops: number[]; waitS: numbe…` — An `elevator:<id>` cab, in building-local metres.
-- `FloorSource` type :118 `= { n: number; name: string; elevation: number; height?: number; footprint: Array<[number, number]>; outline: Array<[number, number]>; outlineFallback?: "diago…`
-- `FloorsSource` type :147 `= { model: string; scale: number; yaw: Yaw; origin: Vec3; footprint: Array<[number, number]>; outline: Array<[number, number]>; outlineFallback?: "diagonal" | …`
-- `Scope` type (local) :180 `= | { kind: "floor"; floor: FloorAcc } | { kind: "texture"; n: number } | { kind: "doors" } | { kind: "stairs" }`
-- `Hit` type (local) :186 `= { el: XmlNode; matrix: Mat }`
-- `FloorAcc` type (local) :188 `= { n: number; name: string; layer: XmlNode; stencils: Hit[]; rooms: Hit[]; platforms: Hit[]; stairs: Hit[]; landings: Hit[]; elevators: Hit[]; textures: Hit[]…`
-- `Pose` type (local) :202 `= { model: string; scale: number; yaw: Yaw; origin: Vec3; elevation: number; }`
-- `toLocal` fn (local) :214 `(x: number, z: number, origin: Vec3, yaw: Yaw): { x: number; z: number }` — Page-world point to building-local metres.
-- `readFloorsSvg` fn :222 `(svgText: string, svgPath?: string): FloorsSource` — Read one building's floors file.
-- `platformIdOf` fn (local) :494 `(el: XmlNode): string | undefined`
-- `labelledId` fn (local) :502 `(el: XmlNode, kind: "stairs" | "elevator" | "landing"): string | undefined` — `stairs:<id>`, `elevator:<id>`, or `landing:<id>`.
-- `StencilShape` type (local) :510 `= { footprint: Array<[number, number]>; outline: Array<[number, number]>; outlines: Array<Array<[number, number]>>; fallback?: "diagonal" | "curve"; }`
-- `stencilShape` fn (local) :517 `(hit: Hit, frame: PageFrame, origin: Vec3, yaw: Yaw): StencilShape`
-- `subpathCounts` fn (local) :553 `(raw: string | undefined, id: string): number[]` — Point count of each subpath in `d`, in `pathPoints` order.
-- `pathHasCurve` fn (local) :570 `(raw: string | undefined): boolean` — C, S, Q and A contribute control points.
-- `pathOf` fn (local) :574 `(el: XmlNode, id: string): XmlNode`
-- `readPlatform` fn (local) :580 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): FloorPlatformSource`
-- `rectPolygon` fn (local) :589 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, id: string): Array<[number, number]>`
-- `localPoints` fn (local) :609 `(el: XmlNode, matrix: Mat, frame: PageFrame, origin: Vec3, yaw: Yaw, id: string): Array<{ x: number; z: number }>` — Path vertices in building-local metres.
-- `aabbPolygon` fn (local) :626 `(points: Array<{ x: number; z: number }>, id: string): Array<[number, number]>`
-- `OUTLINE_TOL_M` const (local) :641 `= 1e-4`
-- `rectilinearRing` fn (local) :648 `(points: Array<{ x: number; z: number }>): Array<[number, number]> | undefined` — Counter-clockwise rectilinear ring, or undefined when an edge is diagonal.
-- `axisEdge` fn (local) :670 `(poly: readonly (readonly [number, number])[], index: number): boolean`
-- `dropColinear` fn (local) :679 `(poly: Array<[number, number]>): Array<[number, number]>`
-- `snapAxes` fn (local) :694 `(poly: readonly (readonly [number, number])[]): Array<[number, number]>` — Each vertex becomes the crossing of its two axis-aligned edges.
-- `ringArea` fn (local) :722 `(poly: readonly (readonly [number, number])[]): number`
-- `PAGE_DIR` const (local) :732 `: Record<string, [number, number]>`
-- `readStair` fn (local) :739 `(hit: Hit, floor: number | undefined, elevation: number, next: number | undefined, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, svgPath…`
-- `readLanding` fn (local) :773 `(hit: Hit, floor: number | undefined, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, svgPath: string, cache: Map<string, Uint8Array>, flo…`
-- `surfaceTexture` fn (local) :809 `(el: XmlNode, svgPath: string, what: string, cache: Map<string, Uint8Array>, floorTexture: FloorTexture | undefined): FloorTexture` — `data-texture` (or a child image href, then `absref`) is this element's image.
-- `readSurfaceTile` fn (local) :830 `(el: XmlNode, what: string): number | undefined`
-- `ownImage` fn (local) :837 `(el: XmlNode, svgPath: string, what: string, cache: Map<string, Uint8Array>): Uint8Array | undefined` — Same lookup as a room `data-texture`: attribute, then image href, then absref.
-- `resolveTextureHref` fn (local) :853 `(svgPath: string, raw: string, absref: string | undefined, what: string): string`
-- `readElevator` fn (local) :862 `(hit: Hit, floor: number, elevation: number, elevations: readonly number[], frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): FloorElevator…`
-- `doorDir` fn (local) :894 `(hit: Hit, id: string): { dir: [number, number]; explicit: boolean; side: string }`
-- `stairUp` fn (local) :903 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, id: string): [number, number]` — Element-local page direction, mapped through the rect matrix into building-local XZ.
-- `pageVector` fn (local) :934 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, dir: [number, number], what: string): [number, number]`
-- `rectBox` fn (local) :949 `(hit: Hit, frame: PageFrame, units: string | undefined, id: string): { minX: number; minY: number; maxX: number; maxY: number }`
-- `pageDelta` fn (local) :960 `(hit: Hit, box: { minX: number; minY: number; maxX: number; maxY: number }, dx: number, dy: number): [number, number]`
-- `svgDeltaToLocal` fn (local) :973 `(sx: number, sy: number, dx: number, dy: number, frame: PageFrame, origin: Vec3, yaw: Yaw, what: string): [number, number]`
-- `parseStops` fn (local) :994 `(raw: string | undefined, id: string): number[] | undefined`
-- `positiveOr` fn (local) :1009 `(raw: string | undefined, fallback: number, what: string): number`
-- `spanAlong` fn (local) :1015 `(polygon: readonly (readonly [number, number])[], up: readonly [number, number]): number`
-- `outsideArea` fn (local) :1027 `(upper: readonly (readonly [number, number])[], lower: readonly (readonly (readonly [number, number])[])[]): number` — Area of `upper` that sits outside every ring of `lower`, for rectilinear outlines.
-- `gridCoords` fn (local) :1048 `(a: readonly (readonly [number, number])[], b: readonly (readonly [number, number])[], axis: 0 | 1): number[]`
-- `withinOutline` fn (local) :1064 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean` — Inside the ring, or within `OUTLINE_TOL_M` of an edge.
-- `distToSeg` fn (local) :1074 `(x: number, z: number, a: readonly [number, number], b: readonly [number, number]): number`
-- `pointInRing` fn (local) :1088 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean`
-- `formatArea` fn (local) :1101 `(area: number): string`
-- `classifyLayer` fn (local) :1105 `(label: string): | { kind: "floor"; n: number } | { kind: "floor-texture"; n: number } | { kind: "doors" } | { kind: "stairs" } | { kind: "ignore" }`
-- `floorPose` fn (local) :1131 `(floor: FloorAcc, frame: ReturnType<typeof pageFrame>): Pose`
-- `localYaw` fn (local) :1155 `(elementYaw: Yaw, yaw: Yaw): Yaw`
-- `toLocalBox` fn (local) :1161 `(minX: number, maxX: number, minZ: number, maxZ: number, origin: Vec3, yaw: Yaw): { minX: number; maxX: number; minZ: number; maxZ: number }`
-- `indexPatterns` fn (local) :1185 `(svg: XmlNode): Map<string, XmlNode>`
-- `readFloorTexture` fn (local) :1205 `(hits: readonly Hit[], patterns: ReadonlyMap<string, XmlNode>, frame: PageFrame, svgPath: string, cache: Map<string, Uint8Array>, floorN: number): FloorTexture…` — First labelled `floor-texture` that carries an image or a pattern fill.
-- `textureFromElement` fn (local) :1227 `(el: XmlNode, patterns: ReadonlyMap<string, XmlNode>, frame: PageFrame, svgPath: string, cache: Map<string, Uint8Array>, floorN: number): FloorTexture | undefi…`
-- `cachedImage` fn (local) :1259 `(cache: Map<string, Uint8Array>, svgPath: string, href: string, what: string): Uint8Array`
-- `patternChain` fn (local) :1267 `(id: string, patterns: ReadonlyMap<string, XmlNode>, floorN: number): XmlNode[]`
-- `patternImageHref` fn (local) :1282 `(chain: readonly XmlNode[]): string | undefined`
-- `patternTile` fn (local) :1298 `(chain: readonly XmlNode[], frame: PageFrame, host: XmlNode, floorN: number): { x: number; z: number }` — Tile period in metres.
-- `inherited` fn (local) :1325 `(chain: readonly XmlNode[], name: string): string | undefined`
-- `userBox` fn (local) :1333 `(el: XmlNode, floorN: number): { width: number; height: number }`
-- `findPattern` fn (local) :1356 `(el: XmlNode): { id: string; host: XmlNode } | undefined`
-- `patternId` fn (local) :1366 `(el: XmlNode): string | undefined`
-- `findDescendant` fn (local) :1375 `(el: XmlNode, name: string): XmlNode | undefined`
+- `FloorTexture` type :45 `= { image: Uint8Array; tileX: number; tileZ: number; }` — Tileable albedo for one floor's hall.
+  `@why` Tile sizes are metres.
+- `DEFAULT_TILE_M` const :56 `= 2`
+  `@when` Used when an image has no `data-tile-m` and no pattern tile.
+- `FloorPlatformSource` type :59 `= { id: string; polygon: Array<[number, number]>; deck: number; }` — A `platform:<id>` rect or path, in building-local metres.
+- `FloorStairsSource` type :71 `= { id: string; floor?: number; polygon: Array<[number, number]>; up: [number, number]; bottom: number; top: number; texture: FloorTexture; }` — A `stairs:<id>` rect, in building-local metres.
+  `@when` `floor` is omitted for a `stairs-external` run.
+- `FloorLandingSource` type :90 `= { id: string; floor?: number; polygon: Array<[number, number]>; elevation: number; texture: FloorTexture; }` — A `landing:<id>` rect or path, in building-local metres.
+  `@when` `floor` is omitted for a `stairs-external` landing.
+  `@why` `elevation` is metres above the building ground, the same frame as a stair's `bottom`.
+- `FloorElevatorSource` type :106 `= { id: string; floor: number; polygon: Array<[number, number]>; door: [number, number]; doorExplicit: boolean; doorSide: string; stops: number[]; waitS: numbe…` — An `elevator:<id>` cab, in building-local metres.
+  `@why` Stops are above the building ground.
+- `FloorSource` type :125 `= { n: number; name: string; elevation: number; height?: number; footprint: Array<[number, number]>; outline: Array<[number, number]>; outlineFallback?: "diago…`
+- `FloorsSource` type :154 `= { model: string; scale: number; yaw: Yaw; origin: Vec3; footprint: Array<[number, number]>; outline: Array<[number, number]>; outlineFallback?: "diagonal" | …`
+- `Scope` type (local) :187 `= | { kind: "floor"; floor: FloorAcc } | { kind: "texture"; n: number } | { kind: "doors" } | { kind: "stairs" }`
+- `Hit` type (local) :193 `= { el: XmlNode; matrix: Mat }`
+- `FloorAcc` type (local) :195 `= { n: number; name: string; layer: XmlNode; stencils: Hit[]; rooms: Hit[]; platforms: Hit[]; stairs: Hit[]; landings: Hit[]; elevators: Hit[]; textures: Hit[]…`
+- `Pose` type (local) :209 `= { model: string; scale: number; yaw: Yaw; origin: Vec3; elevation: number; }`
+- `toLocal` fn (local) :221 `(x: number, z: number, origin: Vec3, yaw: Yaw): { x: number; z: number }` — Page-world point to building-local metres.
+- `readFloorsSvg` fn :231 `(svgText: string, svgPath?: string): FloorsSource` — Read one building's floors file.
+  `@pre` `ignore` and everything under it is skipped.
+  `@when` Hidden layers are read.
+  `@why` Positions are building-local metres.
+- `platformIdOf` fn (local) :503 `(el: XmlNode): string | undefined`
+- `labelledId` fn (local) :511 `(el: XmlNode, kind: "stairs" | "elevator" | "landing"): string | undefined` — `stairs:<id>`, `elevator:<id>`, or `landing:<id>`.
+- `StencilShape` type (local) :519 `= { footprint: Array<[number, number]>; outline: Array<[number, number]>; outlines: Array<Array<[number, number]>>; fallback?: "diagonal" | "curve"; }`
+- `stencilShape` fn (local) :526 `(hit: Hit, frame: PageFrame, origin: Vec3, yaw: Yaw): StencilShape`
+- `subpathCounts` fn (local) :562 `(raw: string | undefined, id: string): number[]` — Point count of each subpath in `d`, in `pathPoints` order.
+- `pathHasCurve` fn (local) :579 `(raw: string | undefined): boolean` — C, S, Q and A contribute control points.
+- `pathOf` fn (local) :583 `(el: XmlNode, id: string): XmlNode`
+- `readPlatform` fn (local) :589 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): FloorPlatformSource`
+- `rectPolygon` fn (local) :598 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, id: string): Array<[number, number]>`
+- `localPoints` fn (local) :618 `(el: XmlNode, matrix: Mat, frame: PageFrame, origin: Vec3, yaw: Yaw, id: string): Array<{ x: number; z: number }>` — Path vertices in building-local metres.
+- `aabbPolygon` fn (local) :635 `(points: Array<{ x: number; z: number }>, id: string): Array<[number, number]>`
+- `OUTLINE_TOL_M` const (local) :650 `= 1e-4`
+- `rectilinearRing` fn (local) :657 `(points: Array<{ x: number; z: number }>): Array<[number, number]> | undefined` — Counter-clockwise rectilinear ring, or undefined when an edge is diagonal.
+- `axisEdge` fn (local) :679 `(poly: readonly (readonly [number, number])[], index: number): boolean`
+- `dropColinear` fn (local) :688 `(poly: Array<[number, number]>): Array<[number, number]>`
+- `snapAxes` fn (local) :703 `(poly: readonly (readonly [number, number])[]): Array<[number, number]>` — Each vertex becomes the crossing of its two axis-aligned edges.
+- `ringArea` fn (local) :731 `(poly: readonly (readonly [number, number])[]): number`
+- `PAGE_DIR` const (local) :741 `: Record<string, [number, number]>`
+- `readStair` fn (local) :748 `(hit: Hit, floor: number | undefined, elevation: number, next: number | undefined, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, svgPath…`
+- `readLanding` fn (local) :782 `(hit: Hit, floor: number | undefined, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, svgPath: string, cache: Map<string, Uint8Array>, flo…`
+- `surfaceTexture` fn (local) :818 `(el: XmlNode, svgPath: string, what: string, cache: Map<string, Uint8Array>, floorTexture: FloorTexture | undefined): FloorTexture` — `data-texture` (or a child image href, then `absref`) is this element's image.
+- `readSurfaceTile` fn (local) :839 `(el: XmlNode, what: string): number | undefined`
+- `ownImage` fn (local) :846 `(el: XmlNode, svgPath: string, what: string, cache: Map<string, Uint8Array>): Uint8Array | undefined` — Same lookup as a room `data-texture`: attribute, then image href, then absref.
+- `resolveTextureHref` fn (local) :862 `(svgPath: string, raw: string, absref: string | undefined, what: string): string`
+- `readElevator` fn (local) :871 `(hit: Hit, floor: number, elevation: number, elevations: readonly number[], frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): FloorElevator…`
+- `doorDir` fn (local) :903 `(hit: Hit, id: string): { dir: [number, number]; explicit: boolean; side: string }`
+- `stairUp` fn (local) :912 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, id: string): [number, number]` — Element-local page direction, mapped through the rect matrix into building-local XZ.
+- `pageVector` fn (local) :943 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, dir: [number, number], what: string): [number, number]`
+- `rectBox` fn (local) :958 `(hit: Hit, frame: PageFrame, units: string | undefined, id: string): { minX: number; minY: number; maxX: number; maxY: number }`
+- `pageDelta` fn (local) :969 `(hit: Hit, box: { minX: number; minY: number; maxX: number; maxY: number }, dx: number, dy: number): [number, number]`
+- `svgDeltaToLocal` fn (local) :982 `(sx: number, sy: number, dx: number, dy: number, frame: PageFrame, origin: Vec3, yaw: Yaw, what: string): [number, number]`
+- `parseStops` fn (local) :1003 `(raw: string | undefined, id: string): number[] | undefined`
+- `positiveOr` fn (local) :1018 `(raw: string | undefined, fallback: number, what: string): number`
+- `spanAlong` fn (local) :1024 `(polygon: readonly (readonly [number, number])[], up: readonly [number, number]): number`
+- `outsideArea` fn (local) :1036 `(upper: readonly (readonly [number, number])[], lower: readonly (readonly (readonly [number, number])[])[]): number` — Area of `upper` that sits outside every ring of `lower`, for rectilinear outlines.
+- `gridCoords` fn (local) :1057 `(a: readonly (readonly [number, number])[], b: readonly (readonly [number, number])[], axis: 0 | 1): number[]`
+- `withinOutline` fn (local) :1073 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean` — Inside the ring, or within `OUTLINE_TOL_M` of an edge.
+- `distToSeg` fn (local) :1083 `(x: number, z: number, a: readonly [number, number], b: readonly [number, number]): number`
+- `pointInRing` fn (local) :1097 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean`
+- `formatArea` fn (local) :1110 `(area: number): string`
+- `classifyLayer` fn (local) :1114 `(label: string): | { kind: "floor"; n: number } | { kind: "floor-texture"; n: number } | { kind: "doors" } | { kind: "stairs" } | { kind: "ignore" }`
+- `floorPose` fn (local) :1140 `(floor: FloorAcc, frame: ReturnType<typeof pageFrame>): Pose`
+- `localYaw` fn (local) :1164 `(elementYaw: Yaw, yaw: Yaw): Yaw`
+- `toLocalBox` fn (local) :1170 `(minX: number, maxX: number, minZ: number, maxZ: number, origin: Vec3, yaw: Yaw): { minX: number; maxX: number; minZ: number; maxZ: number }`
+- `indexPatterns` fn (local) :1194 `(svg: XmlNode): Map<string, XmlNode>`
+- `readFloorTexture` fn (local) :1214 `(hits: readonly Hit[], patterns: ReadonlyMap<string, XmlNode>, frame: PageFrame, svgPath: string, cache: Map<string, Uint8Array>, floorN: number): FloorTexture…` — First labelled `floor-texture` that carries an image or a pattern fill.
+- `textureFromElement` fn (local) :1236 `(el: XmlNode, patterns: ReadonlyMap<string, XmlNode>, frame: PageFrame, svgPath: string, cache: Map<string, Uint8Array>, floorN: number): FloorTexture | undefi…`
+- `cachedImage` fn (local) :1268 `(cache: Map<string, Uint8Array>, svgPath: string, href: string, what: string): Uint8Array`
+- `patternChain` fn (local) :1276 `(id: string, patterns: ReadonlyMap<string, XmlNode>, floorN: number): XmlNode[]`
+- `patternImageHref` fn (local) :1291 `(chain: readonly XmlNode[]): string | undefined`
+- `patternTile` fn (local) :1307 `(chain: readonly XmlNode[], frame: PageFrame, host: XmlNode, floorN: number): { x: number; z: number }` — Tile period in metres.
+- `inherited` fn (local) :1334 `(chain: readonly XmlNode[], name: string): string | undefined`
+- `userBox` fn (local) :1342 `(el: XmlNode, floorN: number): { width: number; height: number }`
+- `findPattern` fn (local) :1365 `(el: XmlNode): { id: string; host: XmlNode } | undefined`
+- `patternId` fn (local) :1375 `(el: XmlNode): string | undefined`
+- `findDescendant` fn (local) :1384 `(el: XmlNode, name: string): XmlNode | undefined`
 
-### src/footprint.ts (1174)
+### src/footprint.ts (1178)
 imports: src/errors.ts, src/types.ts
 used by: src/bake.ts, src/measure.ts, src/room-file.ts, src/room-svg.ts
-- `CELL_M` const :5 `= 0.5` — Occupancy cell on XZ.
-- `BAND_M` const :12 `= 0.5` — Vertical slice of the same grid.
-- `MAX_OBSTACLES` const :15 `= 32` — Per instance, after scale.
-- `MIN_THICKNESS_M` const (local) :21 `= 0.4` — Drop a run thinner than this or shorter than this.
-- `MIN_LENGTH_M` const (local) :22 `= 1`
-- `FLOOR_Y_M` const (local) :29 `= 0.5` — Floor debris.
-- `PAWN_TOP_M` const (local) :36 `= 2` — Cells the mesh covers anywhere from the ground up to this height are one band.
-- `BRIDGE_M` const (local) :39 `= 0.5` — Empty distance above this, along a run, stays a gap.
-- `FACET_VOLUME_M3` const (local) :42 `= 0.5` — Trim.
-- `SHELL_M` const (local) :48 `= 0.1` — A shell this thin is still a wall when the run is longer than 1 m.
-- `STACK_XZ_M` const (local) :54 `= 0.15` — Consecutive bands whose XZ differs by at most this still stack.
-- `MEASURE_CELL_M` const :61 `= 0.05` — Measure grid on the unscaled GLB, in GLB units.
-- `EPS` const (local) :63 `= 1e-6`
-- `Item` type (local) :65 `= { triangle: Triangle; minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number; }`
-- `Clip` type (local) :75 `= { minX: number; maxX: number; minZ: number; maxZ: number }`
-- `YSpan` type (local) :77 `= { minY: number; maxY: number }`
-- `Cap` type (local) :80 `= { y: number; kind: "enter" | "exit" }` — A flat face.
-- `Column` type (local) :82 `= { clip: Clip; bands: Map<number, YSpan>; caps: Cap[]; }`
-- `Run` type (local) :90 `= { i0: number; i1: number; k0: number; k1: number }`
-- `BandBox` type (local) :92 `= LocalBox & { band0: number; band1: number }`
-- `CoarseFootprint` type :94 `= { boxes: LocalBox[]; cellSize: number; facetsDropped: number; }`
-- `FootprintDetail` type :101 `= { boxes: LocalBox[]; facetsDropped: number; }`
-- `XzRect` type :107 `= { minX: number; maxX: number; minZ: number; maxZ: number; }` — Axis-aligned opening in the same XZ space as the occupancy grid.
-- `footprintFromTriangles` fn :121 `(triangles: Triangle[], cellSize = CELL_M, openings: readonly XzRect[] = [], fillInterior = true): LocalBox[]` — Project triangles onto XZ, then bin each solid cell into 0.5 m vertical bands.
-- `footprintDetail` fn :131 `(triangles: Triangle[], cellSize = CELL_M, openings: readonly XzRect[] = [], fillInterior = true): FootprintDetail` — Same grid as `footprintFromTriangles`, plus how many facet boxes were dropped.
-- `measureFootprint` fn :153 `(triangles: Triangle[]): LocalBox[]` — Footprint of a raw GLB, in the same units as the vertex positions.
-- `WallFace` type (local) :166 `= { at: number; lo: number; hi: number; area: number }` — One axis-aligned vertical face: its plane coordinate, its span on the other axis, its area.
-- `wallPlanes` fn (local) :173 `(triangles: readonly Triangle[]): { x: WallFace[]; z: WallFace[] }` — Vertical faces whose normal is within ~5° of the X or Z axis.
-- `snapToWallPlanes` fn (local) :202 `(boxes: LocalBox[], planes: { x: WallFace[]; z: WallFace[] }, cell: number): LocalBox[]` — Move each grid-snapped box edge onto the main wall plane near it.
-- `OccupancyOptions` type (local) :234 `= { cellSize: number; openings: readonly XzRect[]; floorY: number | null; minThickness: number; minLength: number; bandM: number | null; fillInterior?: boolean…`
-- `occupancy` fn (local) :254 `(triangles: Triangle[], options: OccupancyOptions): FootprintDetail`
-- `flatFootprint` fn (local) :269 `(columns: Map<string, Column>, items: Item[], options: OccupancyOptions): LocalBox[]` — Measure path.
-- `bandedFootprint` fn (local) :290 `(columns: Map<string, Column>, items: Item[], triangles: Triangle[], options: OccupancyOptions, bandM: number): FootprintDetail` — Merge the pawn-height cells into runs before dropping any of them.
-- `isFacet` fn (local) :332 `(box: LocalBox, minLength: number): boolean` — A facade facet: shorter than a metre on XZ, or under half a cubic metre.
-- `coarseFootprint` fn :349 `(triangles: Triangle[], fillInterior = true): CoarseFootprint` — 0.5 m grid, or 1 m when the first pass still exceeds `MAX_OBSTACLES`.
-- `keptTriangles` fn (local) :364 `(triangles: Triangle[], floorY: number | null): Item[]` — Bake drops floor triangles.
-- `itemOf` fn (local) :374 `(triangle: Triangle): Item`
-- `markCells` fn (local) :391 `(item: Item, cell: number, columns: Map<string, Column>): void`
-- `Point` type (local) :423 `= { x: number; y: number; z: number }`
-- `CellHit` type (local) :425 `= Clip & YSpan`
-- `hitInCell` fn (local) :433 `(triangle: Triangle, minX: number, maxX: number, minZ: number, maxZ: number): CellHit | null` — The triangle inside one XZ cell.
-- `addCoveredColumns` fn (local) :468 `(items: Item[], cell: number, columns: Map<string, Column>): void` — A center test misses a wall thinner than the cell.
-- `triangleNormal` fn (local) :494 `(triangle: Triangle): { x: number; y: number; z: number }`
-- `triangleOwnsCell` fn (local) :515 `(triangle: Triangle, poly: Point[], minX: number, maxX: number, minZ: number, maxZ: number): boolean` — A polygon that reaches the cell interior belongs to it, including a quad whose vertices all sit on the two opposite edges.
-- `clipPoly` fn (local) :555 `(poly: Point[], inside: (point: Point) => boolean, at: (a: Point, b: Point) => Point): Point[]`
-- `lerpAxis` fn (local) :572 `(a: Point, b: Point, axis: "x" | "z", at: number): Point`
-- `markBands` fn (local) :588 `(item: Item, cell: number, bandM: number, columns: Map<string, Column>, floorY: number | null): void` — Paint bands a triangle actually crosses inside cells the XZ grid already kept.
-- `markCaps` fn (local) :631 `(triangles: Triangle[], cell: number, columns: Map<string, Column>): void` — Flat faces do not paint a band.
-- `solidSpans` fn (local) :658 `(caps: Cap[]): YSpan[]` — Closed intervals where this cell is inside the mesh, from underside to lid.
-- `fillInteriors` fn (local) :682 `(columns: Map<string, Column>, bandM: number, floorY: number | null): void` — An interior cell has a lid and an underside but no vertical triangle.
-- `pawnWalls` fn (local) :737 `(columns: Map<string, Column>, pawnBands: number[], minThickness: number, minLength: number): BandBox[]` — Cells in these bands merge before anything is dropped.
-- `dropFlushSkins` fn (local) :768 `(boxes: BandBox[]): BandBox[]` — A 2 cm lip sitting on the face of a thicker run is the same wall.
-- `flushWithThicker` fn (local) :777 `(skin: BandBox, other: BandBox): boolean`
-- `cutRuns` fn (local) :794 `(runs: Run[], columns: Map<string, Column>): Run[]` — Split a rectangle where either axis has a clip hole, so a doorway does not stay inside one box.
-- `weldSkins` fn (local) :799 `(boxes: BandBox[]): BandBox[]` — Join parallel thin faces whose gap is at most `BRIDGE_M` and whose lengths match.
-- `joinSkins` fn (local) :821 `(a: BandBox, b: BandBox): BandBox | null`
-- `gap1d` fn (local) :849 `(a0: number, a1: number, b0: number, b1: number): number`
-- `splitHoles` fn (local) :856 `(runs: Run[], columns: Map<string, Column>, along: "i" | "k"): Run[]` — Cut a run where neighboring clips leave a hole wider than `BRIDGE_M`.
-- `boxesForBands` fn (local) :899 `(runs: Run[], columns: Map<string, Column>, bands: number[]): BandBox[]` — One merged run.
-- `stackBands` fn (local) :944 `(boxes: BandBox[]): LocalBox[]` — Consecutive bands with the same footprint become one volume.
-- `dropContainedBands` fn (local) :972 `(boxes: BandBox[]): BandBox[]`
-- `covers` fn (local) :985 `(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, x: number, z: number): boolean` — Barycentric XZ test.
-- `eraseOpening` fn (local) :998 `(columns: Map<string, Column>, cell: number, opening: XzRect): void` — Drop every solid cell the opening overlaps, including a cell the rectangle only partly covers.
-- `runsAlongRows` fn (local) :1012 `(cells: Array<[number, number]>): Run[]`
-- `runsAlongColumns` fn (local) :1049 `(cells: Array<[number, number]>): Run[]`
-- `boxesFromRuns` fn (local) :1059 `(runs: Run[], geom: Map<string, Clip>): LocalBox[]`
-- `assignY` fn (local) :1082 `(box: LocalBox, items: Item[]): LocalBox`
-- `dropShort` fn (local) :1095 `<T extends LocalBox>(boxes: T[], minThickness: number, minLength: number): T[]`
-- `keepWalls` fn (local) :1110 `<T extends LocalBox>(boxes: T[], minThickness: number, minLength: number): T[]` — A short run is a mullion and goes.
-- `dropContained` fn (local) :1129 `(boxes: LocalBox[]): LocalBox[]`
-- `area` fn (local) :1141 `(box: LocalBox): number`
-- `sameXz` fn (local) :1145 `(a: LocalBox, b: LocalBox): boolean`
-- `nearXz` fn (local) :1153 `(a: LocalBox, b: LocalBox): boolean` — Close enough to be the same wall seen in the next band, not a second wall.
-- `containsXz` fn (local) :1160 `(outer: LocalBox, inner: LocalBox): boolean`
-- `pack` fn (local) :1167 `(i: number, k: number): string`
-- `unpack` fn (local) :1171 `(key: string): [number, number]`
+- `CELL_M` const :8 `= 0.5` — Occupancy cell on XZ.
+  `@when` Doubled once when a model still has more than `MAX_OBSTACLES` runs.
+- `BAND_M` const :14 `= 0.5` — Vertical slice of the same grid.
+  `@why` A triangle marks a band only where it overlaps that slice inside the cell. A span at y = 3 does not paint y = 0. Bands stack when they share a footprint, so a solid wall is one box.
+- `MAX_OBSTACLES` const :19 `= 32`
+  `@when` Per instance, after scale. The second pass uses `CELL_M * 2` and then stops.
+- `MIN_THICKNESS_M` const (local) :25 `= 0.4` — Drop a run thinner than this or shorter than this.
+- `MIN_LENGTH_M` const (local) :26 `= 1`
+- `FLOOR_Y_M` const (local) :33 `= 0.5` — Floor debris.
+- `PAWN_TOP_M` const (local) :40 `= 2` — Cells the mesh covers anywhere from the ground up to this height are one band.
+- `BRIDGE_M` const (local) :43 `= 0.5` — Empty distance above this, along a run, stays a gap.
+- `FACET_VOLUME_M3` const (local) :46 `= 0.5` — Trim.
+- `SHELL_M` const (local) :52 `= 0.1` — A shell this thin is still a wall when the run is longer than 1 m.
+- `STACK_XZ_M` const (local) :58 `= 0.15` — Consecutive bands whose XZ differs by at most this still stack.
+- `MEASURE_CELL_M` const :64 `= 0.05` — Measure grid on the unscaled GLB, in GLB units.
+  `@why` Arena meters are the SVG instance scale, applied later. A run of one cell is kept. The bake cutoffs (`MIN_LENGTH_M`, `MIN_THICKNESS_M`) are not applied here.
+- `EPS` const (local) :66 `= 1e-6`
+- `Item` type (local) :68 `= { triangle: Triangle; minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number; }`
+- `Clip` type (local) :78 `= { minX: number; maxX: number; minZ: number; maxZ: number }`
+- `YSpan` type (local) :80 `= { minY: number; maxY: number }`
+- `Cap` type (local) :83 `= { y: number; kind: "enter" | "exit" }` — A flat face.
+- `Column` type (local) :85 `= { clip: Clip; bands: Map<number, YSpan>; caps: Cap[]; }`
+- `Run` type (local) :93 `= { i0: number; i1: number; k0: number; k1: number }`
+- `BandBox` type (local) :95 `= LocalBox & { band0: number; band1: number }`
+- `CoarseFootprint` type :97 `= { boxes: LocalBox[]; cellSize: number; facetsDropped: number; }`
+- `FootprintDetail` type :104 `= { boxes: LocalBox[]; facetsDropped: number; }`
+- `XzRect` type :113 `= { minX: number; maxX: number; minZ: number; maxZ: number; }` — Axis-aligned opening.
+  `@pre` In the same XZ space as the occupancy grid.
+- `footprintFromTriangles` fn :125 `(triangles: Triangle[], cellSize = CELL_M, openings: readonly XzRect[] = [], fillInterior = true): LocalBox[]` — Project triangles onto XZ, then bin each solid cell into 0.5 m vertical bands.
+  `@pre` Call this after scale and before yaw.
+  `@why` A doorway is a run of empty cells; gaps wider than one cell are left open. A box's Y is the bands the mesh covers there, not the building's max height. From y = 0 to 2 m the covered cells merge before any run is dropped.
+- `footprintDetail` fn :137 `(triangles: Triangle[], cellSize = CELL_M, openings: readonly XzRect[] = [], fillInterior = true): FootprintDetail`
+  `@see` `footprintFromTriangles`, the same grid, plus how many facet boxes were dropped.
+- `measureFootprint` fn :158 `(triangles: Triangle[]): LocalBox[]` — Footprint of a raw GLB, in the same units as the vertex positions.
+  `@why` Every triangle is projected. The cell is 0.05. A run stays when its long side is at least one cell. This is the measure stencil, not the bake obstacle grid.
+- `WallFace` type (local) :171 `= { at: number; lo: number; hi: number; area: number }` — One axis-aligned vertical face: its plane coordinate, its span on the other axis, its area.
+- `wallPlanes` fn (local) :178 `(triangles: readonly Triangle[]): { x: WallFace[]; z: WallFace[] }` — Vertical faces whose normal is within ~5° of the X or Z axis.
+- `snapToWallPlanes` fn (local) :207 `(boxes: LocalBox[], planes: { x: WallFace[]; z: WallFace[] }, cell: number): LocalBox[]` — Move each grid-snapped box edge onto the main wall plane near it.
+- `OccupancyOptions` type (local) :239 `= { cellSize: number; openings: readonly XzRect[]; floorY: number | null; minThickness: number; minLength: number; bandM: number | null; fillInterior?: boolean…`
+- `occupancy` fn (local) :259 `(triangles: Triangle[], options: OccupancyOptions): FootprintDetail`
+- `flatFootprint` fn (local) :274 `(columns: Map<string, Column>, items: Item[], options: OccupancyOptions): LocalBox[]` — Measure path.
+- `bandedFootprint` fn (local) :295 `(columns: Map<string, Column>, items: Item[], triangles: Triangle[], options: OccupancyOptions, bandM: number): FootprintDetail` — Merge the pawn-height cells into runs before dropping any of them.
+- `isFacet` fn (local) :337 `(box: LocalBox, minLength: number): boolean` — A facade facet: shorter than a metre on XZ, or under half a cubic metre.
+- `coarseFootprint` fn :353 `(triangles: Triangle[], fillInterior = true): CoarseFootprint`
+  `@when` 0.5 m grid, or 1 m when the first pass still exceeds `MAX_OBSTACLES`.
+  `@why` `fillInterior` false is the shell only. Bake passes that for a model whose floors file already describes the interior.
+- `keptTriangles` fn (local) :368 `(triangles: Triangle[], floorY: number | null): Item[]` — Bake drops floor triangles.
+- `itemOf` fn (local) :378 `(triangle: Triangle): Item`
+- `markCells` fn (local) :395 `(item: Item, cell: number, columns: Map<string, Column>): void`
+- `Point` type (local) :427 `= { x: number; y: number; z: number }`
+- `CellHit` type (local) :429 `= Clip & YSpan`
+- `hitInCell` fn (local) :437 `(triangle: Triangle, minX: number, maxX: number, minZ: number, maxZ: number): CellHit | null` — The triangle inside one XZ cell.
+- `addCoveredColumns` fn (local) :472 `(items: Item[], cell: number, columns: Map<string, Column>): void` — A center test misses a wall thinner than the cell.
+- `triangleNormal` fn (local) :498 `(triangle: Triangle): { x: number; y: number; z: number }`
+- `triangleOwnsCell` fn (local) :519 `(triangle: Triangle, poly: Point[], minX: number, maxX: number, minZ: number, maxZ: number): boolean` — A polygon that reaches the cell interior belongs to it, including a quad whose vertices all sit on the two opposite edges.
+- `clipPoly` fn (local) :559 `(poly: Point[], inside: (point: Point) => boolean, at: (a: Point, b: Point) => Point): Point[]`
+- `lerpAxis` fn (local) :576 `(a: Point, b: Point, axis: "x" | "z", at: number): Point`
+- `markBands` fn (local) :592 `(item: Item, cell: number, bandM: number, columns: Map<string, Column>, floorY: number | null): void` — Paint bands a triangle actually crosses inside cells the XZ grid already kept.
+- `markCaps` fn (local) :635 `(triangles: Triangle[], cell: number, columns: Map<string, Column>): void` — Flat faces do not paint a band.
+- `solidSpans` fn (local) :662 `(caps: Cap[]): YSpan[]` — Closed intervals where this cell is inside the mesh, from underside to lid.
+- `fillInteriors` fn (local) :686 `(columns: Map<string, Column>, bandM: number, floorY: number | null): void` — An interior cell has a lid and an underside but no vertical triangle.
+- `pawnWalls` fn (local) :741 `(columns: Map<string, Column>, pawnBands: number[], minThickness: number, minLength: number): BandBox[]` — Cells in these bands merge before anything is dropped.
+- `dropFlushSkins` fn (local) :772 `(boxes: BandBox[]): BandBox[]` — A 2 cm lip sitting on the face of a thicker run is the same wall.
+- `flushWithThicker` fn (local) :781 `(skin: BandBox, other: BandBox): boolean`
+- `cutRuns` fn (local) :798 `(runs: Run[], columns: Map<string, Column>): Run[]` — Split a rectangle where either axis has a clip hole, so a doorway does not stay inside one box.
+- `weldSkins` fn (local) :803 `(boxes: BandBox[]): BandBox[]` — Join parallel thin faces whose gap is at most `BRIDGE_M` and whose lengths match.
+- `joinSkins` fn (local) :825 `(a: BandBox, b: BandBox): BandBox | null`
+- `gap1d` fn (local) :853 `(a0: number, a1: number, b0: number, b1: number): number`
+- `splitHoles` fn (local) :860 `(runs: Run[], columns: Map<string, Column>, along: "i" | "k"): Run[]` — Cut a run where neighboring clips leave a hole wider than `BRIDGE_M`.
+- `boxesForBands` fn (local) :903 `(runs: Run[], columns: Map<string, Column>, bands: number[]): BandBox[]` — One merged run.
+- `stackBands` fn (local) :948 `(boxes: BandBox[]): LocalBox[]` — Consecutive bands with the same footprint become one volume.
+- `dropContainedBands` fn (local) :976 `(boxes: BandBox[]): BandBox[]`
+- `covers` fn (local) :989 `(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, x: number, z: number): boolean` — Barycentric XZ test.
+- `eraseOpening` fn (local) :1002 `(columns: Map<string, Column>, cell: number, opening: XzRect): void` — Drop every solid cell the opening overlaps, including a cell the rectangle only partly covers.
+- `runsAlongRows` fn (local) :1016 `(cells: Array<[number, number]>): Run[]`
+- `runsAlongColumns` fn (local) :1053 `(cells: Array<[number, number]>): Run[]`
+- `boxesFromRuns` fn (local) :1063 `(runs: Run[], geom: Map<string, Clip>): LocalBox[]`
+- `assignY` fn (local) :1086 `(box: LocalBox, items: Item[]): LocalBox`
+- `dropShort` fn (local) :1099 `<T extends LocalBox>(boxes: T[], minThickness: number, minLength: number): T[]`
+- `keepWalls` fn (local) :1114 `<T extends LocalBox>(boxes: T[], minThickness: number, minLength: number): T[]` — A short run is a mullion and goes.
+- `dropContained` fn (local) :1133 `(boxes: LocalBox[]): LocalBox[]`
+- `area` fn (local) :1145 `(box: LocalBox): number`
+- `sameXz` fn (local) :1149 `(a: LocalBox, b: LocalBox): boolean`
+- `nearXz` fn (local) :1157 `(a: LocalBox, b: LocalBox): boolean` — Close enough to be the same wall seen in the next band, not a second wall.
+- `containsXz` fn (local) :1164 `(outer: LocalBox, inner: LocalBox): boolean`
+- `pack` fn (local) :1171 `(i: number, k: number): string`
+- `unpack` fn (local) :1175 `(key: string): [number, number]`
 
 ### src/glb-write.ts (552)
 imports: src/glb.ts, src/types.ts
 used by: src/building-mesh-cut.ts, src/crate.ts, src/hall-floor.ts, src/prop.ts, src/room-cut.ts, src/room-file.ts, src/room-glb.ts, src/stairs-mesh.ts
 - `DoorCorner` type :4 `= { position: Vec3; normal: Vec3; uv?: readonly [number, number]; }`
-- `writeTriangleGlb` fn :18 `(name: string, triangles: Triangle[]): Uint8Array` — One triangle mesh, positions only.
-- `MeshPrimitive` type :55 `= { corners: readonly DoorCorner[]; image?: Uint8Array; quads?: boolean; color?: readonly [number, number, number, number]; blend?: boolean; alphaMode?: "OPAQU…`
-- `NamedMesh` type :85 `= { name: string; parent?: string; primitives: readonly MeshPrimitive[]; }`
-- `ARRAY_BUFFER` const (local) :92 `= 34962`
-- `ELEMENT_ARRAY_BUFFER` const (local) :93 `= 34963`
-- `imageMime` fn :95 `(bytes: Uint8Array): "image/png" | "image/jpeg" | undefined`
+- `writeTriangleGlb` fn :19 `(name: string, triangles: Triangle[]): Uint8Array` — One triangle mesh, positions only.
+  `@post` No material, skin, or animation clip.
+  `@why` The chunk padding matches the glTF 2 GLB layout.
+- `MeshPrimitive` type :56 `= { corners: readonly DoorCorner[]; image?: Uint8Array; quads?: boolean; color?: readonly [number, number, number, number]; blend?: boolean; alphaMode?: "OPAQU…`
+- `NamedMesh` type :86 `= { name: string; parent?: string; primitives: readonly MeshPrimitive[]; }`
+- `ARRAY_BUFFER` const (local) :93 `= 34962`
+- `ELEMENT_ARRAY_BUFFER` const (local) :94 `= 34963`
+- `imageMime` fn :96 `(bytes: Uint8Array): "image/png" | "image/jpeg" | undefined`
 - `writeMeshesGlb` fn :106 `(meshes: readonly NamedMesh[]): Uint8Array` — One node per mesh, at the vertex origin.
-- `writeTexturedGlb` fn :279 `(doc: TexturedGlb): Uint8Array` — Write meshes whose node transforms are already in the vertices.
+  `@when` A mesh with `parent` hangs under that group node. A primitive with `image` gets TEXCOORD_0. Other faces use a flat color.
+- `writeTexturedGlb` fn :279 `(doc: TexturedGlb): Uint8Array`
+  `@pre` Write meshes whose node transforms are already in the vertices.
+  `@post` Node names are the names passed in.
+  `@why` Image bytes are copied as given. Materials, textures, and samplers keep their JSON, including KTX2 / `KHR_texture_basisu`.
 - `writePrimitive` fn (local) :320 `(bin: BinBuilder, bufferViews: unknown[], accessors: unknown[], primitive: TexturedPrimitive): { attributes: { POSITION: number; NORMAL?: number; TEXCOORD_0?: …`
 - `sceneNodes` fn (local) :376 `(meshes: readonly NamedMesh[]): { nodes: Array<{ name: string; mesh?: number; children?: number[] }>; roots: number[]; }`
 - `pushAccessor` fn (local) :403 `(bin: BinBuilder, bufferViews: unknown[], accessors: unknown[], bytes: Uint8Array, target: number, accessor: { bufferView?: number; componentType: number; coun…`
@@ -445,7 +524,7 @@ used by: src/building-mesh-cut.ts, src/crate.ts, src/hall-floor.ts, src/prop.ts,
 - `packGlb` fn (local) :526 `(json: unknown, bin: Uint8Array): Uint8Array`
 - `pad` fn (local) :545 `(bytes: Uint8Array, mod: number, fill: number): Uint8Array`
 
-### src/glb.ts (549)
+### src/glb.ts (550)
 imports: src/errors.ts, src/types.ts
 used by: src/bake.ts, src/building-mesh-cut.ts, src/glb-write.ts, src/measure.ts, src/room-glb.ts
 - `GLB_MAGIC` const (local) :4 `= 0x46546c67`
@@ -461,59 +540,76 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/glb-write.ts, src/measure.ts
 - `IDENTITY` const (local) :69 `= [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]`
 - `GlbLoad` type :71 `= { triangles: Triangle[]; meshNames: string[]; vertexCount: number; }`
 - `GlbLoadOptions` type :79 `= { meshPrefix?: string; meshFilter?: (nodeName: string | undefined, meshName: string | undefined) => boolean; }`
-- `trianglesFromGlb` fn :96 `(bytes: Uint8Array, options?: GlbLoadOptions): GlbLoad` — Triangle meshes in model space, with glTF node transforms applied.
-- `isSelected` fn (local) :133 `(node: GltfNode, mesh: GltfMesh, meshPrefix: string | undefined): boolean`
-- `hasPrefix` fn (local) :141 `(name: string | undefined, prefix: string): boolean`
-- `meshLabel` fn (local) :145 `(node: GltfNode, mesh: GltfMesh): string`
-- `collisionExtra` fn (local) :151 `(extras: { collision?: unknown } | undefined): boolean`
-- `meshTriangles` fn (local) :155 `(doc: Gltf, bin: Uint8Array, mesh: GltfMesh, world: number[]): { triangles: Triangle[]; vertexCount: number }`
-- `parseGlb` fn (local) :188 `(bytes: Uint8Array): { json: unknown; bin: Uint8Array }`
-- `readVec3` fn (local) :212 `(doc: Gltf, bin: Uint8Array, accessorIndex: number): Vec3[]`
-- `readScalar` fn (local) :219 `(doc: Gltf, bin: Uint8Array, accessorIndex: number): number[]`
-- `readAccessor` fn (local) :223 `(doc: Gltf, bin: Uint8Array, accessorIndex: number, expect: string): number[]`
-- `readComponent` fn (local) :253 `(view: DataView, offset: number, componentType: number): number`
-- `nodeMatrix` fn (local) :272 `(node: GltfNode): number[]`
-- `compose` fn (local) :284 `(t: number[], q: number[], s: number[]): number[]` — Column-major T * R * S, matching glTF and Three.js.
-- `mul4` fn (local) :312 `(a: number[], b: number[]): number[]`
-- `transformPoint` fn (local) :326 `(m: number[], p: Vec3): Vec3`
-- `TexturedVertex` type :335 `= { position: Vec3; normal?: Vec3; uv?: readonly [number, number]; }`
-- `TexturedPrimitive` type :342 `= { material?: number; vertices: TexturedVertex[]; indices: number[]; }`
-- `TexturedMesh` type :349 `= { nodeName: string; meshName: string; primitives: TexturedPrimitive[]; }`
-- `TexturedImage` type :356 `= { bytes: Uint8Array; json: Record<string, unknown>; }`
-- `TexturedGlb` type :368 `= { meshes: TexturedMesh[]; materials: unknown[]; textures: unknown[]; images: TexturedImage[]; samplers: unknown[]; extensionsUsed?: string[]; extensionsRequi…` — Textured triangle meshes in the same space as `trianglesFromGlb`: node transforms are applied, placement scale is not.
-- `TexGltf` type (local) :378 `= Gltf & { materials?: unknown[]; textures?: unknown[]; images?: Array<Record<string, unknown>>; samplers?: unknown[]; extensionsUsed?: string[]; extensionsReq…`
-- `readTexturedGlb` fn :391 `(bytes: Uint8Array): TexturedGlb` — Read every triangle primitive with positions, normals, UVs, and the material/image it references.
-- `texturedPrimitives` fn (local) :433 `(doc: Gltf, bin: Uint8Array, mesh: GltfMesh, world: number[]): TexturedPrimitive[]`
-- `readImage` fn (local) :480 `(doc: Gltf, bin: Uint8Array, image: Record<string, unknown>, index: number): TexturedImage`
-- `readFloatVec2` fn (local) :500 `(doc: Gltf, bin: Uint8Array, accessorIndex: number): Array<[number, number]>`
-- `readFloatVec3` fn (local) :510 `(doc: Gltf, bin: Uint8Array, accessorIndex: number, label: string): Vec3[]`
-- `transformNormal` fn (local) :518 `(m: number[], n: Vec3): Vec3` — `(M^{-1})^T` of the linear part, then the caller normalizes.
-- `unit` fn (local) :541 `(n: Vec3): Vec3`
-- `cloneJson` fn (local) :547 `(value: unknown): unknown`
+- `trianglesFromGlb` fn :97 `(bytes: Uint8Array, options?: GlbLoadOptions): GlbLoad` — Triangle meshes in model space.
+  `@post` glTF node transforms are applied. Empty primitives are skipped.
+  `@why` Throws when the scene has no triangle positions.
+- `isSelected` fn (local) :134 `(node: GltfNode, mesh: GltfMesh, meshPrefix: string | undefined): boolean`
+- `hasPrefix` fn (local) :142 `(name: string | undefined, prefix: string): boolean`
+- `meshLabel` fn (local) :146 `(node: GltfNode, mesh: GltfMesh): string`
+- `collisionExtra` fn (local) :152 `(extras: { collision?: unknown } | undefined): boolean`
+- `meshTriangles` fn (local) :156 `(doc: Gltf, bin: Uint8Array, mesh: GltfMesh, world: number[]): { triangles: Triangle[]; vertexCount: number }`
+- `parseGlb` fn (local) :189 `(bytes: Uint8Array): { json: unknown; bin: Uint8Array }`
+- `readVec3` fn (local) :213 `(doc: Gltf, bin: Uint8Array, accessorIndex: number): Vec3[]`
+- `readScalar` fn (local) :220 `(doc: Gltf, bin: Uint8Array, accessorIndex: number): number[]`
+- `readAccessor` fn (local) :224 `(doc: Gltf, bin: Uint8Array, accessorIndex: number, expect: string): number[]`
+- `readComponent` fn (local) :254 `(view: DataView, offset: number, componentType: number): number`
+- `nodeMatrix` fn (local) :273 `(node: GltfNode): number[]`
+- `compose` fn (local) :285 `(t: number[], q: number[], s: number[]): number[]` — Column-major T * R * S, matching glTF and Three.js.
+- `mul4` fn (local) :313 `(a: number[], b: number[]): number[]`
+- `transformPoint` fn (local) :327 `(m: number[], p: Vec3): Vec3`
+- `TexturedVertex` type :336 `= { position: Vec3; normal?: Vec3; uv?: readonly [number, number]; }`
+- `TexturedPrimitive` type :343 `= { material?: number; vertices: TexturedVertex[]; indices: number[]; }`
+- `TexturedMesh` type :350 `= { nodeName: string; meshName: string; primitives: TexturedPrimitive[]; }`
+- `TexturedImage` type :357 `= { bytes: Uint8Array; json: Record<string, unknown>; }`
+- `TexturedGlb` type :369 `= { meshes: TexturedMesh[]; materials: unknown[]; textures: unknown[]; images: TexturedImage[]; samplers: unknown[]; extensionsUsed?: string[]; extensionsRequi…` — Textured triangle meshes in the same space as `trianglesFromGlb`.
+  `@post` Node transforms are applied, placement scale is not.
+  `@why` Image payloads and material objects are copied so a writer can embed them again without recompressing.
+- `TexGltf` type (local) :379 `= Gltf & { materials?: unknown[]; textures?: unknown[]; images?: Array<Record<string, unknown>>; samplers?: unknown[]; extensionsUsed?: string[]; extensionsReq…`
+- `readTexturedGlb` fn :392 `(bytes: Uint8Array): TexturedGlb` — Read every triangle primitive with positions, normals, UVs, and the material/image it references.
+  `@pre` External images and non-float attributes fail.
+- `texturedPrimitives` fn (local) :434 `(doc: Gltf, bin: Uint8Array, mesh: GltfMesh, world: number[]): TexturedPrimitive[]`
+- `readImage` fn (local) :481 `(doc: Gltf, bin: Uint8Array, image: Record<string, unknown>, index: number): TexturedImage`
+- `readFloatVec2` fn (local) :501 `(doc: Gltf, bin: Uint8Array, accessorIndex: number): Array<[number, number]>`
+- `readFloatVec3` fn (local) :511 `(doc: Gltf, bin: Uint8Array, accessorIndex: number, label: string): Vec3[]`
+- `transformNormal` fn (local) :519 `(m: number[], n: Vec3): Vec3` — `(M^{-1})^T` of the linear part, then the caller normalizes.
+- `unit` fn (local) :542 `(n: Vec3): Vec3`
+- `cloneJson` fn (local) :548 `(value: unknown): unknown`
 
-### src/hall-floor.ts (289)
+### src/hall-floor.ts (295)
 imports: src/glb-write.ts, src/room-file.ts, src/types.ts, src/union.ts, src/yaw.ts
 used by: src/floors-svg.ts, src/places.ts, src/rooms-bake.ts, src/scene-graph.ts
-- `HALL_FLOOR_SINK_M` const :8 `= 0.001` — Drop the visible hall a millimetre under the walk surface so it does not z-fight a room floor.
-- `HALL_EDGE_INSET_M` const :14 `= 0.05` — Pull facade edges in by this much so the floor ends inside the wall thickness.
-- `GREY_PNG` const (local) :17 `= Buffer.from(…)` — 1×1 mid-grey (#808080) PNG.
-- `defaultFloorImage` fn :22 `(): Uint8Array`
-- `roomFootprintAabb` fn :30 `(inst: { center: { x: number; z: number }; yaw: Yaw }, footprint: { minX: number; maxX: number; minZ: number; maxZ: number }): Aabb2` — Building-local footprint of one room instance.
-- `hallCells` fn :51 `(outline: readonly (readonly [number, number])[], rooms: readonly Aabb2[]): Aabb2[]` — Outline minus room rectangles.
+- `HALL_FLOOR_SINK_M` const :10 `= 0.001`
+  `@why` Drop the visible hall a millimetre under the walk surface so it does not z-fight a room floor.
+- `HALL_EDGE_INSET_M` const :16 `= 0.05`
+  `@post` Room edges are not inset.
+  `@why` Pull facade edges in by this much so the floor ends inside the wall thickness.
+- `GREY_PNG` const (local) :19 `= Buffer.from(…)` — 1×1 mid-grey (#808080) PNG.
+- `defaultFloorImage` fn :24 `(): Uint8Array`
+- `roomFootprintAabb` fn :32 `(inst: { center: { x: number; z: number }; yaw: Yaw }, footprint: { minX: number; maxX: number; minZ: number; maxZ: number }): Aabb2` — Building-local footprint of one room instance.
+  `@why` The box is the `.room.json` footprint placed at the instance centre, the same rectangle a hall place cuts out.
+- `hallCells` fn :52 `(outline: readonly (readonly [number, number])[], rooms: readonly Aabb2[]): Aabb2[]` — Outline minus room rectangles.
+  `@pre` The outline is pulled in by `HALL_EDGE_INSET_M` first; room edges stay put.
+  `@post` A cell is kept when its centre is inside the outline (even-odd) and inside no room. Rows are merged, then equal-width rows are stacked. Empty when the rooms cover the outline.
 - `insetOutline` fn :85 `(outline: readonly (readonly [number, number])[], inset = HALL_EDGE_INSET_M): Array<[number, number]>` — Move each outline edge inward by `inset` metres.
+  `@post` A rectilinear counter-clockwise ring stays one. An edge that would flip is left unmoved, and the original ring is returned.
 - `HallFloorPiece` type :123 `= { cells: Aabb2[]; surfaceY: number; slabMinY: number; slabMaxY: number; }`
-- `outlinePieces` fn :135 `(floor: { outline: Array<[number, number]>; outlines?: Array<Array<[number, number]>> }): Array<Array<[number, number]>>` — A floor's outline pieces: `outlines`, or `[outline]` when it has one.
-- `hallCellsOf` fn :140 `(outlines: readonly (readonly (readonly [number, number])[])[], rooms: readonly Aabb2[]): Aabb2[]` — `hallCells` of each outline piece, concatenated.
-- `hallFloorPiece` fn :149 `(elevation: number, outlines: readonly (readonly (readonly [number, number])[])[], rooms: readonly Aabb2[]): HallFloorPiece | undefined` — Elevated-floor hall in building-local metres.
-- `hallFloorGlb` fn :171 `(args: { cells: readonly Aabb2[]; y: number; image: Uint8Array; tileX: number; tileZ: number; }): Uint8Array` — One textured mesh in building-local metres.
-- `rectOf` fn (local) :199 `(polygon: readonly (readonly [number, number])[]): Aabb2`
-- `clip` fn (local) :213 `(outer: Aabb2, hole: Aabb2): Aabb2 | undefined`
-- `mergeRuns` fn (local) :223 `(cells: readonly Aabb2[]): Aabb2[]` — Horizontal runs on each row, then stack rows that share minX and maxX.
-- `uniqueSorted` fn (local) :257 `(values: number[]): number[]`
-- `pointInPolygon` fn (local) :268 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean` — Even-odd.
-- `ringArea` fn (local) :281 `(poly: readonly (readonly [number, number])[]): number`
+- `outlinePieces` fn :137 `(floor: { outline: Array<[number, number]>; outlines?: Array<Array<[number, number]>> }): Array<Array<[number, number]>>`
+  `@when` A floor's outline pieces: `outlines`, or `[outline]` when it has one.
+- `hallCellsOf` fn :144 `(outlines: readonly (readonly (readonly [number, number])[])[], rooms: readonly Aabb2[]): Aabb2[]`
+  `@see` `hallCells` of each outline piece, concatenated. One piece is the same as `hallCells`.
+- `hallFloorPiece` fn :156 `(elevation: number, outlines: readonly (readonly (readonly [number, number])[])[], rooms: readonly Aabb2[]): HallFloorPiece | undefined` — Elevated-floor hall in building-local metres.
+  `@post` Undefined when the hall has no area.
+- `hallFloorGlb` fn :177 `(args: { cells: readonly Aabb2[]; y: number; image: Uint8Array; tileX: number; tileZ: number; }): Uint8Array` — One textured mesh in building-local metres.
+  `@post` The quad is wound so its geometric normal is +Y (visible from above).
+  `@why` UVs are building-local metres over the tile (`u = x / tileX`, `v = z / tileZ`), so the image repeats with no seam between rectangles.
+- `rectOf` fn (local) :205 `(polygon: readonly (readonly [number, number])[]): Aabb2`
+- `clip` fn (local) :219 `(outer: Aabb2, hole: Aabb2): Aabb2 | undefined`
+- `mergeRuns` fn (local) :229 `(cells: readonly Aabb2[]): Aabb2[]` — Horizontal runs on each row, then stack rows that share minX and maxX.
+- `uniqueSorted` fn (local) :263 `(values: number[]): number[]`
+- `pointInPolygon` fn (local) :274 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean` — Even-odd.
+- `ringArea` fn (local) :287 `(poly: readonly (readonly [number, number])[]): number`
 
-### src/measure.ts (155)
+### src/measure.ts (150)
 imports: src/errors.ts, src/footprint.ts, src/glb.ts, src/stencil.ts, src/types.ts, src/union.ts
 pkgs: node:fs, node:path
 used by: src/cli.ts
@@ -521,13 +617,16 @@ used by: src/cli.ts
 - `MeasureFile` type :12 `= { id: string; units: "glb"; bounds: { min: Vec3; max: Vec3; }; footprint: Array<{ minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ:…`
 - `MeasureOptions` type :27 `= { glbPath: string; outPath: string; svgPath: string; }`
 - `MeasureResult` type :33 `= { file: MeasureFile; svg: string; vertexCount: number; runCount: number; }`
-- `measure` fn :48 `(options: MeasureOptions): MeasureResult` — Raw GLB bounds and an SVG footprint group, both in GLB units.
-- `stencilSvg` fn :94 `(id: string, boxes: readonly LocalBox[]): string` — Model Z → SVG −y, so +Z stays at the top of the page.
-- `pathData` fn (local) :122 `(rings: readonly Ring[]): string`
-- `roundBox` fn (local) :133 `(box: LocalBox): MeasureFile["footprint"][number]`
-- `roundVec` fn (local) :144 `(v: Vec3): Vec3`
-- `roundM` fn (local) :148 `(n: number): number`
-- `fmt` fn (local) :152 `(n: number): string`
+- `measure` fn :46 `(options: MeasureOptions): MeasureResult` — Raw GLB bounds and an SVG footprint group, both in GLB units.
+  `@why` One GLB unit is 1 mm on the page. The path is the union of the 0.05-unit runs. It is not scaled to arena meters, not a layout, and not a collider. The bake's 1 m cutoff is not applied.
+- `stencilSvg` fn :89 `(id: string, boxes: readonly LocalBox[]): string` — One filled path: the union of the runs.
+  `@post` A courtyard that is fully enclosed stays a hole (`fill-rule="evenodd"`). This is not the outer bounds rectangle.
+  `@why` Model Z → SVG −y, so +Z stays at the top of the page. Model X is reflected inside that footprint (`x = minX + maxX − x`), so +X sits on the left. The viewBox is the unflipped box, so the center and the scale extents do not move.
+- `pathData` fn (local) :117 `(rings: readonly Ring[]): string`
+- `roundBox` fn (local) :128 `(box: LocalBox): MeasureFile["footprint"][number]`
+- `roundVec` fn (local) :139 `(v: Vec3): Vec3`
+- `roundM` fn (local) :143 `(n: number): number`
+- `fmt` fn (local) :147 `(n: number): string`
 
 ### src/places.ts (845)
 imports: src/errors.ts, src/floors-svg.ts, src/hall-floor.ts, src/room-file.ts, src/rooms-bake.ts, src/types.ts, src/union.ts, src/yaw.ts
@@ -536,6 +635,7 @@ used by: src/bake.ts, src/cli.ts
 - `Rect` type (local) :26 `= { minX: number; maxX: number; minZ: number; maxZ: number }`
 - `footprintScaleOff` fn (local) :29 `(building: { scale: number }, source: FloorsSource, measured: { width: number; depth: number } | undefined): boolean` — Same 0.1% rule as rooms-bake: measure-stencil world size against the footprint.
 - `derivePlaces` fn :57 `(args: { buildings: readonly PlaceBuilding[]; floorsFor: (model: string) => FloorsSource | undefined; roomFileFor: (prefab: string) => RoomFile | undefined; ta…` — Rooms, halls, platforms, landings, stairs, and elevators from floors files and room prefabs.
+  `@post` A building with no floors file adds nothing.
 - `LANDING_JOIN_M` const (local) :145 `= 0.05` — A stair end this far outside the landing polygon still joins.
 - `LANDING_MIN_DEPTH_M` const (local) :147 `= 0.8` — Shallower than this along the flight is a warning.
 - `pushLanding` fn (local) :149 `(places: AnyPlace[], warnings: string[], claim: (id: string) => void, building: PlaceBuilding, floors: readonly FloorSource[], landing: FloorLandingSource): vo…`
@@ -581,178 +681,207 @@ used by: src/bake.ts, src/cli.ts
 - `orient` fn (local) :823 `(a: readonly [number, number], b: readonly [number, number], c: readonly [number, number]): number`
 - `distToSeg` fn (local) :833 `(x: number, z: number, a: readonly [number, number], b: readonly [number, number]): number`
 
-### src/plan.ts (1171)
+### src/plan.ts (1175)
 imports: src/errors.ts, src/types.ts, src/xml.ts
 used by: src/bake.ts, src/crate.ts, src/floors-svg.ts, src/prop.ts, src/room-svg.ts, src/rooms-bake.ts
 - `PlanPlacement` type :9 `= { id: string; model: string; position: Vec3; yaw: Yaw; drawnWidth: number; drawnDepth: number; stencil?: { origin: Vec3; scale: number; }; }` — A tagged instance before the model size is known.
+  `@why` `drawnWidth` / `drawnDepth` are world meters along model +X and model +Z.
 - `ID_RE` const :27 `= /^[A-Za-z0-9][A-Za-z0-9_.-]*$/`
 - `CARDINALS` const (local) :28 `: Yaw[]`
 - `METERS` const (local) :30 `: Record<string, number>`
 - `Mat` type :42 `= [number, number, number, number, number, number]`
 - `ident` fn :44 `(): Mat`
-- `mul` fn :49 `(m: Mat, n: Mat): Mat` — `m` is applied after `n`.
-- `apply` fn :62 `(m: Mat, x: number, y: number): [number, number]`
-- `svgPointToWorld` fn :74 `(svgX: number, svgY: number, svgZ: number, frame: PageFrame): Vec3` — Inkscape toolbar coordinates are the room.
-- `PageFrame` type :80 `= { meters: number; pageMaxY: number; }` — SVG user units, plus the SVG y of the page bottom (toolbar y = 0).
-- `PlanScene` type :85 `= { placements: PlanPlacement[]; sawBoundsLayer: boolean; bounds?: XzBounds; props: SceneProp[]; spawns: SceneSpawn[]; playerSpawns: SceneSpawn[]; doors: Scene…`
+- `mul` fn :51 `(m: Mat, n: Mat): Mat`
+  `@pre` `m` is applied after `n`.
+- `apply` fn :64 `(m: Mat, x: number, y: number): [number, number]`
+- `svgPointToWorld` fn :73 `(svgX: number, svgY: number, svgZ: number, frame: PageFrame): Vec3` — Inkscape toolbar coordinates are the room.
+  `@post` World x is toolbar x. World z is toolbar y. World y is 0.
+  `@why` The toolbar is user space, Y-up, with its origin at the lower-left of the page. The SVG `y` attribute is measured down from the top, so toolbar y is `pageMaxY - svgY`. The page height is not added again, toolbar y is not negated, and the bounds rectangle is not subtracted.
+- `PageFrame` type :81 `= { meters: number; pageMaxY: number; }`
+  `@why` SVG user units, plus the SVG y of the page bottom (toolbar y = 0).
+- `PlanScene` type :86 `= { placements: PlanPlacement[]; sawBoundsLayer: boolean; bounds?: XzBounds; props: SceneProp[]; spawns: SceneSpawn[]; playerSpawns: SceneSpawn[]; doors: Scene…`
 - `DesignRect` type :107 `= { id: string; minX: number; minY: number; maxX: number; maxY: number; part?: string; href?: string; alphaMode?: string; alphaCutoff?: string; sides?: string;…` — One rectangle or image on a named Inkscape layer, in toolbar meters.
-- `metersPerUserUnit` fn :129 `(svg: XmlNode): number` — World meters per SVG user unit.
-- `readPlacements` fn :154 `(svgText: string): PlanPlacement[]`
-- `classifyDoorBind` fn :163 `(building: string, placements: readonly { id: string; model: string }[], doorId: string): "model" | "placement"` — `data-building` names a model when any placement uses that model.
-- `readScene` fn :173 `(svgText: string): PlanScene`
-- `PART_BY_ID` const (local) :222 `: Record<string, string>`
-- `readDesignRects` fn :234 `(svgText: string, layer: string): DesignRect[]` — Rectangles and images on one Inkscape layer, in the same toolbar meters as the plan.
-- `LayerShape` type :250 `= { id: string; minX: number; minY: number; maxX: number; maxY: number; label?: string; face?: string; href?: string; dataTexture?: string; depth?: number; }` — A rectangle or image on one Inkscape layer, in toolbar meters.
-- `readLayerShapes` fn :264 `(svgText: string, layer: string): { found: boolean; shapes: LayerShape[] }`
-- `layerShape` fn (local) :287 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined): LayerShape`
-- `imageHref` fn (local) :335 `(el: XmlNode): string | undefined`
-- `depthMeters` fn (local) :344 `(raw: string, frame: PageFrame, units: string | undefined): number`
-- `walkDesign` fn (local) :350 `(el: XmlNode, parent: Mat, stack: string[], layer: string, frame: PageFrame, units: string | undefined, out: DesignRect[]): void`
-- `designPart` fn (local) :370 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined): DesignRect`
-- `axisAligned` fn (local) :424 `(edge: [number, number]): boolean`
-- `pageFrame` fn :431 `(svg: XmlNode): PageFrame`
-- `snapYaw` fn :438 `(degrees: number, id?: string): Yaw`
-- `yawMessage` fn (local) :449 `(id: string | undefined, message: string): string`
-- `trimNum` fn (local) :453 `(n: number): string`
-- `documentUnits` fn :457 `(svg: XmlNode): string | undefined`
-- `namedView` fn (local) :462 `(svg: XmlNode): XmlNode | undefined`
-- `documentScale` fn (local) :466 `(svg: XmlNode, named: XmlNode | undefined): number`
-- `parseViewBox` fn (local) :474 `(value: string): { minY: number; width: number; height: number }`
-- `lengthToMeters` fn (local) :483 `(raw: string, fallbackUnit: string | undefined): number`
-- `lengthToMm` fn (local) :495 `(raw: string, fallbackUnit: string | undefined): number`
-- `userLength` fn (local) :499 `(raw: string | undefined, fallback: number, mmPerUser: number, units: string | undefined): number`
-- `Collect` type (local) :505 `= { frame: PageFrame; units: string | undefined; placements: PlanPlacement[]; ids: Set<string>; props: SceneProp[]; propIds: Set<string>; spawns: SceneSpawn[];…`
-- `walk` fn (local) :523 `(el: XmlNode, parent: Mat, stack: string[], collect: Collect): void`
-- `isPlacement` fn (local) :549 `(el: XmlNode, stack: string[]): boolean`
-- `consider` fn (local) :554 `(el: XmlNode, matrix: Mat, stack: string[], collect: Collect): void`
-- `stencilPose` fn :573 `(el: XmlNode, matrix: Mat, frame: PageFrame): { origin: Vec3; scale: number } | undefined` — A copied `measure` stencil is a group with a `path` child.
-- `taggedModel` fn :586 `(el: XmlNode): { id: string; model: string } | undefined`
-- `claimPlacementId` fn (local) :601 `(collect: Collect, id: string): void`
-- `measureTagged` fn :607 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined, id: string): { position: Vec3; yaw: Yaw; drawnWidth: number; drawnDepth: number }`
-- `uniformScale` fn :633 `(matrix: Mat, id: string): number` — Uniform SVG scale.
-- `takeBounds` fn (local) :643 `(el: XmlNode, matrix: Mat, collect: Collect): void`
-- `propFromElement` fn :657 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined): SceneProp | undefined` — A props-layer rectangle.
-- `takeProp` fn (local) :685 `(el: XmlNode, matrix: Mat, collect: Collect): void`
-- `doorFromElement` fn :700 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined, building: string): SceneDoor` — Door rectangle geometry.
-- `takeDoor` fn (local) :738 `(el: XmlNode, matrix: Mat, collect: Collect): void`
-- `doorModel` fn (local) :754 `(el: XmlNode, id: string): string` — The same id a prop reads: `data-model` or the label `model:<id>`.
-- `doorElevation` fn (local) :766 `(el: XmlNode, id: string): number` — Door sill height: the rectangle's own `z`, in world meters (world y), read the way a prop or building reads it.
-- `parseHinge` fn (local) :774 `(el: XmlNode, id: string): DoorHinge`
-- `parseOpen` fn (local) :781 `(el: XmlNode, id: string): boolean`
-- `parseLocked` fn (local) :788 `(el: XmlNode, id: string): boolean`
-- `parseKey` fn (local) :796 `(el: XmlNode, id: string): string | undefined` — Pickup placement id.
-- `optionalPositive` fn :803 `(raw: string | undefined, what: string): number | undefined`
-- `takeSpawn` fn (local) :810 `(el: XmlNode, matrix: Mat, collect: Collect, player: boolean): void`
-- `spawnPoint` fn (local) :827 `(el: XmlNode, matrix: Mat, collect: Collect, id: string): [number, number]` — SVG user-space point of a spawn mark, after the element transform.
-- `textAnchor` fn (local) :846 `(el: XmlNode): { x?: string; y?: string }`
-- `requireId` fn :857 `(el: XmlNode, kind: string): string`
-- `firstToken` fn (local) :864 `(raw: string | undefined): string | undefined`
-- `worldAabb` fn (local) :869 `(box: Bounds2, matrix: Mat, frame: PageFrame): XzBounds`
-- `optionalNumber` fn :881 `(raw: string | undefined, what: string): number | undefined`
-- `insideBounds` fn (local) :889 `(box: XzBounds, x: number, z: number): boolean` — Inclusive.
-- `PATH_TOKEN` const (local) :894 `= /[MmLlHhVvCcSsQqTtAaZz]|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g`
-- `pathPoints` fn :897 `(raw: string | undefined, id: string, kind = "spawn"): Array<[number, number]>` — Endpoints and control points of an SVG path, in the element's local space.
-- `Bounds2` type (local) :989 `= { minX: number; minY: number; maxX: number; maxY: number }`
-- `localBounds` fn (local) :992 `(el: XmlNode, meters: number, units: string | undefined, id: string): Bounds2` — Geometry in the element's local space, before its own transform.
-- `rectBounds` fn :1002 `(el: XmlNode, meters: number, units: string | undefined): Bounds2 | undefined`
-- `groupBounds` fn (local) :1011 `(el: XmlNode, meters: number, units: string | undefined): Bounds2 | undefined`
-- `mappedBounds` fn (local) :1017 `(el: XmlNode, parent: Mat, meters: number, units: string | undefined): Bounds2 | undefined`
-- `transformBounds` fn (local) :1048 `(box: Bounds2, matrix: Mat): Bounds2`
-- `unionBounds` fn (local) :1060 `(a: Bounds2 | undefined, b: Bounds2 | undefined): Bounds2 | undefined`
-- `modelFromLabel` fn (local) :1071 `(label: string | undefined): string | undefined`
-- `yawOf` fn (local) :1082 `(el: XmlNode, matrix: Mat, id: string): Yaw` — Rectangle yaw for a building and for a prop.
-- `parseYawText` fn (local) :1088 `(raw: string, id: string): number`
-- `yawFromSvgMatrix` fn :1094 `(m: Mat, id: string): Yaw`
-- `parseTransform` fn :1115 `(raw: string | undefined): Mat`
-- `transformFn` fn (local) :1131 `(name: string, args: number[]): Mat`
-- `exactCosSin` fn (local) :1162 `(degrees: number): [number, number]` — Cardinal degrees use exact 0/±1.
+  `@why` Y is up. The part is the element id: `data-part-frame`, `data-part-door`, `data-part-hinge`, or `data-part-texture`.
+- `metersPerUserUnit` fn :128 `(svg: XmlNode): number` — World meters per SVG user unit.
+  `@why` The drawing scale treats 1 mm as 1 m, so this is millimeters per user unit: `widthInMm / viewBoxWidth / documentScale`.
+- `readPlacements` fn :153 `(svgText: string): PlanPlacement[]`
+- `classifyDoorBind` fn :161 `(building: string, placements: readonly { id: string; model: string }[], doorId: string): "model" | "placement"`
+  `@pre` `data-building` names a model when any placement uses that model. That includes a placement whose id is the same string: the opening is shared.
+  `@post` Otherwise it must be exactly one placement id.
+- `readScene` fn :171 `(svgText: string): PlanScene`
+- `PART_BY_ID` const (local) :220 `: Record<string, string>`
+- `readDesignRects` fn :232 `(svgText: string, layer: string): DesignRect[]` — Rectangles and images on one Inkscape layer, in the same toolbar meters as the plan.
+  `@post` A rotated rectangle fails.
+  `@why` X is toolbar x. Y is toolbar y, up.
+- `LayerShape` type :245 `= { id: string; minX: number; minY: number; maxX: number; maxY: number; label?: string; face?: string; href?: string; dataTexture?: string; depth?: number; }` — A rectangle or image on one Inkscape layer, in toolbar meters.
+  `@why` An image nested in a rectangle is that rectangle's texture, not a second shape.
+- `readLayerShapes` fn :259 `(svgText: string, layer: string): { found: boolean; shapes: LayerShape[] }`
+- `layerShape` fn (local) :282 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined): LayerShape`
+- `imageHref` fn (local) :330 `(el: XmlNode): string | undefined`
+- `depthMeters` fn (local) :339 `(raw: string, frame: PageFrame, units: string | undefined): number`
+- `walkDesign` fn (local) :345 `(el: XmlNode, parent: Mat, stack: string[], layer: string, frame: PageFrame, units: string | undefined, out: DesignRect[]): void`
+- `designPart` fn (local) :365 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined): DesignRect`
+- `axisAligned` fn (local) :419 `(edge: [number, number]): boolean`
+- `pageFrame` fn :426 `(svg: XmlNode): PageFrame`
+- `snapYaw` fn :433 `(degrees: number, id?: string): Yaw`
+- `yawMessage` fn (local) :444 `(id: string | undefined, message: string): string`
+- `trimNum` fn (local) :448 `(n: number): string`
+- `documentUnits` fn :452 `(svg: XmlNode): string | undefined`
+- `namedView` fn (local) :457 `(svg: XmlNode): XmlNode | undefined`
+- `documentScale` fn (local) :461 `(svg: XmlNode, named: XmlNode | undefined): number`
+- `parseViewBox` fn (local) :469 `(value: string): { minY: number; width: number; height: number }`
+- `lengthToMeters` fn (local) :478 `(raw: string, fallbackUnit: string | undefined): number`
+- `lengthToMm` fn (local) :490 `(raw: string, fallbackUnit: string | undefined): number`
+- `userLength` fn (local) :494 `(raw: string | undefined, fallback: number, mmPerUser: number, units: string | undefined): number`
+- `Collect` type (local) :500 `= { frame: PageFrame; units: string | undefined; placements: PlanPlacement[]; ids: Set<string>; props: SceneProp[]; propIds: Set<string>; spawns: SceneSpawn[];…`
+- `walk` fn (local) :518 `(el: XmlNode, parent: Mat, stack: string[], collect: Collect): void`
+- `isPlacement` fn (local) :544 `(el: XmlNode, stack: string[]): boolean`
+- `consider` fn (local) :549 `(el: XmlNode, matrix: Mat, stack: string[], collect: Collect): void`
+- `stencilPose` fn :567 `(el: XmlNode, matrix: Mat, frame: PageFrame): { origin: Vec3; scale: number } | undefined` — A copied `measure` stencil is a group with a `path` child.
+  `@post` A group of rectangles, or a bare rectangle, is not a stencil and keeps the drawn-box rule.
+  `@why` Its local (0, 0) is the model origin and its local unit is one model unit.
+- `taggedModel` fn :580 `(el: XmlNode): { id: string; model: string } | undefined`
+- `claimPlacementId` fn (local) :595 `(collect: Collect, id: string): void`
+- `measureTagged` fn :601 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined, id: string): { position: Vec3; yaw: Yaw; drawnWidth: number; drawnDepth: number }`
+- `uniformScale` fn :630 `(matrix: Mat, id: string): number` — Uniform SVG scale.
+  `@post` A plain rectangle is 1. `scale(2)` is 2.
+- `takeBounds` fn (local) :640 `(el: XmlNode, matrix: Mat, collect: Collect): void`
+- `propFromElement` fn :658 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined): SceneProp | undefined` — A props-layer rectangle.
+  `@pre` The caller claims the id.
+  `@post` Unlabelled rectangles are skipped.
+- `takeProp` fn (local) :686 `(el: XmlNode, matrix: Mat, collect: Collect): void`
+- `doorFromElement` fn :701 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined, building: string): SceneDoor` — Door rectangle geometry.
+  `@pre` `building` is the caller's bind string: a plan door's `data-building` (model id or placement id), a floors door's model, or a room's id.
+  `@post` This does not claim ids and does not read `data-building`.
+- `takeDoor` fn (local) :739 `(el: XmlNode, matrix: Mat, collect: Collect): void`
+- `doorModel` fn (local) :755 `(el: XmlNode, id: string): string` — The same id a prop reads: `data-model` or the label `model:<id>`.
+- `doorElevation` fn (local) :767 `(el: XmlNode, id: string): number` — Door sill height: the rectangle's own `z`, in world meters (world y), read the way a prop or building reads it.
+- `parseHinge` fn (local) :775 `(el: XmlNode, id: string): DoorHinge`
+- `parseOpen` fn (local) :782 `(el: XmlNode, id: string): boolean`
+- `parseLocked` fn (local) :789 `(el: XmlNode, id: string): boolean`
+- `parseKey` fn (local) :797 `(el: XmlNode, id: string): string | undefined` — Pickup placement id.
+- `optionalPositive` fn :804 `(raw: string | undefined, what: string): number | undefined`
+- `takeSpawn` fn (local) :811 `(el: XmlNode, matrix: Mat, collect: Collect, player: boolean): void`
+- `spawnPoint` fn (local) :828 `(el: XmlNode, matrix: Mat, collect: Collect, id: string): [number, number]` — SVG user-space point of a spawn mark, after the element transform.
+- `textAnchor` fn (local) :847 `(el: XmlNode): { x?: string; y?: string }`
+- `requireId` fn :858 `(el: XmlNode, kind: string): string`
+- `firstToken` fn (local) :865 `(raw: string | undefined): string | undefined`
+- `worldAabb` fn (local) :870 `(box: Bounds2, matrix: Mat, frame: PageFrame): XzBounds`
+- `optionalNumber` fn :882 `(raw: string | undefined, what: string): number | undefined`
+- `insideBounds` fn (local) :890 `(box: XzBounds, x: number, z: number): boolean` — Inclusive.
+- `PATH_TOKEN` const (local) :895 `= /[MmLlHhVvCcSsQqTtAaZz]|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g`
+- `pathPoints` fn :901 `(raw: string | undefined, id: string, kind = "spawn"): Array<[number, number]>` — Endpoints and control points of an SVG path.
+  `@post` In the element's local space.
+- `Bounds2` type (local) :993 `= { minX: number; minY: number; maxX: number; maxY: number }`
+- `localBounds` fn (local) :996 `(el: XmlNode, meters: number, units: string | undefined, id: string): Bounds2` — Geometry in the element's local space, before its own transform.
+- `rectBounds` fn :1006 `(el: XmlNode, meters: number, units: string | undefined): Bounds2 | undefined`
+- `groupBounds` fn (local) :1015 `(el: XmlNode, meters: number, units: string | undefined): Bounds2 | undefined`
+- `mappedBounds` fn (local) :1021 `(el: XmlNode, parent: Mat, meters: number, units: string | undefined): Bounds2 | undefined`
+- `transformBounds` fn (local) :1052 `(box: Bounds2, matrix: Mat): Bounds2`
+- `unionBounds` fn (local) :1064 `(a: Bounds2 | undefined, b: Bounds2 | undefined): Bounds2 | undefined`
+- `modelFromLabel` fn (local) :1075 `(label: string | undefined): string | undefined`
+- `yawOf` fn (local) :1086 `(el: XmlNode, matrix: Mat, id: string): Yaw` — Rectangle yaw for a building and for a prop.
+- `parseYawText` fn (local) :1092 `(raw: string, id: string): number`
+- `yawFromSvgMatrix` fn :1098 `(m: Mat, id: string): Yaw`
+- `parseTransform` fn :1119 `(raw: string | undefined): Mat`
+- `transformFn` fn (local) :1135 `(name: string, args: number[]): Mat`
+- `exactCosSin` fn (local) :1166 `(degrees: number): [number, number]` — Cardinal degrees use exact 0/±1.
 
-### src/prop.ts (339)
+### src/prop.ts (335)
 imports: src/errors.ts, src/glb-write.ts, src/plan.ts, src/types.ts
 pkgs: node:fs, node:path
 used by: src/cli.ts
 - `DoorPropOptions` type :9 `= { svgPath: string; outPath: string; }`
-- `FRAME_DEPTH_M` const :15 `= 0.12` — The frame does not swing.
-- `DOOR_LEAF_DEPTH_M` const :18 `= 0.08` — The panel is thinner than the frame and sits against the back of the ring.
-- `EDGE_EPS` const (local) :20 `= 1e-3`
-- `Rect` type (local) :22 `= { minX: number; minY: number; maxX: number; maxY: number }`
-- `HingeSide` type (local) :23 `= "left" | "right"`
-- `writeDoorProp` fn :41 `(options: DoorPropOptions): void` — One GLB from an Inkscape `door-design` layer.
-- `AlphaMode` type (local) :50 `= "OPAQUE" | "MASK" | "BLEND"`
-- `DoorDesign` type (local) :52 `= { frame: Rect; door: Rect; hinge: HingeSide; texture?: Rect; textureHref?: string; alphaMode: AlphaMode; alphaCutoff?: number; doubleSided: boolean; }`
-- `readSvg` fn (local) :65 `(svgPath: string): string`
-- `readDoorDesign` fn (local) :73 `(svgText: string): DoorDesign`
-- `readDoorMaterial` fn (local) :97 `(texture: DesignRect | undefined, door: DesignRect): { alphaMode: AlphaMode; alphaCutoff?: number; doubleSided: boolean; }` — Texture attributes win.
-- `materialAttr` fn (local) :111 `(texture: DesignRect | undefined, door: DesignRect, key: "alphaMode" | "alphaCutoff" | "sides"): string | undefined`
-- `parseAlphaMode` fn (local) :119 `(raw: string | undefined): AlphaMode`
-- `parseSides` fn (local) :125 `(raw: string | undefined): boolean`
-- `parseCutoff` fn (local) :132 `(raw: string | undefined, mode: AlphaMode): number | undefined`
-- `onePart` fn (local) :140 `(rects: DesignRect[], part: string): DesignRect | undefined`
-- `requirePart` fn (local) :146 `(rects: DesignRect[], part: string): DesignRect`
-- `inside` fn (local) :152 `(inner: Rect, outer: Rect): boolean`
-- `overlaps` fn (local) :159 `(a: Rect, b: Rect): boolean`
-- `hingeSide` fn (local) :167 `(door: Rect, mark: Rect): HingeSide` — The mark's center has to sit on the door's left or right edge, within half the mark.
-- `TEXTURE_ID` const (local) :184 `= "data-part-texture"`
-- `loadTexture` fn (local) :186 `(svgPath: string, href: string | undefined): Uint8Array | undefined`
-- `pngFromDataUri` fn (local) :193 `(value: string): Uint8Array`
-- `readPng` fn (local) :203 `(file: string, label: string): Uint8Array`
-- `assertPng` fn (local) :213 `(bytes: Uint8Array): Uint8Array`
-- `leafImage` fn (local) :221 `(design: DoorDesign, image: Uint8Array | undefined): { image: Uint8Array; alphaMode: AlphaMode; alphaCutoff?: number; doubleSided: boolean; } | Record<string, …`
-- `doorMeshes` fn (local) :236 `(design: DoorDesign, image: Uint8Array | undefined): NamedMesh[]`
-- `frameBars` fn (local) :284 `(frame: Rect, door: Rect): Array<Rect & { name: string }>` — Left and right stiles run the full frame height.
-- `placedUv` fn (local) :300 `(position: Vec3, hingeX: number, hingeY: number, image: Rect): [number, number]` — The image element is the full face.
-- `boxParts` fn (local) :309 `(min: Vec3, max: Vec3, uvAt?: (position: Vec3) => [number, number]): { front: DoorCorner[]; back: DoorCorner[]; edges: DoorCorner[] }`
-- `quad` fn (local) :328 `(corners: [Vec3, Vec3, Vec3, Vec3], normal: Vec3, uvAt?: (position: Vec3) => [number, number]): DoorCorner[]`
+- `FRAME_DEPTH_M` const :17 `= 0.12`
+  `@why` The frame does not swing. Its depth is the wall thickness of the ring.
+- `DOOR_LEAF_DEPTH_M` const :22 `= 0.08`
+  `@why` The panel is thinner than the frame and sits against the back of the ring.
+- `EDGE_EPS` const (local) :24 `= 1e-3`
+- `Rect` type (local) :26 `= { minX: number; minY: number; maxX: number; maxY: number }`
+- `HingeSide` type (local) :27 `= "left" | "right"`
+- `writeDoorProp` fn :37 `(options: DoorPropOptions): void` — One GLB from an Inkscape `door-design` layer.
+  `@post` `door` is the panel. Its origin is the hinge edge, midway up, on the back of the frame (z = 0). The panel extends toward +Z, the outward face. A left hinge occupies x 0..width. A right hinge occupies x −width..0.
+  `@why` That node does not swing. Depth is 0.12 m. The texture image is the full face. Each frame piece samples the strip of that image it covers, so the left stile reads the left edge. The door front and back sample only the door rectangle. V = 0 is the top of the PNG.
+- `AlphaMode` type (local) :46 `= "OPAQUE" | "MASK" | "BLEND"`
+- `DoorDesign` type (local) :48 `= { frame: Rect; door: Rect; hinge: HingeSide; texture?: Rect; textureHref?: string; alphaMode: AlphaMode; alphaCutoff?: number; doubleSided: boolean; }`
+- `readSvg` fn (local) :61 `(svgPath: string): string`
+- `readDoorDesign` fn (local) :69 `(svgText: string): DoorDesign`
+- `readDoorMaterial` fn (local) :93 `(texture: DesignRect | undefined, door: DesignRect): { alphaMode: AlphaMode; alphaCutoff?: number; doubleSided: boolean; }` — Texture attributes win.
+- `materialAttr` fn (local) :107 `(texture: DesignRect | undefined, door: DesignRect, key: "alphaMode" | "alphaCutoff" | "sides"): string | undefined`
+- `parseAlphaMode` fn (local) :115 `(raw: string | undefined): AlphaMode`
+- `parseSides` fn (local) :121 `(raw: string | undefined): boolean`
+- `parseCutoff` fn (local) :128 `(raw: string | undefined, mode: AlphaMode): number | undefined`
+- `onePart` fn (local) :136 `(rects: DesignRect[], part: string): DesignRect | undefined`
+- `requirePart` fn (local) :142 `(rects: DesignRect[], part: string): DesignRect`
+- `inside` fn (local) :148 `(inner: Rect, outer: Rect): boolean`
+- `overlaps` fn (local) :155 `(a: Rect, b: Rect): boolean`
+- `hingeSide` fn (local) :163 `(door: Rect, mark: Rect): HingeSide` — The mark's center has to sit on the door's left or right edge, within half the mark.
+- `TEXTURE_ID` const (local) :180 `= "data-part-texture"`
+- `loadTexture` fn (local) :182 `(svgPath: string, href: string | undefined): Uint8Array | undefined`
+- `pngFromDataUri` fn (local) :189 `(value: string): Uint8Array`
+- `readPng` fn (local) :199 `(file: string, label: string): Uint8Array`
+- `assertPng` fn (local) :209 `(bytes: Uint8Array): Uint8Array`
+- `leafImage` fn (local) :217 `(design: DoorDesign, image: Uint8Array | undefined): { image: Uint8Array; alphaMode: AlphaMode; alphaCutoff?: number; doubleSided: boolean; } | Record<string, …`
+- `doorMeshes` fn (local) :232 `(design: DoorDesign, image: Uint8Array | undefined): NamedMesh[]`
+- `frameBars` fn (local) :280 `(frame: Rect, door: Rect): Array<Rect & { name: string }>` — Left and right stiles run the full frame height.
+- `placedUv` fn (local) :296 `(position: Vec3, hingeX: number, hingeY: number, image: Rect): [number, number]` — The image element is the full face.
+- `boxParts` fn (local) :305 `(min: Vec3, max: Vec3, uvAt?: (position: Vec3) => [number, number]): { front: DoorCorner[]; back: DoorCorner[]; edges: DoorCorner[] }`
+- `quad` fn (local) :324 `(corners: [Vec3, Vec3, Vec3, Vec3], normal: Vec3, uvAt?: (position: Vec3) => [number, number]): DoorCorner[]`
 
-### src/regions.ts (618)
+### src/regions.ts (624)
 Walkable region adjacency for one flat floor.
 imports: src/errors.ts, src/scene-graph.ts, src/types.ts
 used by: src/cli.ts
 - `DEFAULT_RADIUS` const :13 `= 0.5`
 - `DEFAULT_HEIGHT` const :14 `= 1.8`
-- `STEP_HEIGHT` const :16 `= 0.3` — A box whose top is at most this far above the stand is a step, not a wall.
-- `Region` type :18 `= { id: string; minX: number; maxX: number; minZ: number; maxZ: number; y: number; }`
-- `RegionPortal` type :27 `= { from: string; to: string; left: Vec3; right: Vec3; width: number; }`
-- `RegionGraph` type :36 `= { placeId: string; regions: Region[]; portals: RegionPortal[]; }`
-- `DoorStand` type :42 `= { doorId: string; side: "a" | "b"; regionId: string; at: Vec3; }`
-- `BakedPlaceRegions` type :49 `= { placeId: string; regions: Region[]; portals: RegionPortal[]; doorStands?: DoorStand[]; }`
-- `BakedRegionsFile` type :56 `= { version: 1; radius: number; height: number; places: BakedPlaceRegions[]; }`
-- `RegionPlace` type :63 `= { id: string; y: number; polygon: Array<[number, number]>; bounds: { minX: number; maxX: number; minZ: number; maxZ: number }; }`
-- `RegionBox` type :70 `= { id?: string; minX: number; maxX: number; minZ: number; maxZ: number; minY?: number; maxY?: number; }`
-- `RegionOptions` type :80 `= { radius: number; height: number; block?: ReadonlyArray<ReadonlyArray<readonly [number, number]>>; }`
-- `Rect` type (local) :87 `= { minX: number; maxX: number; minZ: number; maxZ: number }`
-- `Built` type (local) :89 `= Region & { index: number }`
-- `SNAP` const (local) :91 `= 0.5`
-- `Y_BAND` const (local) :92 `= STEP_HEIGHT`
-- `SLIVER` const (local) :93 `= 1e-4`
-- `QUANT` const (local) :94 `= 1e6`
-- `WALK` const (local) :96 `: ReadonlySet<string>`
-- `buildRegions` fn :98 `(place: RegionPlace, boxes: readonly RegionBox[], opts: RegionOptions): RegionGraph`
-- `bakeWalkableRegions` fn :166 `(graph: SceneGraphFile, boxes: readonly RegionBox[], radius = DEFAULT_RADIUS, height = DEFAULT_HEIGHT): BakedRegionsFile` — Partition every walkable place.
-- `obstaclesFrom` fn :211 `(value: unknown, filePath: string): RegionBox[]` — Placement-file `obstacles`.
-- `coords` fn (local) :241 `(value: unknown[], filePath: string, index: number, end: "min" | "max"): Vec3`
-- `attachDoorStands` fn (local) :253 `(graph: SceneGraphFile, built: ReadonlyMap<string, RegionGraph>, places: BakedPlaceRegions[]): void`
-- `standRegion` fn (local) :282 `(regions: readonly Region[], point: Vec3): string | undefined`
-- `yNear` fn (local) :306 `(floorY: number, pointY: number): boolean`
-- `clamp` fn (local) :310 `(value: number, min: number, max: number): number`
-- `boundsOverlap` fn (local) :316 `(a: { minX: number; maxX: number; minZ: number; maxZ: number }, b: { minX: number; maxX: number; minZ: number; maxZ: number }): boolean`
-- `cmp` fn (local) :323 `(a: string, b: string): number`
-- `strip` fn (local) :329 `(region: Built): Region`
-- `blockerRects` fn (local) :333 `(boxes: readonly RegionBox[], bounds: RegionPlace["bounds"], radius: number, baseY: number, height: number): Rect[]`
-- `hitsBody` fn (local) :356 `(box: RegionBox, bodyLo: number, bodyHi: number): boolean` — A box with no vertical span blocks every height.
-- `axisRect` fn (local) :364 `(poly: ReadonlyArray<readonly [number, number]>): Rect | undefined`
-- `rectPolygon` fn (local) :383 `(polygon: ReadonlyArray<readonly [number, number]>, bounds: RegionPlace["bounds"]): boolean`
-- `splitCoords` fn (local) :404 `(min: number, max: number, edges: ReadonlyArray<readonly number[]>, extra: readonly number[]): number[]`
-- `quant` fn (local) :434 `(value: number): number`
-- `pointInPolygon` fn (local) :438 `(polygon: ReadonlyArray<readonly [number, number]>, x: number, z: number): boolean`
-- `insideAny` fn (local) :454 `(polys: ReadonlyArray<ReadonlyArray<readonly [number, number]>>, x: number, z: number): boolean`
-- `stamp` fn (local) :461 `(free: Uint8Array, xs: readonly number[], zs: readonly number[], rect: Rect): void`
-- `mergeCells` fn (local) :482 `(free: Uint8Array, xs: readonly number[], zs: readonly number[], nx: number, nz: number, y: number): { regions: Built[]; regionOf: Int32Array }`
-- `portalsOf` fn (local) :531 `(regions: readonly Built[], regionOf: Int32Array, xs: readonly number[], zs: readonly number[], nx: number, nz: number): RegionPortal[]`
-- `portalOrder` fn (local) :596 `(a: RegionPortal, b: RegionPortal): number`
-- `orientEnds` fn (local) :603 `(axis: 0 | 1, at: number, lo: number, hi: number, from: Built, to: Built): { left: Vec3; right: Vec3 }` — `left` is to the left of travel from `from` to `to` when +Y is up.
+- `STEP_HEIGHT` const :18 `= 0.3`
+  `@why` A box whose top is at most this far above the stand is a step, not a wall.
+- `Region` type :20 `= { id: string; minX: number; maxX: number; minZ: number; maxZ: number; y: number; }`
+- `RegionPortal` type :29 `= { from: string; to: string; left: Vec3; right: Vec3; width: number; }`
+- `RegionGraph` type :38 `= { placeId: string; regions: Region[]; portals: RegionPortal[]; }`
+- `DoorStand` type :44 `= { doorId: string; side: "a" | "b"; regionId: string; at: Vec3; }`
+- `BakedPlaceRegions` type :51 `= { placeId: string; regions: Region[]; portals: RegionPortal[]; doorStands?: DoorStand[]; }`
+- `BakedRegionsFile` type :58 `= { version: 1; radius: number; height: number; places: BakedPlaceRegions[]; }`
+- `RegionPlace` type :65 `= { id: string; y: number; polygon: Array<[number, number]>; bounds: { minX: number; maxX: number; minZ: number; maxZ: number }; }`
+- `RegionBox` type :72 `= { id?: string; minX: number; maxX: number; minZ: number; maxZ: number; minY?: number; maxY?: number; }`
+- `RegionOptions` type :82 `= { radius: number; height: number; block?: ReadonlyArray<ReadonlyArray<readonly [number, number]>>; }`
+- `Rect` type (local) :89 `= { minX: number; maxX: number; minZ: number; maxZ: number }`
+- `Built` type (local) :91 `= Region & { index: number }`
+- `SNAP` const (local) :93 `= 0.5`
+- `Y_BAND` const (local) :94 `= STEP_HEIGHT`
+- `SLIVER` const (local) :95 `= 1e-4`
+- `QUANT` const (local) :96 `= 1e6`
+- `WALK` const (local) :98 `: ReadonlySet<string>`
+- `buildRegions` fn :100 `(place: RegionPlace, boxes: readonly RegionBox[], opts: RegionOptions): RegionGraph`
+- `bakeWalkableRegions` fn :169 `(graph: SceneGraphFile, boxes: readonly RegionBox[], radius = DEFAULT_RADIUS, height = DEFAULT_HEIGHT): BakedRegionsFile` — Partition every walkable place.
+  `@pre` `boxes` are static world AABBs (buildings, props, room shells).
+  `@post` Shafts, cab rooms, stairs, and landings are omitted. An empty list is valid.
+  `@why` Elevator-room obstacles are dropped: those walls ride with the cab.
+- `obstaclesFrom` fn :217 `(value: unknown, filePath: string): RegionBox[]` — Placement-file `obstacles`.
+  `@pre` Missing or non-aabb entries fail the bake.
+- `coords` fn (local) :247 `(value: unknown[], filePath: string, index: number, end: "min" | "max"): Vec3`
+- `attachDoorStands` fn (local) :259 `(graph: SceneGraphFile, built: ReadonlyMap<string, RegionGraph>, places: BakedPlaceRegions[]): void`
+- `standRegion` fn (local) :288 `(regions: readonly Region[], point: Vec3): string | undefined`
+- `yNear` fn (local) :312 `(floorY: number, pointY: number): boolean`
+- `clamp` fn (local) :316 `(value: number, min: number, max: number): number`
+- `boundsOverlap` fn (local) :322 `(a: { minX: number; maxX: number; minZ: number; maxZ: number }, b: { minX: number; maxX: number; minZ: number; maxZ: number }): boolean`
+- `cmp` fn (local) :329 `(a: string, b: string): number`
+- `strip` fn (local) :335 `(region: Built): Region`
+- `blockerRects` fn (local) :339 `(boxes: readonly RegionBox[], bounds: RegionPlace["bounds"], radius: number, baseY: number, height: number): Rect[]`
+- `hitsBody` fn (local) :362 `(box: RegionBox, bodyLo: number, bodyHi: number): boolean` — A box with no vertical span blocks every height.
+- `axisRect` fn (local) :370 `(poly: ReadonlyArray<readonly [number, number]>): Rect | undefined`
+- `rectPolygon` fn (local) :389 `(polygon: ReadonlyArray<readonly [number, number]>, bounds: RegionPlace["bounds"]): boolean`
+- `splitCoords` fn (local) :410 `(min: number, max: number, edges: ReadonlyArray<readonly number[]>, extra: readonly number[]): number[]`
+- `quant` fn (local) :440 `(value: number): number`
+- `pointInPolygon` fn (local) :444 `(polygon: ReadonlyArray<readonly [number, number]>, x: number, z: number): boolean`
+- `insideAny` fn (local) :460 `(polys: ReadonlyArray<ReadonlyArray<readonly [number, number]>>, x: number, z: number): boolean`
+- `stamp` fn (local) :467 `(free: Uint8Array, xs: readonly number[], zs: readonly number[], rect: Rect): void`
+- `mergeCells` fn (local) :488 `(free: Uint8Array, xs: readonly number[], zs: readonly number[], nx: number, nz: number, y: number): { regions: Built[]; regionOf: Int32Array }`
+- `portalsOf` fn (local) :537 `(regions: readonly Built[], regionOf: Int32Array, xs: readonly number[], zs: readonly number[], nx: number, nz: number): RegionPortal[]`
+- `portalOrder` fn (local) :602 `(a: RegionPortal, b: RegionPortal): number`
+- `orientEnds` fn (local) :609 `(axis: 0 | 1, at: number, lo: number, hi: number, from: Built, to: Built): { left: Vec3; right: Vec3 }` — `left` is to the left of travel from `from` to `to` when +Y is up.
 
-### src/room-cut.ts (185)
+### src/room-cut.ts (195)
 imports: src/doors.ts, src/errors.ts, src/glb-write.ts, src/room-glb.ts, src/room-svg.ts, src/types.ts
 used by: src/room-file.ts, src/room-glb.ts
 - `St` type :8 `= { s0: number; s1: number; t0: number; t1: number }`
@@ -761,205 +890,249 @@ used by: src/room-file.ts, src/room-glb.ts
 - `sub` fn (local) :14 `(a: Vec3, b: Vec3): Vec3`
 - `dot` fn (local) :15 `(a: Vec3, b: Vec3): number`
 - `clamp01` fn (local) :16 `(value: number): number`
-- `stOf` fn :19 `(c: readonly DoorCorner[], p: Vec3): [number, number]` — (s, t) of a point on the face.
-- `subQuad` fn :27 `(c: readonly DoorCorner[], r: St): DoorCorner[]` — Quad for a sub-rectangle, same winding and UV mapping as the whole face.
-- `roomApertures` fn :41 `(room: RoomSource): Record<RoomFace, Aperture[]>` — Doors, windows, openings, and holes as rectangles in each face's (s, t).
-- `cutFace` fn :115 `(apertures: readonly Aperture[]): St[]` — Kept rectangles.
-- `wallRect` fn (local) :170 `(wall: WallFace, x: number, z: number, width: number, sill: number, height: number): [Vec3, Vec3]` — Opposite corners of a wall opening centred on (x, z), from the sill up.
-- `uniqueSorted` fn (local) :177 `(values: number[]): number[]`
+- `stOf` fn :22 `(c: readonly DoorCorner[], p: Vec3): [number, number]` — (s, t) of a point on the face.
+  `@pre` c = faceCorners(...).
+- `subQuad` fn :33 `(c: readonly DoorCorner[], r: St): DoorCorner[]` — Quad for a sub-rectangle.
+  `@post` Same winding and UV mapping as the whole face.
+- `roomApertures` fn :48 `(room: RoomSource): Record<RoomFace, Aperture[]>` — Doors, windows, openings, and holes as rectangles in each face's (s, t).
+  `@pre` s runs along c0→c1 and t along c0→c3.
+  `@post` Values are clamped to [0, 1].
+- `cutFace` fn :125 `(apertures: readonly Aperture[]): St[]` — Kept rectangles.
+  `@post` No apertures returns the single cell `{0, 1, 0, 1}`.
+- `wallRect` fn (local) :180 `(wall: WallFace, x: number, z: number, width: number, sill: number, height: number): [Vec3, Vec3]` — Opposite corners of a wall opening centred on (x, z), from the sill up.
+- `uniqueSorted` fn (local) :187 `(values: number[]): number[]`
 
-### src/room-file.ts (220)
+### src/room-file.ts (227)
 imports: src/doors.ts, src/errors.ts, src/footprint.ts, src/glb-write.ts, src/room-cut.ts, src/room-glb.ts, src/room-svg.ts, src/types.ts
 used by: src/bake.ts, src/cli.ts, src/hall-floor.ts, src/places.ts, src/room-glb.ts, src/rooms-bake.ts
-- `WALL_T` const :11 `= 0.2` — Wall boxes sit this far behind the face, outside the room.
-- `FLOOR_T` const :14 `= 0.1` — Floor boxes sit this far below y = 0.
-- `MAX_ROOM_OBSTACLES` const :16 `= 64`
-- `SOLID_FACES` const (local) :18 `= … as const`
-- `RoomDoor` type :20 `= { id: string; model: string; wall: WallFace; center: Vec3; width: number; height: number; hinge: DoorHinge; open: boolean; locked?: boolean; key?: string; }`
-- `RoomProp` type :34 `= { id: string; model: string; position: Vec3; yaw: Yaw; scale: number; drawnWidth: number; drawnDepth: number; minY?: number; maxY?: number; }`
-- `RoomLight` type :46 `= { id: string; type: "point" | "rect"; position: Vec3; color: string; intensity: number; width?: number; height?: number; range?: number; }`
-- `RoomFile` type :57 `= { formatVersion: 1; units: "meters"; id: string; glb: string; source: "svg" | "blender"; footprint: XzRect; height: number; obstacles: Array<LocalBox & { id:…`
-- `boxBehind` fn (local) :77 `(c: readonly DoorCorner[], r: St, t: number): LocalBox` — Box behind a face rectangle.
-- `xzOf` fn (local) :89 `(c: readonly DoorCorner[], r: St): XzRect`
-- `roomDoor` fn (local) :106 `(door: RoomSource["doors"][number]): RoomDoor`
-- `roomFile` fn :125 `(room: RoomSource, glb: string, source: "svg" | "blender"): RoomFile` — Collision boxes, walkable floor rects, and doors.
-- `roomProp` fn (local) :178 `(prop: RoomSource["props"][number]): RoomProp`
-- `roomLight` fn (local) :193 `(light: RoomLightSource): RoomLight` — A rect light faces down (−Y), with width along room-local X and height along Z.
-- `roundM` fn (local) :206 `(n: number): number`
-- `roundValue` fn (local) :211 `<T>(value: T): T`
+- `WALL_T` const :13 `= 0.2`
+  `@why` Wall boxes sit this far behind the face, outside the room.
+- `FLOOR_T` const :18 `= 0.1`
+  `@why` Floor boxes sit this far below y = 0.
+- `MAX_ROOM_OBSTACLES` const :20 `= 64`
+- `SOLID_FACES` const (local) :22 `= … as const`
+- `RoomDoor` type :24 `= { id: string; model: string; wall: WallFace; center: Vec3; width: number; height: number; hinge: DoorHinge; open: boolean; locked?: boolean; key?: string; }`
+- `RoomProp` type :38 `= { id: string; model: string; position: Vec3; yaw: Yaw; scale: number; drawnWidth: number; drawnDepth: number; minY?: number; maxY?: number; }`
+- `RoomLight` type :50 `= { id: string; type: "point" | "rect"; position: Vec3; color: string; intensity: number; width?: number; height?: number; range?: number; }`
+- `RoomFile` type :61 `= { formatVersion: 1; units: "meters"; id: string; glb: string; source: "svg" | "blender"; footprint: XzRect; height: number; obstacles: Array<LocalBox & { id:…`
+- `boxBehind` fn (local) :81 `(c: readonly DoorCorner[], r: St, t: number): LocalBox` — Box behind a face rectangle.
+- `xzOf` fn (local) :93 `(c: readonly DoorCorner[], r: St): XzRect`
+- `roomDoor` fn (local) :110 `(door: RoomSource["doors"][number]): RoomDoor`
+- `roomFile` fn :132 `(room: RoomSource, glb: string, source: "svg" | "blender"): RoomFile` — Collision boxes, walkable floor rects, and doors.
+  `@post` Numbers are rounded to 1e-6 m.
+- `roomProp` fn (local) :185 `(prop: RoomSource["props"][number]): RoomProp`
+- `roomLight` fn (local) :200 `(light: RoomLightSource): RoomLight` — A rect light faces down (−Y), with width along room-local X and height along Z.
+- `roundM` fn (local) :213 `(n: number): number`
+- `roundValue` fn (local) :218 `<T>(value: T): T`
 
-### src/room-glb.ts (235)
+### src/room-glb.ts (238)
 imports: src/crate.ts, src/errors.ts, src/glb-write.ts, src/glb.ts, src/room-cut.ts, src/room-file.ts, src/room-svg.ts, src/types.ts
 pkgs: node:fs, node:path
 used by: src/cli.ts, src/room-cut.ts, src/room-file.ts
 - `WALL_FACES` const (local) :13 `: readonly RoomFace[]`
 - `PANE_RGBA` const (local) :16 `: readonly [number, number, number, number]` — Untextured window pane.
 - `c` fn (local) :18 `(position: Vec3, normal: Vec3, uv: readonly [number, number]): DoorCorner`
-- `faceCorners` fn :25 `(face: RoomFace, hx: number, hz: number, y1: number): DoorCorner[]` — One quad, wound counter-clockwise from inside the room.
-- `roomMeshes` fn :73 `(room: RoomSource, images: (ref: string) => Uint8Array): NamedMesh[]` — Floor, ceiling, and the four inside walls.
-- `glassPrimitives` fn (local) :97 `(room: RoomSource, apertures: Record<RoomFace, Aperture[]>, hx: number, hz: number, y1: number, images: (ref: string) => Uint8Array): MeshPrimitive[]` — One quad per glazed window, on the wall, with upright pane UVs when textured.
-- `paneQuad` fn (local) :121 `(c: readonly DoorCorner[], aperture: Aperture): DoorCorner[]` — Wall pane.
-- `writeRoom` fn :146 `(options: { svgPath: string; outPath: string; glbPath?: string; }): { room: RoomSource; file: RoomFile; warnings: string[] }` — Read a room SVG.
-- `svgGlb` fn (local) :182 `(room: RoomSource, svgPath: string): Uint8Array` — Generated inside faces.
-- `glbBoundsWarning` fn (local) :201 `(room: RoomSource, bytes: Uint8Array): string | undefined` — Warn when a side of the GLB's XZ bounds is more than 0.5 m off ±width/2, ±depth/2.
-- `sameFile` fn (local) :226 `(a: string, b: string): boolean`
+- `faceCorners` fn :24 `(face: RoomFace, hx: number, hz: number, y1: number): DoorCorner[]` — One quad, wound counter-clockwise from inside the room.
+  `@why` Wall UVs are the crate ones: V = 0 is the top of the PNG. Floor and ceiling use the plan: U grows with +X and V = 0 is +Z.
+- `roomMeshes` fn :76 `(room: RoomSource, images: (ref: string) => Uint8Array): NamedMesh[]` — Floor, ceiling, and the four inside walls.
+  `@post` Cuts are in (s, t).
+  `@why` Origin is the floor centre.
+- `glassPrimitives` fn (local) :100 `(room: RoomSource, apertures: Record<RoomFace, Aperture[]>, hx: number, hz: number, y1: number, images: (ref: string) => Uint8Array): MeshPrimitive[]` — One quad per glazed window, on the wall, with upright pane UVs when textured.
+- `paneQuad` fn (local) :124 `(c: readonly DoorCorner[], aperture: Aperture): DoorCorner[]` — Wall pane.
+- `writeRoom` fn :149 `(options: { svgPath: string; outPath: string; glbPath?: string; }): { room: RoomSource; file: RoomFile; warnings: string[] }` — Read a room SVG.
+  `@post` Either way, write `<id>.room.json` next to `--out`.
+  `@when` Without `glbPath`, write the generated inside-face GLB. With `glbPath`, copy that Blender GLB (origin at the floor centre).
+- `svgGlb` fn (local) :185 `(room: RoomSource, svgPath: string): Uint8Array` — Generated inside faces.
+- `glbBoundsWarning` fn (local) :204 `(room: RoomSource, bytes: Uint8Array): string | undefined` — Warn when a side of the GLB's XZ bounds is more than 0.5 m off ±width/2, ±depth/2.
+- `sameFile` fn (local) :229 `(a: string, b: string): boolean`
 
-### src/room-svg.ts (845)
+### src/room-svg.ts (850)
 imports: src/crate.ts, src/errors.ts, src/footprint.ts, src/plan.ts, src/types.ts, src/xml.ts
 pkgs: node:fs, node:path
 used by: src/room-cut.ts, src/room-file.ts, src/room-glb.ts, src/rooms-bake.ts
 - `WallFace` type :29 `= "front" | "back" | "left" | "right"`
 - `RoomFace` type :30 `= WallFace | "floor" | "ceiling"`
-- `FaceTexture` type :32 `= { face: RoomFace; source: RoomFace; ref: string }` — `ref` is a data URI or a path resolved against the SVG folder (or an absref).
-- `RoomShape` type :34 `= { id: string; minX: number; maxX: number; minZ: number; maxZ: number }`
-- `RoomWindow` type :36 `= RoomShape & { wall: WallFace; sill: number; height: number; width: number; glass: boolean; paneRef?: string; }`
-- `RoomOpening` type :45 `= RoomShape & { wall: WallFace; sill: number; height: number; width: number; }`
-- `RoomHole` type :52 `= RoomShape & { cut: "floor" | "ceiling" | "both" }`
-- `RoomLightSource` type :54 `= { id: string; x: number; z: number; y: number; intensity: number; color: string; width?: number; height?: number; range: number; }`
-- `RoomSource` type :70 `= { id: string; svgPath: string; width: number; depth: number; height: number; footprint: XzRect; faces: Record<RoomFace, FaceTexture>; doors: Array<SceneDoor …`
-- `SEMANTIC` const (local) :91 `= new Set(…)`
-- `SHAPES` const (local) :93 `: Record<string, ReadonlySet<string>>`
-- `FACE_ORDER` const (local) :105 `: readonly RoomFace[]`
-- `OPPOSITE` const (local) :107 `: Record<RoomFace, RoomFace>`
-- `EDGE_M` const (local) :117 `= 1e-2` — Shared edges within this many metres are the same length.
-- `layerRole` fn :119 `(label: string | undefined): string | undefined`
-- `wallLine` fn :125 `(wall: WallFace, width: number, depth: number): { axis: "x" | "z"; at: number }` — Inner wall line in room-local metres.
-- `Box` type (local) :138 `= { minX: number; maxX: number; minZ: number; maxZ: number }`
-- `Span` type (local) :140 `= Box & { cx: number; cz: number }`
-- `Hit` type (local) :142 `= { el: XmlNode; matrix: Mat; role: string }`
-- `Drawn` type (local) :144 `= { id: string; face: RoomFace; box: Box; raw: string; absref?: string; }`
-- `readRoomSvg` fn :156 `(svgText: string, svgPath: string): RoomSource` — Read one room prefab.
-- `Place` type (local) :293 `= { id: string; frame: PageFrame; units: string | undefined; originX: number; originZ: number; width: number; depth: number; height: number; footprint: XzRect;…`
-- `readFace` fn (local) :306 `(hit: Hit, roomId: string, frame: PageFrame, units: string | undefined): Drawn`
-- `faceName` fn (local) :319 `(hit: Hit, id: string, roomId: string): RoomFace`
-- `readDoor` fn (local) :332 `(hit: Hit, place: Place): SceneDoor & { wall: WallFace }`
-- `readWindow` fn (local) :364 `(hit: Hit, place: Place): RoomWindow`
-- `readOpening` fn (local) :395 `(hit: Hit, place: Place): RoomOpening`
-- `readHole` fn (local) :422 `(hit: Hit, place: Place): RoomHole`
-- `readProp` fn (local) :434 `(hit: Hit, place: Place): SceneProp | undefined`
-- `readLight` fn (local) :444 `(hit: Hit, place: Place, warnings: string[]): RoomLightSource | undefined`
-- `lightId` fn (local) :478 `(label: string | undefined, roomId: string): string | undefined` — Text after `light:`.
-- `LIGHT_COLOR_RE` const (local) :487 `= /^#[0-9a-f]{6}$/i`
-- `lightColor` fn (local) :489 `(raw: string | undefined, roomId: string, name: string): string`
-- `assertLightInside` fn (local) :497 `(place: Place, name: string, x: number, z: number, y: number): void`
-- `snapShape` fn (local) :508 `(hit: Hit, place: Place, id: string, wall: WallFace): Span`
-- `snapToWall` fn (local) :520 `(roomId: string, id: string, wall: WallFace, span: Span, roomWidth: number, roomDepth: number): Span`
-- `alongSpan` fn (local) :557 `(wall: WallFace, span: Span): number`
-- `assertWidthFits` fn (local) :561 `(roomId: string, id: string, wall: WallFace, span: Span, openingWidth: number, roomWidth: number, roomDepth: number): void`
-- `wallAttr` fn (local) :580 `(el: XmlNode, id: string, roomId: string): WallFace`
-- `loadFace` fn (local) :587 `(svgPath: string, roomId: string, face: RoomFace, drawn: Drawn): string`
-- `paneRef` fn (local) :597 `(el: XmlNode, id: string, place: Place): string | undefined`
-- `resolveRef` fn (local) :609 `(svgPath: string, raw: string, absref: string | undefined, what: string): string`
-- `textureSource` fn (local) :618 `(el: XmlNode): { raw?: string; absref?: string }`
-- `imageNode` fn (local) :627 `(el: XmlNode): XmlNode | undefined`
-- `explicitName` fn (local) :632 `(el: XmlNode): string | undefined`
-- `assertPose` fn (local) :636 `(matrix: Mat, id: string, roomId: string, allowScale: boolean): void`
-- `worldBox` fn (local) :646 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined, id: string, roomId: string): Box`
-- `shapeCenter` fn (local) :683 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined, id: string, roomId: string): { x: number; z: number }`
-- `bareLength` fn (local) :706 `(raw: string | undefined, fallback: number, id: string, roomId: string): number`
-- `shiftBox` fn (local) :715 `(box: Box, place: Place): Box`
-- `inside` fn (local) :724 `(roomId: string, id: string, box: Box, footprint: XzRect): void`
-- `readZ` fn (local) :736 `(el: XmlNode, id: string, roomId: string, fallback: number): number`
-- `readBool` fn (local) :744 `(el: XmlNode, name: string, id: string, roomId: string, fallback: boolean): boolean`
-- `readIntensity` fn (local) :752 `(el: XmlNode, id: string, roomId: string, fallback: number, warnings: string[]): number`
-- `expectSpan` fn (local) :763 `(roomId: string, drawn: Drawn, got: number, expected: number, edge: string, against: string): void`
-- `spanX` fn (local) :770 `(box: Box): number`
-- `spanZ` fn (local) :774 `(box: Box): number`
-- `axisAligned` fn (local) :778 `(edge: [number, number]): boolean`
-- `collect` fn (local) :785 `(svg: XmlNode): Hit[]`
-- `semanticRole` fn (local) :804 `(stack: string[]): string | undefined`
-- `checkIds` fn (local) :814 `(el: XmlNode, roomId: string, seen = new Set<string>()): void`
-- `call` fn (local) :826 `<T>(roomId: string, elementId: string | undefined, fn: () => T): T`
-- `rethrow` fn (local) :834 `(roomId: string, elementId: string | undefined, err: unknown): never`
-- `trimNum` fn (local) :843 `(n: number): string`
+- `FaceTexture` type :34 `= { face: RoomFace; source: RoomFace; ref: string }`
+  `@pre` `ref` is a data URI or a path resolved against the SVG folder (or an absref).
+- `RoomShape` type :36 `= { id: string; minX: number; maxX: number; minZ: number; maxZ: number }`
+- `RoomWindow` type :38 `= RoomShape & { wall: WallFace; sill: number; height: number; width: number; glass: boolean; paneRef?: string; }`
+- `RoomOpening` type :47 `= RoomShape & { wall: WallFace; sill: number; height: number; width: number; }`
+- `RoomHole` type :54 `= RoomShape & { cut: "floor" | "ceiling" | "both" }`
+- `RoomLightSource` type :56 `= { id: string; x: number; z: number; y: number; intensity: number; color: string; width?: number; height?: number; range: number; }`
+- `RoomSource` type :72 `= { id: string; svgPath: string; width: number; depth: number; height: number; footprint: XzRect; faces: Record<RoomFace, FaceTexture>; doors: Array<SceneDoor …`
+- `SEMANTIC` const (local) :93 `= new Set(…)`
+- `SHAPES` const (local) :95 `: Record<string, ReadonlySet<string>>`
+- `FACE_ORDER` const (local) :107 `: readonly RoomFace[]`
+- `OPPOSITE` const (local) :109 `: Record<RoomFace, RoomFace>`
+- `EDGE_M` const (local) :119 `= 1e-2` — Shared edges within this many metres are the same length.
+- `layerRole` fn :121 `(label: string | undefined): string | undefined`
+- `wallLine` fn :130 `(wall: WallFace, width: number, depth: number): { axis: "x" | "z"; at: number }` — Inner wall line in room-local metres.
+  `@why` Doors, windows, and openings snap onto it.
+- `Box` type (local) :143 `= { minX: number; maxX: number; minZ: number; maxZ: number }`
+- `Span` type (local) :145 `= Box & { cx: number; cz: number }`
+- `Hit` type (local) :147 `= { el: XmlNode; matrix: Mat; role: string }`
+- `Drawn` type (local) :149 `= { id: string; face: RoomFace; box: Box; raw: string; absref?: string; }`
+- `readRoomSvg` fn :161 `(svgText: string, svgPath: string): RoomSource` — Read one room prefab.
+  `@why` The file name is the room id. 1 mm = 1 m. The origin is the centre of the floor, y = 0 is the floor, front is +Z, and right is +X.
+- `Place` type (local) :298 `= { id: string; frame: PageFrame; units: string | undefined; originX: number; originZ: number; width: number; depth: number; height: number; footprint: XzRect;…`
+- `readFace` fn (local) :311 `(hit: Hit, roomId: string, frame: PageFrame, units: string | undefined): Drawn`
+- `faceName` fn (local) :324 `(hit: Hit, id: string, roomId: string): RoomFace`
+- `readDoor` fn (local) :337 `(hit: Hit, place: Place): SceneDoor & { wall: WallFace }`
+- `readWindow` fn (local) :369 `(hit: Hit, place: Place): RoomWindow`
+- `readOpening` fn (local) :400 `(hit: Hit, place: Place): RoomOpening`
+- `readHole` fn (local) :427 `(hit: Hit, place: Place): RoomHole`
+- `readProp` fn (local) :439 `(hit: Hit, place: Place): SceneProp | undefined`
+- `readLight` fn (local) :449 `(hit: Hit, place: Place, warnings: string[]): RoomLightSource | undefined`
+- `lightId` fn (local) :483 `(label: string | undefined, roomId: string): string | undefined` — Text after `light:`.
+- `LIGHT_COLOR_RE` const (local) :492 `= /^#[0-9a-f]{6}$/i`
+- `lightColor` fn (local) :494 `(raw: string | undefined, roomId: string, name: string): string`
+- `assertLightInside` fn (local) :502 `(place: Place, name: string, x: number, z: number, y: number): void`
+- `snapShape` fn (local) :513 `(hit: Hit, place: Place, id: string, wall: WallFace): Span`
+- `snapToWall` fn (local) :525 `(roomId: string, id: string, wall: WallFace, span: Span, roomWidth: number, roomDepth: number): Span`
+- `alongSpan` fn (local) :562 `(wall: WallFace, span: Span): number`
+- `assertWidthFits` fn (local) :566 `(roomId: string, id: string, wall: WallFace, span: Span, openingWidth: number, roomWidth: number, roomDepth: number): void`
+- `wallAttr` fn (local) :585 `(el: XmlNode, id: string, roomId: string): WallFace`
+- `loadFace` fn (local) :592 `(svgPath: string, roomId: string, face: RoomFace, drawn: Drawn): string`
+- `paneRef` fn (local) :602 `(el: XmlNode, id: string, place: Place): string | undefined`
+- `resolveRef` fn (local) :614 `(svgPath: string, raw: string, absref: string | undefined, what: string): string`
+- `textureSource` fn (local) :623 `(el: XmlNode): { raw?: string; absref?: string }`
+- `imageNode` fn (local) :632 `(el: XmlNode): XmlNode | undefined`
+- `explicitName` fn (local) :637 `(el: XmlNode): string | undefined`
+- `assertPose` fn (local) :641 `(matrix: Mat, id: string, roomId: string, allowScale: boolean): void`
+- `worldBox` fn (local) :651 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined, id: string, roomId: string): Box`
+- `shapeCenter` fn (local) :688 `(el: XmlNode, matrix: Mat, frame: PageFrame, units: string | undefined, id: string, roomId: string): { x: number; z: number }`
+- `bareLength` fn (local) :711 `(raw: string | undefined, fallback: number, id: string, roomId: string): number`
+- `shiftBox` fn (local) :720 `(box: Box, place: Place): Box`
+- `inside` fn (local) :729 `(roomId: string, id: string, box: Box, footprint: XzRect): void`
+- `readZ` fn (local) :741 `(el: XmlNode, id: string, roomId: string, fallback: number): number`
+- `readBool` fn (local) :749 `(el: XmlNode, name: string, id: string, roomId: string, fallback: boolean): boolean`
+- `readIntensity` fn (local) :757 `(el: XmlNode, id: string, roomId: string, fallback: number, warnings: string[]): number`
+- `expectSpan` fn (local) :768 `(roomId: string, drawn: Drawn, got: number, expected: number, edge: string, against: string): void`
+- `spanX` fn (local) :775 `(box: Box): number`
+- `spanZ` fn (local) :779 `(box: Box): number`
+- `axisAligned` fn (local) :783 `(edge: [number, number]): boolean`
+- `collect` fn (local) :790 `(svg: XmlNode): Hit[]`
+- `semanticRole` fn (local) :809 `(stack: string[]): string | undefined`
+- `checkIds` fn (local) :819 `(el: XmlNode, roomId: string, seen = new Set<string>()): void`
+- `call` fn (local) :831 `<T>(roomId: string, elementId: string | undefined, fn: () => T): T`
+- `rethrow` fn (local) :839 `(roomId: string, elementId: string | undefined, err: unknown): never`
+- `trimNum` fn (local) :848 `(n: number): string`
 
-### src/rooms-bake.ts (1503)
+### src/rooms-bake.ts (1514)
 imports: src/asset-type.ts, src/doors.ts, src/errors.ts, src/floors-svg.ts, src/hall-floor.ts, src/plan.ts, src/room-file.ts, src/room-svg.ts, src/stairs-mesh.ts, src/types.ts, src/union.ts, src/yaw.ts
 pkgs: node:fs, node:path
 used by: src/bake.ts, src/places.ts
 - `addYaw` fn :16 `(a: Yaw, b: Yaw): Yaw`
 - `buildingToWorld` fn :19 `(b: Placement, p: Vec3): Vec3` — Building-local point → world, for building placement b.
-- `roomToBuilding` fn :25 `(center: { x: number; z: number }, yaw: Yaw, elevation: number, r: Vec3): Vec3` — Room-local point → building-local, for instance (center, yaw) on a floor at elevation.
-- `mapBox` fn :31 `(box: LocalBox, f: (p: Vec3) => Vec3): LocalBox` — Any box through a point map: its 4 xz corners, then min/max.
-- `RoomsLight` type :41 `= { id: string; type: "point" | "rect"; position: Vec3; yaw?: Yaw; color: string; intensity: number; width?: number; height?: number; range?: number; }`
-- `RoomsLightsFile` type :53 `= { formatVersion: 1; units: "meters"; lights: RoomsLight[]; }`
-- `RoomsPlacementsFile` type :59 `= { formatVersion: 1; units: "meters"; placements: Array<Placement | DoorPlacement>; obstacles: Obstacle[]; }`
-- `PendingRoomDoor` type :67 `= { id: string; width: number; height: number; along: "x" | "z"; spanMin: number; spanMax: number; face: number; normal: { x: number; z: number; }; sceneDoor: …` — One room door, in world, ready to merge or to situate.
-- `BuildingRooms` type :83 `= { interiors: LocalBox[]; pending: PendingRoomDoor[]; }`
-- `HallFloorMesh` type :92 `= { id: string; bytes: Uint8Array; }` — One shared hall mesh.
-- `FloorBake` type :97 `= { doors: SceneDoor[]; props: SceneProp[]; buildings: Map<string, BuildingRooms>; placements: Placement[]; obstacles: Obstacle[]; lights: RoomsLight[]; roomCo…`
-- `FACADE_BAND_M` const :118 `= 0.6` — A room wall this far from the footprint edge, in metres, is still the facade.
-- `FACADE_PAST_EDGE_M` const (local) :121 `= 0.05` — The punch ends this far past the footprint edge, in metres.
-- `FacadeRejectReason` type :123 `= "inner wall" | "normal" | "distance" | "span"`
-- `RoomFacadeOpening` type :126 `= { id: string; prefab: string; doorId: string; file: string; box: LocalBox; distance: number; depth: number; axis: 0 | 2; outward: 1 | -1; }` — One room door that cuts the shared facade, in GLB model units.
-- `RoomFacadeRejection` type :144 `= { id: string; prefab: string; doorId: string; reason: FacadeRejectReason; distance: number; }`
-- `RoomFacadeReport` type :153 `= { openings: RoomFacadeOpening[]; rejected: RoomFacadeRejection[]; }`
-- `FacadeEdge` type (local) :158 `= { nx: number; nz: number; x: number; z: number; face: number; along: "x" | "z"; spanMin: number; spanMax: number; }`
-- `GROUND_FLOOR_Y` const (local) :170 `= 0.05`
-- `SPAN_OVERLAP_M` const (local) :171 `= 0.01`
-- `SIZE_WARN_M` const (local) :172 `= 0.05`
-- `ROOM_DOOR_BUILDING_CAP_M` const (local) :175 `= 1` — Building-box door cuts stop this far past the opening.
-- `FACE_NUDGE_M` const (local) :177 `= 1e-4` — Nudge the doorway centre toward the outside face so situateDoor picks that face.
-- `LoadInput` type (local) :179 `= { floorsDir: string; roomsDir?: string; buildings: readonly Placement[]; taken: ReadonlySet<string>; assets: ReadonlySet<string>; assetTypes: ReadonlyMap<str…`
-- `assertSameMetres` fn (local) :203 `(building: Placement, source: { scale: number; footprint: Array<[number, number]> }, measured: { width: number; depth: number } | undefined): void` — Placement scale times the measure-stencil extent must match the floors footprint.
-- `roomFacadeOpenings` fn :236 `(source: FloorsSource, roomFiles: ReadonlyMap<string, RoomFile>): RoomFacadeReport` — Room doors whose wall lies on that floor's outline, in the floors frame.
-- `judgeRoomDoor` fn (local) :277 `(scale: number, edges: readonly FacadeEdge[], elevation: number, inst: RoomInstanceSource, room: RoomFile, door: RoomDoor): { kind: "open"; box: LocalBox; dist…`
-- `footprintEdges` fn (local) :363 `(footprint: readonly (readonly [number, number])[]): FacadeEdge[]` — CCW footprint.
-- `edgeDistance` fn (local) :392 `(x: number, z: number, edge: FacadeEdge): number` — Positive when `(x, z)` is inside the edge, against the outward normal.
-- `scaleBox` fn (local) :396 `(box: LocalBox, scale: number): LocalBox`
-- `footprintSpan` fn (local) :407 `(footprint: readonly (readonly [number, number])[]): { width: number; depth: number }`
-- `pushLandingSlab` fn (local) :422 `(building: Placement, landing: FloorLandingSource, claim: (id: string) => void, obstacles: Obstacle[], placements: Placement[], hallMeshes: HallFloorMesh[], ha…` — Walkable slab and one shared floor mesh per model.
-- `pushStairsSteps` fn (local) :473 `(building: Placement, stairs: FloorStairsSource, claim: (id: string) => void, obstacles: Obstacle[], placements: Placement[], hallMeshes: HallFloorMesh[], hall…` — One AABB per step and one shared stepped mesh per model, like a landing.
-- `meshKey` fn (local) :518 `(assetId: string, texture: { image: Uint8Array; tileX: number; tileZ: number }): string` — The image is part of the key, so two landings with different textures do not share a mesh.
-- `imageStamp` fn (local) :522 `(bytes: Uint8Array): string`
-- `polygonAabb` fn (local) :531 `(polygon: readonly (readonly [number, number])[]): Aabb2`
-- `loadFloors` fn :549 `(input: LoadInput): FloorBake` — External doors, stairs, and room instances for every building that has a floors file.
-- `RoomDoorHosts` type :739 `= { buildingId: string; rooms: Obstacle[]; buildings: Obstacle[]; }`
-- `RoomWallCut` type :748 `= { id: string; file: string; placement: DoorPlacement; local: LocalBox; }` — An unmerged room door that cut this building's wall boxes.
-- `placeRoomDoors` fn :766 `(pending: readonly PendingRoomDoor[], situated: readonly DoorPlacement[], assetTypes: ReadonlyMap<string, AssetType>, lines: string[], hosts: RoomDoorHosts): {…` — Merge a room door into a situated door of the same opening, or return a leaf.
-- `cutRoomWalls` fn :831 `(obstacles: Obstacle[], buildingId: string, doors: readonly SituatedDoor[]): void` — Cut each situated opening out of this building's room obstacles.
-- `cutFacadeWalls` fn :846 `(obstacles: Obstacle[], building: Placement, boxes: readonly LocalBox[]): void` — Open `<building>-wall-*` where a room facade door's visual box sits.
-- `FACADE_CUT_EPS` const (local) :896 `= 1e-6`
-- `subtractFacadePart` fn (local) :903 `(part: LocalBox, cut: LocalBox): LocalBox[]` — A positive box uses `subtractBox`.
-- `flatAxis` fn (local) :910 `(box: LocalBox): 0 | 1 | 2 | undefined`
-- `axisLo` fn (local) :921 `(box: LocalBox, axis: 0 | 1 | 2): number`
-- `axisHi` fn (local) :927 `(box: LocalBox, axis: 0 | 1 | 2): number`
-- `flatInside` fn (local) :933 `(part: LocalBox, cut: LocalBox, axis: 0 | 1 | 2): boolean`
-- `setAxis` fn (local) :938 `(box: LocalBox, axis: 0 | 1 | 2, lo: number, hi: number): LocalBox`
-- `subtractFlat` fn (local) :945 `(part: LocalBox, cut: LocalBox, flat: 0 | 1 | 2): LocalBox[]` — Slabs on the two thick axes.
-- `facadePieceLives` fn (local) :975 `(min: Vec3, max: Vec3, source: Obstacle): boolean` — Keep a sheet that was already flat on one axis.
-- `cutPrefixedWalls` fn (local) :985 `(obstacles: Obstacle[], prefix: string, doors: readonly SituatedDoor[], outwardCap = Infinity): void`
-- `warnDeepBuildingDoors` fn (local) :1011 `(hosts: RoomDoorHosts, doors: readonly SituatedDoor[], lines: string[]): void` — A building box that reaches past the room-door cap would become a tunnel to its far face.
-- `cutObstacle` fn (local) :1030 `(obstacle: Obstacle, doors: readonly SituatedDoor[], outwardCap = Infinity): Obstacle[]`
-- `obstacleToLocal` fn (local) :1066 `(obstacle: Obstacle): LocalBox`
-- `worldToBuilding` fn :1078 `(b: Placement, p: Vec3): Vec3` — Inverse of `buildingToWorld`.
-- `doorToBuildingLocal` fn :1087 `(door: SceneDoor, building: Placement): SceneDoor` — World scene door → the building-local frame `expandModelDoor` consumes.
-- `expandModelDoor` fn :1115 `(door: SceneDoor, placements: readonly Placement[]): SceneDoor[]` — One model-local door onto every given placement.
-- `WorldAabb` type (local) :1120 `= { min: Vec3; max: Vec3 }`
-- `referencePlacement` fn :1126 `(door: SceneDoor, placements: readonly Placement[], worldBoxes: (placement: Placement) => readonly WorldAabb[]): Placement` — Placement of `door.building`'s model that the door rectangle overlaps.
-- `resolveExteriorDoors` fn :1160 `(doors: readonly SceneDoor[], placements: readonly Placement[], worldBoxes: (placement: Placement) => readonly WorldAabb[], taken: ReadonlySet<string>): SceneD…` — Scene doors from `readScene` become one world door per target placement.
-- `xzOverlap` fn (local) :1190 `(minX: number, maxX: number, minZ: number, maxZ: number, boxMinX: number, boxMaxX: number, boxMinZ: number, boxMaxZ: number): number`
-- `xzDistance` fn (local) :1200 `(x: number, z: number, minX: number, maxX: number, minZ: number, maxZ: number): number`
-- `worldDoor` fn (local) :1209 `(building: Placement, door: SceneDoor): SceneDoor`
-- `worldProp` fn (local) :1231 `(building: Placement, prop: SceneProp, id: string): SceneProp`
-- `instanceToWorld` fn (local) :1240 `(building: Placement, inst: RoomInstanceSource, elevation: number, p: Vec3): Vec3`
-- `loadRoom` fn (local) :1244 `(roomsDir: string, prefab: string, cache: Map<string, RoomFile>): RoomFile`
-- `checkFootprint` fn (local) :1252 `(building: Placement, inst: RoomInstanceSource, room: RoomFile): void`
-- `worldLight` fn (local) :1264 `(building: Placement, inst: RoomInstanceSource, elevation: number, prefix: string, light: RoomLight): RoomsLight`
-- `pendingDoor` fn (local) :1284 `(building: Placement, inst: RoomInstanceSource, elevation: number, room: RoomFile, prefix: string, door: RoomDoor, toWorld: (p: Vec3) => Vec3, file: string): P…`
-- `doorwayBox` fn (local) :1353 `(door: RoomDoor, width: number, depth: number): { box: LocalBox; center: Vec3 }`
-- `hostBox` fn (local) :1387 `(wall: WallFace, width: number, depth: number, height: number): LocalBox`
-- `wallNormal` fn :1417 `(wall: WallFace): { x: number; z: number }` — Outward normal of a room-local wall.
-- `composeNormal` fn (local) :1430 `(buildingYaw: Yaw, instYaw: Yaw, wall: WallFace): { x: number; z: number }`
-- `relate` fn (local) :1436 `(door: PendingRoomDoor, other: DoorPlacement): "none" | "partial" | "merge"`
-- `situatedSpan` fn (local) :1451 `(door: DoorPlacement): { along: "x" | "z"; face: number; min: number; max: number; normal: { x: number; z: number }; }` — Situated opening: hinge at `position`, width along local +X, face on local +Z.
-- `roundDoor` fn (local) :1480 `(door: DoorPlacement): DoorPlacement`
-- `readText` fn (local) :1484 `(filePath: string): string`
-- `roundM` fn (local) :1492 `(n: number): number`
-- `roundVec` fn (local) :1497 `(v: Vec3): Vec3`
-- `fmt` fn (local) :1501 `(n: number): string`
+- `roomToBuilding` fn :28 `(center: { x: number; z: number }, yaw: Yaw, elevation: number, r: Vec3): Vec3` — Room-local point → building-local.
+  `@pre` For instance (center, yaw) on a floor at elevation.
+- `mapBox` fn :34 `(box: LocalBox, f: (p: Vec3) => Vec3): LocalBox` — Any box through a point map: its 4 xz corners, then min/max.
+- `RoomsLight` type :44 `= { id: string; type: "point" | "rect"; position: Vec3; yaw?: Yaw; color: string; intensity: number; width?: number; height?: number; range?: number; }`
+- `RoomsLightsFile` type :56 `= { formatVersion: 1; units: "meters"; lights: RoomsLight[]; }`
+- `RoomsPlacementsFile` type :62 `= { formatVersion: 1; units: "meters"; placements: Array<Placement | DoorPlacement>; obstacles: Obstacle[]; }`
+- `PendingRoomDoor` type :73 `= { id: string; width: number; height: number; along: "x" | "z"; spanMin: number; spanMax: number; face: number; normal: { x: number; z: number; }; sceneDoor: …` — One room door, ready to merge or to situate.
+  `@when` In world.
+- `BuildingRooms` type :89 `= { interiors: LocalBox[]; pending: PendingRoomDoor[]; }`
+- `HallFloorMesh` type :99 `= { id: string; bytes: Uint8Array; }` — One shared hall mesh.
+  `@post` Asset id is `${model}.floor-${n}.hall`.
+  `@why` The GLB is building-local metres, placed at the building origin with scale 1.
+- `FloorBake` type :104 `= { doors: SceneDoor[]; props: SceneProp[]; buildings: Map<string, BuildingRooms>; placements: Placement[]; obstacles: Obstacle[]; lights: RoomsLight[]; roomCo…`
+- `FACADE_BAND_M` const :125 `= 0.6` — A room wall this far from the footprint edge, in metres, is still the facade.
+  `@why` 0.6 covers the room setback plus the wall thickness.
+- `FACADE_PAST_EDGE_M` const (local) :128 `= 0.05` — The punch ends this far past the footprint edge, in metres.
+- `FacadeRejectReason` type :130 `= "inner wall" | "normal" | "distance" | "span"`
+- `RoomFacadeOpening` type :136 `= { id: string; prefab: string; doorId: string; file: string; box: LocalBox; distance: number; depth: number; axis: 0 | 2; outward: 1 | -1; }` — One room door that cuts the shared facade.
+  `@why` In GLB model units.
+- `RoomFacadeRejection` type :154 `= { id: string; prefab: string; doorId: string; reason: FacadeRejectReason; distance: number; }`
+- `RoomFacadeReport` type :163 `= { openings: RoomFacadeOpening[]; rejected: RoomFacadeRejection[]; }`
+- `FacadeEdge` type (local) :168 `= { nx: number; nz: number; x: number; z: number; face: number; along: "x" | "z"; spanMin: number; spanMax: number; }`
+- `GROUND_FLOOR_Y` const (local) :180 `= 0.05`
+- `SPAN_OVERLAP_M` const (local) :181 `= 0.01`
+- `SIZE_WARN_M` const (local) :182 `= 0.05`
+- `ROOM_DOOR_BUILDING_CAP_M` const (local) :185 `= 1` — Building-box door cuts stop this far past the opening.
+- `FACE_NUDGE_M` const (local) :187 `= 1e-4` — Nudge the doorway centre toward the outside face so situateDoor picks that face.
+- `LoadInput` type (local) :189 `= { floorsDir: string; roomsDir?: string; buildings: readonly Placement[]; taken: ReadonlySet<string>; assets: ReadonlySet<string>; assetTypes: ReadonlyMap<str…`
+- `assertSameMetres` fn (local) :213 `(building: Placement, source: { scale: number; footprint: Array<[number, number]> }, measured: { width: number; depth: number } | undefined): void` — Placement scale times the measure-stencil extent must match the floors footprint.
+- `roomFacadeOpenings` fn :244 `(source: FloorsSource, roomFiles: ReadonlyMap<string, RoomFile>): RoomFacadeReport` — Room doors whose wall lies on that floor's outline, in the floors frame.
+  `@pre` A door is on the facade only when its outward normal matches an edge whose span covers the doorway, the face is within `FACADE_BAND_M`, and the span fits the edge.
+  `@post` Interior doors are rejected. The box is GLB units: metres divided by the floors scale. World placement is not an input.
+- `judgeRoomDoor` fn (local) :285 `(scale: number, edges: readonly FacadeEdge[], elevation: number, inst: RoomInstanceSource, room: RoomFile, door: RoomDoor): { kind: "open"; box: LocalBox; dist…`
+- `footprintEdges` fn (local) :371 `(footprint: readonly (readonly [number, number])[]): FacadeEdge[]` — CCW footprint.
+- `edgeDistance` fn (local) :400 `(x: number, z: number, edge: FacadeEdge): number` — Positive when `(x, z)` is inside the edge, against the outward normal.
+- `scaleBox` fn (local) :404 `(box: LocalBox, scale: number): LocalBox`
+- `footprintSpan` fn (local) :415 `(footprint: readonly (readonly [number, number])[]): { width: number; depth: number }`
+- `pushLandingSlab` fn (local) :430 `(building: Placement, landing: FloorLandingSource, claim: (id: string) => void, obstacles: Obstacle[], placements: Placement[], hallMeshes: HallFloorMesh[], ha…` — Walkable slab and one shared floor mesh per model.
+- `pushStairsSteps` fn (local) :481 `(building: Placement, stairs: FloorStairsSource, claim: (id: string) => void, obstacles: Obstacle[], placements: Placement[], hallMeshes: HallFloorMesh[], hall…` — One AABB per step and one shared stepped mesh per model, like a landing.
+- `meshKey` fn (local) :526 `(assetId: string, texture: { image: Uint8Array; tileX: number; tileZ: number }): string` — The image is part of the key, so two landings with different textures do not share a mesh.
+- `imageStamp` fn (local) :530 `(bytes: Uint8Array): string`
+- `polygonAabb` fn (local) :539 `(polygon: readonly (readonly [number, number])[]): Aabb2`
+- `loadFloors` fn :557 `(input: LoadInput): FloorBake` — External doors, stairs, and room instances for every building that has a floors file.
+  `@post` Doors and props are world `SceneDoor` / `SceneProp` values to append before the bake loops.
+- `RoomDoorHosts` type :747 `= { buildingId: string; rooms: Obstacle[]; buildings: Obstacle[]; }`
+- `RoomWallCut` type :759 `= { id: string; file: string; placement: DoorPlacement; local: LocalBox; }` — An unmerged room door that cut this building's wall boxes.
+  `@why` `local` is door-local.
+- `placeRoomDoors` fn :773 `(pending: readonly PendingRoomDoor[], situated: readonly DoorPlacement[], assetTypes: ReadonlyMap<string, AssetType>, lines: string[], hosts: RoomDoorHosts): {…` — Merge a room door into a situated door of the same opening, or return a leaf.
+  `@pre` A partial overlap throws.
+  `@post` A size mismatch warns and still merges. A leaf that hits a building wall is returned in `wallCuts`, in the door frame. That volume is collision only.
+  `@why` The building cut stops 1 m past the opening, so a leaf that faces a hall cannot tunnel through a deep box to the far facade. The room-wall cut is not capped. A room door on the footprint edge also punches the shared mesh, from `roomFacadeOpenings`, not from here.
+- `cutRoomWalls` fn :836 `(obstacles: Obstacle[], buildingId: string, doors: readonly SituatedDoor[]): void` — Cut each situated opening out of this building's room obstacles.
+  `@post` A door that misses a box leaves it, including its id. A split replaces that id with `<id>.0`, `<id>.1`, … . Pieces thinner than the door epsilon are dropped inside `cutDoorFromBoxes`.
+  `@why` Those boxes are already world AABBs, so the cut uses an identity pose.
+- `cutFacadeWalls` fn :850 `(obstacles: Obstacle[], building: Placement, boxes: readonly LocalBox[]): void` — Open `<building>-wall-*` where a room facade door's visual box sits.
+  `@post` A skin with zero extent on one axis is cut in the other two and kept at that coordinate.
+  `@why` `placeRoomDoors` already cuts a leaf that reaches the shell; this covers the setback the inward door stamp does not.
+- `FACADE_CUT_EPS` const (local) :900 `= 1e-6`
+- `subtractFacadePart` fn (local) :907 `(part: LocalBox, cut: LocalBox): LocalBox[]` — A positive box uses `subtractBox`.
+- `flatAxis` fn (local) :914 `(box: LocalBox): 0 | 1 | 2 | undefined`
+- `axisLo` fn (local) :925 `(box: LocalBox, axis: 0 | 1 | 2): number`
+- `axisHi` fn (local) :931 `(box: LocalBox, axis: 0 | 1 | 2): number`
+- `flatInside` fn (local) :937 `(part: LocalBox, cut: LocalBox, axis: 0 | 1 | 2): boolean`
+- `setAxis` fn (local) :942 `(box: LocalBox, axis: 0 | 1 | 2, lo: number, hi: number): LocalBox`
+- `subtractFlat` fn (local) :949 `(part: LocalBox, cut: LocalBox, flat: 0 | 1 | 2): LocalBox[]` — Slabs on the two thick axes.
+- `facadePieceLives` fn (local) :979 `(min: Vec3, max: Vec3, source: Obstacle): boolean` — Keep a sheet that was already flat on one axis.
+- `cutPrefixedWalls` fn (local) :989 `(obstacles: Obstacle[], prefix: string, doors: readonly SituatedDoor[], outwardCap = Infinity): void`
+- `warnDeepBuildingDoors` fn (local) :1015 `(hosts: RoomDoorHosts, doors: readonly SituatedDoor[], lines: string[]): void` — A building box that reaches past the room-door cap would become a tunnel to its far face.
+- `cutObstacle` fn (local) :1034 `(obstacle: Obstacle, doors: readonly SituatedDoor[], outwardCap = Infinity): Obstacle[]`
+- `obstacleToLocal` fn (local) :1070 `(obstacle: Obstacle): LocalBox`
+- `worldToBuilding` fn :1085 `(b: Placement, p: Vec3): Vec3`
+  `@why` Metres in the placement frame, not GLB units.
+  `@see` `buildingToWorld`, inverted.
+- `doorToBuildingLocal` fn :1094 `(door: SceneDoor, building: Placement): SceneDoor` — World scene door → the building-local frame `expandModelDoor` consumes.
+  `@pre` The reference placement is the copy the rectangle overlaps.
+- `expandModelDoor` fn :1122 `(door: SceneDoor, placements: readonly Placement[]): SceneDoor[]` — One model-local door onto every given placement.
+  `@pre` Pass only placements of that model.
+  `@post` Leaf id is `${placement.id}.${door.id}`. Static instances share one opening.
+  `@why` Floors `doors-external` and a scene door whose `data-building` is a model both use this, so the copy is one rule.
+- `WorldAabb` type (local) :1127 `= { min: Vec3; max: Vec3 }`
+- `referencePlacement` fn :1133 `(door: SceneDoor, placements: readonly Placement[], worldBoxes: (placement: Placement) => readonly WorldAabb[]): Placement` — Placement of `door.building`'s model that the door rectangle overlaps.
+  `@post` No overlap: the nearest. Several overlaps: the greatest XZ area, then the nearer.
+- `resolveExteriorDoors` fn :1168 `(doors: readonly SceneDoor[], placements: readonly Placement[], worldBoxes: (placement: Placement) => readonly WorldAabb[], taken: ReadonlySet<string>): SceneD…` — Scene doors from `readScene` become one world door per target placement.
+  `@invariant` An expanded leaf that collides throws. (test: exterior_door_ids_are_unique)
+  `@pre` `taken` is placement and prop ids.
+  `@post` Model-scoped doors expand. Placement-scoped doors stay one leaf.
+- `xzOverlap` fn (local) :1198 `(minX: number, maxX: number, minZ: number, maxZ: number, boxMinX: number, boxMaxX: number, boxMinZ: number, boxMaxZ: number): number`
+- `xzDistance` fn (local) :1208 `(x: number, z: number, minX: number, maxX: number, minZ: number, maxZ: number): number`
+- `worldDoor` fn (local) :1217 `(building: Placement, door: SceneDoor): SceneDoor`
+- `worldProp` fn (local) :1239 `(building: Placement, prop: SceneProp, id: string): SceneProp`
+- `instanceToWorld` fn (local) :1248 `(building: Placement, inst: RoomInstanceSource, elevation: number, p: Vec3): Vec3`
+- `loadRoom` fn (local) :1252 `(roomsDir: string, prefab: string, cache: Map<string, RoomFile>): RoomFile`
+- `checkFootprint` fn (local) :1260 `(building: Placement, inst: RoomInstanceSource, room: RoomFile): void`
+- `worldLight` fn (local) :1272 `(building: Placement, inst: RoomInstanceSource, elevation: number, prefix: string, light: RoomLight): RoomsLight`
+- `pendingDoor` fn (local) :1292 `(building: Placement, inst: RoomInstanceSource, elevation: number, room: RoomFile, prefix: string, door: RoomDoor, toWorld: (p: Vec3) => Vec3, file: string): P…`
+- `doorwayBox` fn (local) :1361 `(door: RoomDoor, width: number, depth: number): { box: LocalBox; center: Vec3 }`
+- `hostBox` fn (local) :1395 `(wall: WallFace, width: number, depth: number, height: number): LocalBox`
+- `wallNormal` fn :1428 `(wall: WallFace): { x: number; z: number }` — Outward normal of a room-local wall.
+  `@why` +Z is front.
+- `composeNormal` fn (local) :1441 `(buildingYaw: Yaw, instYaw: Yaw, wall: WallFace): { x: number; z: number }`
+- `relate` fn (local) :1447 `(door: PendingRoomDoor, other: DoorPlacement): "none" | "partial" | "merge"`
+- `situatedSpan` fn (local) :1462 `(door: DoorPlacement): { along: "x" | "z"; face: number; min: number; max: number; normal: { x: number; z: number }; }` — Situated opening: hinge at `position`, width along local +X, face on local +Z.
+- `roundDoor` fn (local) :1491 `(door: DoorPlacement): DoorPlacement`
+- `readText` fn (local) :1495 `(filePath: string): string`
+- `roundM` fn (local) :1503 `(n: number): number`
+- `roundVec` fn (local) :1508 `(v: Vec3): Vec3`
+- `fmt` fn (local) :1512 `(n: number): string`
 
-### src/scene-graph.ts (504)
+### src/scene-graph.ts (505)
 imports: src/doors.ts, src/hall-floor.ts, src/types.ts
 used by: src/bake.ts, src/cli.ts, src/regions.ts
 - `PortalKind` type :14 `= "door" | "landing" | "elevator" | "opening"`
@@ -977,82 +1150,126 @@ used by: src/bake.ts, src/cli.ts, src/regions.ts
 - `STAIR_TOP_RUN` const (local) :60 `= 1.3`
 - `CONTAIN_SLACK_M` const (local) :62 `= HALL_EDGE_INSET_M + 0.01` — Facade inset plus a centimetre, so a probe in the inset strip still hits the hall.
 - `Xz` type (local) :64 `= readonly [number, number]`
-- `buildSceneGraph` fn :71 `(args: { places: readonly AnyPlace[]; doors: readonly DoorPlacement[]; bounds: BoundsFile; }): { graph: SceneGraphFile; warnings: string[] }` — Link places through doors, stairs, elevators, and hall/platform openings.
-- `doorProbe` fn :134 `(door: DoorPlacement, localZ: number): Vec3` — World point of the opening's middle, `localZ` metres along door local +Z.
-- `outsidePlace` fn (local) :146 `(bounds: BoundsFile): OutsidePlace`
-- `elevatorStops` fn (local) :161 `(places: readonly AnyPlace[]): ScenePlace[]` — One cab place per stop.
-- `resolveProbe` fn (local) :180 `(probe: Vec3, door: DoorPlacement, places: readonly AnyPlace[], stops: readonly ScenePlace[]): string | undefined`
-- `buildingGround` fn (local) :200 `(doorId: string, places: readonly AnyPlace[]): number`
-- `pushStairPortals` fn (local) :218 `(stair: StairsPlace, portals: ScenePortal[]): void`
-- `pushElevatorPortals` fn (local) :239 `(cab: ElevatorPlace, portals: ScenePortal[]): void`
-- `cabPoint` fn (local) :266 `(cab: ElevatorPlace, y: number): Vec3`
-- `landingPortal` fn (local) :277 `(id: string, left: string, right: string, at: Vec3, width: number, cost: number): ScenePortal`
-- `pushOpenings` fn (local) :303 `(places: readonly AnyPlace[], portals: ScenePortal[]): void` — Hall and platform only.
-- `Edge` type (local) :330 `= { a: Xz; b: Xz }`
-- `realEdges` fn (local) :332 `(polygon: readonly Xz[]): Edge[]`
-- `Piece` type (local) :345 `= { mid: [number, number]; length: number; dir: [number, number] }`
-- `sharedPieces` fn (local) :347 `(left: readonly Edge[], right: readonly Edge[]): Piece[]`
-- `overlap` fn (local) :364 `(a: Edge, b: Edge): Piece | undefined`
-- `standPoints` fn (local) :392 `(mid: readonly [number, number], dir: readonly [number, number], aPoly: readonly Xz[], bPoly: readonly Xz[], y: number): { a: Vec3; b: Vec3 }` — Stand 0.4 m off the shared edge, one side in each place.
-- `orderPair` fn (local) :412 `(aId: string, bId: string, aAt: Vec3, bAt: Vec3): { a: string; b: string; at: { a: Vec3; b: Vec3 } }`
-- `smallest` fn (local) :424 `(places: readonly { id: string; polygon: readonly Xz[] }[]): { id: string } | undefined`
-- `isStairs` fn (local) :430 `(place: AnyPlace): place is StairsPlace`
-- `isElevator` fn (local) :434 `(place: AnyPlace): place is ElevatorPlace`
-- `nearY` fn (local) :438 `(placeY: number, sill: number): boolean`
-- `nearPoint` fn (local) :442 `(a: Xz, b: Xz): boolean`
-- `distance` fn (local) :446 `(a: Vec3, b: Vec3): number`
-- `areaOf` fn (local) :450 `(polygon: readonly Xz[]): number`
-- `pointInRing` fn (local) :460 `(polygon: readonly Xz[], x: number, z: number): boolean`
-- `distanceToPolygon` fn (local) :473 `(polygon: readonly Xz[], x: number, z: number): number`
-- `distanceToSegment` fn (local) :484 `(x: number, z: number, a: Xz, b: Xz): number`
-- `roundM` fn (local) :493 `(n: number): number`
-- `roundVec` fn (local) :498 `(v: Vec3): Vec3`
-- `cmp` fn (local) :502 `(a: string, b: string): number`
+- `buildSceneGraph` fn :72 `(args: { places: readonly AnyPlace[]; doors: readonly DoorPlacement[]; bounds: BoundsFile; }): { graph: SceneGraphFile; warnings: string[] }` — Link places through doors, stairs, elevators, and hall/platform openings.
+  `@invariant` A linking door's portal id is that door's id, so distinct door ids stay distinct portal ids. (test: scene_graph_door_portal_ids)
+  `@pre` `places` is the `derivePlaces` list. `doors` is building doors plus room doors.
+  `@post` A probe that matches nothing does not fail the bake; it is a warning and no portal.
+- `doorProbe` fn :135 `(door: DoorPlacement, localZ: number): Vec3` — World point of the opening's middle, `localZ` metres along door local +Z.
+  `@post` A left hinge's middle is `+width/2`; a right hinge's middle is `−width/2`.
+  `@why` Local +X is `(cos θ, −sin θ)` and local +Z is `(sin θ, cos θ)`, θ the yaw.
+- `outsidePlace` fn (local) :147 `(bounds: BoundsFile): OutsidePlace`
+- `elevatorStops` fn (local) :162 `(places: readonly AnyPlace[]): ScenePlace[]` — One cab place per stop.
+- `resolveProbe` fn (local) :181 `(probe: Vec3, door: DoorPlacement, places: readonly AnyPlace[], stops: readonly ScenePlace[]): string | undefined`
+- `buildingGround` fn (local) :201 `(doorId: string, places: readonly AnyPlace[]): number`
+- `pushStairPortals` fn (local) :219 `(stair: StairsPlace, portals: ScenePortal[]): void`
+- `pushElevatorPortals` fn (local) :240 `(cab: ElevatorPlace, portals: ScenePortal[]): void`
+- `cabPoint` fn (local) :267 `(cab: ElevatorPlace, y: number): Vec3`
+- `landingPortal` fn (local) :278 `(id: string, left: string, right: string, at: Vec3, width: number, cost: number): ScenePortal`
+- `pushOpenings` fn (local) :304 `(places: readonly AnyPlace[], portals: ScenePortal[]): void` — Hall and platform only.
+- `Edge` type (local) :331 `= { a: Xz; b: Xz }`
+- `realEdges` fn (local) :333 `(polygon: readonly Xz[]): Edge[]`
+- `Piece` type (local) :346 `= { mid: [number, number]; length: number; dir: [number, number] }`
+- `sharedPieces` fn (local) :348 `(left: readonly Edge[], right: readonly Edge[]): Piece[]`
+- `overlap` fn (local) :365 `(a: Edge, b: Edge): Piece | undefined`
+- `standPoints` fn (local) :393 `(mid: readonly [number, number], dir: readonly [number, number], aPoly: readonly Xz[], bPoly: readonly Xz[], y: number): { a: Vec3; b: Vec3 }` — Stand 0.4 m off the shared edge, one side in each place.
+- `orderPair` fn (local) :413 `(aId: string, bId: string, aAt: Vec3, bAt: Vec3): { a: string; b: string; at: { a: Vec3; b: Vec3 } }`
+- `smallest` fn (local) :425 `(places: readonly { id: string; polygon: readonly Xz[] }[]): { id: string } | undefined`
+- `isStairs` fn (local) :431 `(place: AnyPlace): place is StairsPlace`
+- `isElevator` fn (local) :435 `(place: AnyPlace): place is ElevatorPlace`
+- `nearY` fn (local) :439 `(placeY: number, sill: number): boolean`
+- `nearPoint` fn (local) :443 `(a: Xz, b: Xz): boolean`
+- `distance` fn (local) :447 `(a: Vec3, b: Vec3): number`
+- `areaOf` fn (local) :451 `(polygon: readonly Xz[]): number`
+- `pointInRing` fn (local) :461 `(polygon: readonly Xz[], x: number, z: number): boolean`
+- `distanceToPolygon` fn (local) :474 `(polygon: readonly Xz[], x: number, z: number): number`
+- `distanceToSegment` fn (local) :485 `(x: number, z: number, a: Xz, b: Xz): number`
+- `roundM` fn (local) :494 `(n: number): number`
+- `roundVec` fn (local) :499 `(v: Vec3): Vec3`
+- `cmp` fn (local) :503 `(a: string, b: string): number`
 
-### src/stairs-mesh.ts (67)
+### src/spatial-dag.ts (121)
+Static spatial DAG output: merged obstacle chunks plus a place hierarchy.
+imports: src/types.ts
+pkgs: three, three-mesh-bvh
+used by: src/cli.ts
+- `Portal` type (local) :12 `= { a?: string; b?: string; kind?: string }`
+- `SceneGraphFile` type (local) :13 `= { places?: AnyPlace[]; portals?: Portal[] }`
+- `Box` type (local) :14 `= { min: [number, number, number]; max: [number, number, number] }`
+- `encoded` fn (local) :16 `(value: unknown): unknown`
+- `fnv` fn (local) :29 `(text: string): string`
+- `boxTriangles` fn (local) :38 `(boxes: readonly Box[]): { positions: number[]; indices: number[] }`
+- `writeSpatialDag` fn :58 `(opts: { placements: PlacementsFile; sceneGraph: SceneGraphFile; bounds: BoundsFile; outPath: string; write: (path: string, text: string) => void; }): { hash: …` — Build and write the static DAG.
+  `@post` The file is byte-stable for the same placements, graph, and bounds.
+
+### src/stairs-mesh.ts (75)
 imports: src/glb-write.ts, src/types.ts
 used by: src/rooms-bake.ts
-- `MAX_RISER_M` const :5 `= 0.18` — Tallest riser the bake emits.
-- `STEP_THICKNESS_M` const :8 `= 0.3` — Thickness of each step slab under its tread.
-- `stairsStepBoxes` fn :15 `(polygon: readonly (readonly [number, number])[], up: readonly [number, number], bottom: number, top: number): LocalBox[]` — One slab per step, building-local: STEP_THICKNESS_M thick under its tread (clamped so it never goes below `bottom`), leaving the space unde…
-- `stairsGlb` fn :47 `(args: { boxes: readonly LocalBox[]; image: Uint8Array; tileX: number; tileZ: number }): Uint8Array` — Closed boxes with the floor image tiled in building-local metres.
+- `MAX_RISER_M` const :7 `= 0.18`
+  `@why` Tallest riser the bake emits. Under the arena's 0.3 m STEP_HEIGHT, and a normal building riser.
+- `STEP_THICKNESS_M` const :13 `= 0.3` — Thickness of each step slab under its tread.
+  `@why` The space below the flight stays open.
+- `stairsStepBoxes` fn :20 `(polygon: readonly (readonly [number, number])[], up: readonly [number, number], bottom: number, top: number): LocalBox[]` — One slab per step, building-local.
+  `@pre` `up` is the climb direction in local XZ (unit, axis-aligned after the quarter-turn yaw).
+  `@post` `STEP_THICKNESS_M` thick under its tread (clamped so it never goes below `bottom`), leaving the space under the flight open.
+- `stairsGlb` fn :55 `(args: { boxes: readonly LocalBox[]; image: Uint8Array; tileX: number; tileZ: number }): Uint8Array` — Closed boxes.
+  `@why` The floor image is tiled in building-local metres.
 
-### src/stencil.ts (97)
+### src/stencil.ts (101)
 imports: src/types.ts
 used by: src/bake.ts, src/measure.ts
 - `STENCIL_SLIVER_M` const (local) :7 `= 0.05` — Triangles thinner than this on XZ do not move the stencil.
 - `ModelBounds` type :9 `= { min: Vec3; max: Vec3 }`
-- `boundsOfTriangles` fn :12 `(triangles: Triangle[]): ModelBounds | undefined` — Axis-aligned bounds of every triangle vertex, in raw GLB units.
-- `stencilBoxes` fn :39 `(triangles: Triangle[]): LocalBox[]` — One rectangle, the XZ extent plans are scaled against.
-- `stencilSize` fn :84 `(boxes: readonly LocalBox[]): { width: number; depth: number }` — Union of the stencil on X (width) and Z (depth), in model meters.
+- `boundsOfTriangles` fn :15 `(triangles: Triangle[]): ModelBounds | undefined` — Axis-aligned bounds of every triangle vertex.
+  `@why` In raw GLB units.
+- `stencilBoxes` fn :41 `(triangles: Triangle[]): LocalBox[]` — One rectangle, the XZ extent plans are scaled against.
+  `@post` A mesh with no thicker triangle uses the raw bounds, so a copied plan still has a scale.
+  `@why` Paper-thin triangles are left out. The measure SVG does not draw this rectangle; it draws the union of the collision runs.
+- `stencilSize` fn :88 `(boxes: readonly LocalBox[]): { width: number; depth: number }`
+  `@post` Union of the stencil on X (width) and Z (depth), in model meters.
 
-### src/types.ts (261)
-used by: src/asset-type.ts, src/bake.ts, src/building-mesh-cut.ts, src/cli.ts, src/crate.ts, src/doors.ts, src/floors-svg.ts, src/footprint.ts, src/glb-write.ts, src/glb.ts, src/hall-floor.ts, src/measure.ts, src/places.ts, src/plan.ts, src/prop.ts, src/regions.ts, src/room-cut.ts, src/room-file.ts, src/room-glb.ts, src/room-svg.ts, src/rooms-bake.ts, src/scene-graph.ts, src/stairs-mesh.ts, src/stencil.ts, src/yaw.ts
+### src/types.ts (274)
+used by: src/asset-type.ts, src/bake.ts, src/building-mesh-cut.ts, src/cli.ts, src/crate.ts, src/doors.ts, src/floors-svg.ts, src/footprint.ts, src/glb-write.ts, src/glb.ts, src/hall-floor.ts, src/measure.ts, src/places.ts, src/plan.ts, src/prop.ts, src/regions.ts, src/room-cut.ts, src/room-file.ts, src/room-glb.ts, src/room-svg.ts, src/rooms-bake.ts, src/scene-graph.ts, src/spatial-dag.ts, src/stairs-mesh.ts, src/stencil.ts, src/yaw.ts
 - `Vec3` type :1 `= [number, number, number]`
-- `Yaw` type :4 `= 0 | 90 | 180 | 270` — Quarter-turn about +Y, in degrees.
-- `ASSET_TYPES` const :10 `= … as const` — `type` on an asset in `arena.game.json`.
-- `AssetType` type :26 `= (typeof ASSET_TYPES)[number]`
-- `Placement` type :28 `= { id: string; model: string; type?: AssetType; position: Vec3; yaw: Yaw; scale: number; }`
-- `Obstacle` type :39 `= { id: string; kind: "aabb"; min: Vec3; max: Vec3; }`
-- `XzBounds` type :50 `= { minX: number; maxX: number; minZ: number; maxZ: number; minY?: number; maxY?: number; }` — Room rectangle from the Inkscape `bounds` layer, in world metres.
-- `BoundsFile` type :60 `= { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number; }` — File the manifest points at with `scene.bounds`.
-- `SceneProp` type :75 `= { id: string; model: string; position: Vec3; yaw: Yaw; scale: number; drawnWidth: number; drawnDepth: number; minY?: number; maxY?: number; }` — A tagged rectangle on the `props` layer.
-- `SceneSpawn` type :89 `= { id: string; position: Vec3; yaw: Yaw; }` — A mark on the `spawn-points` or `player-spawns` layer.
-- `DoorHinge` type :95 `= "left" | "right"`
-- `SceneDoor` type :101 `= { id: string; model: string; building: string; bind?: "model" | "placement"; center: Vec3; minX: number; maxX: number; minZ: number; maxZ: number; hinge: Doo…` — A rectangle on the `doors` layer, before it is pushed onto a wall.
+- `Yaw` type :7 `= 0 | 90 | 180 | 270` — Quarter-turn about +Y, in degrees.
+  `@see` `transformXz`
+- `ASSET_TYPES` const :13 `= … as const` — `type` on an asset in `arena.game.json`.
+  `@why` `kind` on that asset stays `model` or `texture`. This list is not read from an Inkscape label.
+- `AssetType` type :29 `= (typeof ASSET_TYPES)[number]`
+- `Placement` type :31 `= { id: string; model: string; type?: AssetType; position: Vec3; yaw: Yaw; scale: number; }`
+- `Obstacle` type :42 `= { id: string; kind: "aabb"; min: Vec3; max: Vec3; }`
+- `XzBounds` type :53 `= { minX: number; maxX: number; minZ: number; maxZ: number; minY?: number; maxY?: number; }` — Room rectangle from the Inkscape `bounds` layer, in world metres.
+  `@when` `minY` / `maxY` are set only when the rectangle carries `data-min-y` / `data-max-y`.
+- `BoundsFile` type :66 `= { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number; }` — File the manifest points at with `scene.bounds`.
+  `@why` Vertical span defaults to −2..12.
+- `SceneProp` type :80 `= { id: string; model: string; position: Vec3; yaw: Yaw; scale: number; drawnWidth: number; drawnDepth: number; minY?: number; maxY?: number; }` — A tagged rectangle on the `props` layer.
+  `@post` The obstacle is the model bounds when that GLB is loaded, otherwise this rectangle.
+  `@why` Position is the center. `scale` is the uniform SVG scale (1 when the rectangle is not scaled). Neither box is grown by the pawn radius.
+- `SceneSpawn` type :94 `= { id: string; position: Vec3; yaw: Yaw; }` — A mark on the `spawn-points` or `player-spawns` layer.
+- `DoorHinge` type :100 `= "left" | "right"`
+- `SceneDoor` type :107 `= { id: string; model: string; building: string; bind?: "model" | "placement"; center: Vec3; minX: number; maxX: number; minZ: number; maxZ: number; hinge: Doo…` — A rectangle on the `doors` layer.
+  `@when` Before it is pushed onto a wall.
+  `@why` `center` is the rectangle center. `width` is set only by `data-width`.
 - `DoorPlacement` type :149 `= { id: string; model: string; type?: AssetType; position: Vec3; yaw: Yaw; hinge: DoorHinge; size: Vec3; open: boolean; locked?: boolean; key?: string; }` — One hinged panel.
+  `@post` The width is `data-width`, else the door GLB's panel width, else the drawn span. The clear opening is not centered on `position`. A left hinge occupies local x 0..width and a right hinge local x −width..0, from y 0 to `size[1]`.
+  `@why` `position` is the hinge on the wall face: the hinge edge of the plan rectangle (left hinge: its local −X end, right hinge: its +X end), pushed onto that face. The arena mounts the GLB origin, which is the hinge, there, so the mesh and the opening start at the drawn rectangle's hinge edge. There is no obstacle.
 - `DoorsFile` type :166 `= { formatVersion: 1; units: "meters"; placements: DoorPlacement[]; obstacles: []; }`
-- `SpawnPoint` type :177 `= { id: string; x: number; y: number; z: number; yaw: Yaw; }` — File the manifest points at with `scene.spawnPoints` or `scene.playerSpawnPoints`.
-- `PlacementsFile` type :185 `= { formatVersion: 1; units: "meters"; placements: Placement[]; obstacles: Obstacle[]; }`
-- `LocalBox` type :193 `= { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number; }` — Model-space wall run.
-- `CollisionBox` type :202 `= { id: string; minX: number; maxX: number; minZ: number; maxZ: number; }`
-- `CollisionFile` type :210 `= { id: string; origin: Vec3; yawConvention: "y-up-90"; boxes: CollisionBox[]; }`
-- `PlaceKind` type :217 `= "room" | "hall" | "platform" | "stairs" | "elevator" | "landing"`
-- `ScenePlace` type :220 `= { id: string; kind: PlaceKind; building?: string; floor?: string; y: number; polygon: Array<[number, number]>; bounds: { minX: number; maxX: number; minZ: nu…` — One walkable region.
-- `StairsPlace` type :233 `= ScenePlace & { kind: "stairs"; top: number; width: number; run: number; landings: { bottom: Vec3; top: Vec3; }; joins: { from?: string; to?: string; }; }` — A stair run.
-- `ElevatorPlace` type :245 `= ScenePlace & { kind: "elevator"; stops: number[]; waitS: number; speed: number; landings: Vec3[]; joins: Array<string | undefined>; room?: string; }` — An elevator shaft.
-- `AnyPlace` type :259 `= ScenePlace | StairsPlace | ElevatorPlace`
-- `Triangle` type :261 `= [Vec3, Vec3, Vec3]`
+- `SpawnPoint` type :178 `= { id: string; x: number; y: number; z: number; yaw: Yaw; }` — File the manifest points at with `scene.spawnPoints` or `scene.playerSpawnPoints`.
+  `@post` `y` is 0.
+  `@why` Player pads are the same shape, written to `player-spawns.json`.
+- `PlacementsFile` type :186 `= { formatVersion: 1; units: "meters"; placements: Placement[]; obstacles: Obstacle[]; }`
+- `LocalBox` type :197 `= { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number; }` — Model-space wall run.
+  `@why` Y is kept for world obstacles and omitted from the collision file.
+- `CollisionBox` type :206 `= { id: string; minX: number; maxX: number; minZ: number; maxZ: number; }`
+- `CollisionFile` type :214 `= { id: string; origin: Vec3; yawConvention: "y-up-90"; boxes: CollisionBox[]; }`
+- `PlaceKind` type :221 `= "room" | "hall" | "platform" | "stairs" | "elevator" | "landing"`
+- `ScenePlace` type :227 `= { id: string; kind: PlaceKind; building?: string; floor?: string; y: number; polygon: Array<[number, number]>; bounds: { minX: number; maxX: number; minZ: nu…` — One walkable region.
+  `@see` `StairsPlace` and `ElevatorPlace` for the fields stairs and elevators add.
+- `StairsPlace` type :243 `= ScenePlace & { kind: "stairs"; top: number; width: number; run: number; landings: { bottom: Vec3; top: Vec3; }; joins: { from?: string; to?: string; }; }` — A stair run.
+  `@why` `top` and the landing `y` values are world metres.
+- `ElevatorPlace` type :258 `= ScenePlace & { kind: "elevator"; stops: number[]; waitS: number; speed: number; landings: Vec3[]; joins: Array<string | undefined>; room?: string; }` — An elevator shaft.
+  `@why` `stops` and landing `y` values are world metres.
+- `AnyPlace` type :272 `= ScenePlace | StairsPlace | ElevatorPlace`
+- `Triangle` type :274 `= [Vec3, Vec3, Vec3]`
 
 ### src/union.ts (240)
 imports: src/errors.ts
@@ -1060,10 +1277,15 @@ used by: src/hall-floor.ts, src/measure.ts, src/places.ts, src/rooms-bake.ts
 - `Aabb2` type :4 `= { minX: number; maxX: number; minZ: number; maxZ: number; }` — Axis-aligned rectangle on the ground plane.
 - `XzPoint` type :11 `= { x: number; z: number }`
 - `Ring` type :17 `= { points: XzPoint[]; area: number }` — One closed ring of the union.
+  `@invariant` `area > 0` is an outer contour, counter-clockwise in XZ (x to the right, z up). `area < 0` is a hole. (test: union_positive_area_is_ccw)
 - `EPS` const (local) :19 `= 1e-6`
-- `subtractAabbs` fn :25 `(outer: Aabb2, holes: readonly Aabb2[]): Aabb2[]` — `outer` minus `holes`, as the grid cells whose centres lie in `outer` and in no hole.
-- `edges` fn (local) :46 `(values: number[]): number[]`
+- `subtractAabbs` fn :26 `(outer: Aabb2, holes: readonly Aabb2[]): Aabb2[]` — `outer` minus `holes`.
+  `@post` The grid cells whose centres lie in `outer` and in no hole.
+  `@why` A hole that only clips a corner leaves the rest of that cell.
+- `edges` fn (local) :47 `(values: number[]): number[]`
 - `unionAabbs` fn :62 `(boxes: readonly Aabb2[]): Ring[]` — Union axis-aligned boxes the way Inkscape Path → Union does.
+  `@post` A fully enclosed courtyard is a clockwise hole. Boxes that only share a corner stay separate rings.
+  `@why` Walk with the solid on the left. A square (0,0)–(1,1) is (0,0) → (1,0) → (1,1) → (0,1).
 - `trace` fn (local) :129 `(startFrom: string, startTo: string, unused: Map<string, Set<string>>, xs: number[], zs: number[]): XzPoint[]`
 - `choose` fn (local) :153 `(prev: string, curr: string, unused: Map<string, Set<string>>): string` — Smallest counter-clockwise turn from the incoming edge.
 - `consume` fn (local) :174 `(unused: Map<string, Set<string>>, from: string, to: string): void`
@@ -1085,304 +1307,313 @@ used by: src/floors-svg.ts, src/plan.ts, src/room-svg.ts
 - `parseXml` fn :22 `(xml: string): XmlNode`
 - `decodeEntities` fn (local) :130 `(value: string): string`
 
-### src/yaw.ts (53)
+### src/yaw.ts (57)
 imports: src/types.ts
 used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts, src/hall-floor.ts, src/places.ts, src/rooms-bake.ts
-- `transformXz` fn :9 `(x: number, z: number, yaw: Yaw): { x: number; z: number }` — Yaw is degrees about +Y, right-handed: the same turn as Three.js `Object3D.rotation.y` and a glTF quaternion about +Y.
-- `inverseYaw` fn :23 `(yaw: Yaw): Yaw` — Inverse of `transformXz`.
-- `xz` fn (local) :30 `(x: number, z: number): { x: number; z: number }` — `0 === -0`, and JSON keeps a signed zero as 0.
-- `placeBox` fn :35 `(box: LocalBox, position: Vec3, yaw: Yaw): { min: Vec3; max: Vec3 }` — Model-space AABB to world AABB.
+- `transformXz` fn :7 `(x: number, z: number, yaw: Yaw): { x: number; z: number }`
+  `@post` 0 leaves model axes in place. 90 sends model +X to world −Z and model +Z to world +X.
+  `@why` Yaw is degrees about +Y, right-handed: the same turn as Three.js `Object3D.rotation.y` and a glTF quaternion about +Y. Placements only use 0, 90, 180, and 270 (`yawConvention: "y-up-90"`).
+- `inverseYaw` fn :24 `(yaw: Yaw): Yaw`
+  `@post` 90° and 270° swap; 0° and 180° are their own inverses.
+  `@see` `transformXz`, inverted.
+- `xz` fn (local) :31 `(x: number, z: number): { x: number; z: number }` — `0 === -0`, and JSON keeps a signed zero as 0.
+- `placeBox` fn :39 `(box: LocalBox, position: Vec3, yaw: Yaw): { min: Vec3; max: Vec3 }` — Model-space AABB to world AABB.
+  `@post` Yaw turns XZ; Y is unchanged.
 
 ## Symbol index
 
 ```text
 `Aabb2` src/union.ts:4 type
-`aabbPolygon` src/floors-svg.ts:626 fn
-`addCoveredColumns` src/footprint.ts:468 fn
+`aabbPolygon` src/floors-svg.ts:635 fn
+`addCoveredColumns` src/footprint.ts:472 fn
 `addYaw` src/rooms-bake.ts:16 fn
-`alongSpan` src/room-svg.ts:557 fn
-`AlphaMode` src/prop.ts:50 type
-`AnyPlace` src/types.ts:259 type
+`alongSpan` src/room-svg.ts:562 fn
+`AlphaMode` src/prop.ts:46 type
+`AnyPlace` src/types.ts:272 type
 `Aperture` src/room-cut.ts:10 type
-`apply` src/plan.ts:62 fn
-`area2` src/building-mesh-cut.ts:608 fn
-`area` src/footprint.ts:1141 fn
-`areaOf` src/scene-graph.ts:450 fn
-`ARRAY_BUFFER` src/glb-write.ts:92 const
-`assertImage` src/crate.ts:233 fn
-`assertLightInside` src/room-svg.ts:497 fn
-`assertPng` src/prop.ts:213 fn
-`assertPose` src/room-svg.ts:636 fn
-`assertSameMetres` src/rooms-bake.ts:203 fn
-`assertWidthFits` src/room-svg.ts:561 fn
+`apply` src/plan.ts:64 fn
+`area2` src/building-mesh-cut.ts:599 fn
+`area` src/footprint.ts:1145 fn
+`areaOf` src/scene-graph.ts:451 fn
+`ARRAY_BUFFER` src/glb-write.ts:93 const
+`assertImage` src/crate.ts:237 fn
+`assertLightInside` src/room-svg.ts:502 fn
+`assertPng` src/prop.ts:209 fn
+`assertPose` src/room-svg.ts:641 fn
+`assertSameMetres` src/rooms-bake.ts:213 fn
+`assertWidthFits` src/room-svg.ts:566 fn
 `ASSET_TYPE_SET` src/asset-type.ts:4 const
-`ASSET_TYPES` src/types.ts:10 const
-`AssetType` src/types.ts:26 type
-`assignY` src/footprint.ts:1082 fn
-`attachDoorStands` src/regions.ts:253 fn
+`ASSET_TYPES` src/types.ts:13 const
+`AssetType` src/types.ts:29 type
+`assignY` src/footprint.ts:1086 fn
+`attachDoorStands` src/regions.ts:259 fn
 `attr` src/xml.ts:14 fn
-`axisAligned` src/plan.ts:424 fn
-`axisAligned` src/room-svg.ts:778 fn
-`axisEdge` src/floors-svg.ts:670 fn
+`axisAligned` src/plan.ts:419 fn
+`axisAligned` src/room-svg.ts:783 fn
+`axisEdge` src/floors-svg.ts:679 fn
 `axisFit` src/bake.ts:1198 fn
-`axisHi` src/rooms-bake.ts:927 fn
-`axisHits` src/building-mesh-cut.ts:279 fn
-`axisLo` src/rooms-bake.ts:921 fn
-`axisRect` src/regions.ts:364 fn
+`axisHi` src/rooms-bake.ts:931 fn
+`axisHits` src/building-mesh-cut.ts:271 fn
+`axisLo` src/rooms-bake.ts:925 fn
+`axisRect` src/regions.ts:370 fn
 `axisWarning` src/bake.ts:1208 fn
 `bake` src/bake.ts:117 fn
-`BakedPlaceRegions` src/regions.ts:49 type
-`BakedRegionsFile` src/regions.ts:56 type
+`BakedPlaceRegions` src/regions.ts:51 type
+`BakedRegionsFile` src/regions.ts:58 type
 `BakeOptions` src/bake.ts:22 type
 `BakeResult` src/bake.ts:85 type
-`bakeWalkableRegions` src/regions.ts:166 fn
-`BAND_M` src/footprint.ts:12 const
-`BandBox` src/footprint.ts:92 type
-`bandedFootprint` src/footprint.ts:290 fn
-`bareLength` src/room-svg.ts:706 fn
+`bakeWalkableRegions` src/regions.ts:169 fn
+`BAND_M` src/footprint.ts:14 const
+`BandBox` src/footprint.ts:95 type
+`bandedFootprint` src/footprint.ts:295 fn
+`bareLength` src/room-svg.ts:711 fn
 `BIN_CHUNK` src/glb.ts:6 const
 `BinBuilder.push` src/glb-write.ts:489 method
 `BinBuilder.toUint8Array` src/glb-write.ts:501 method
 `BinBuilder` src/glb-write.ts:485 class
 `blockedOpenings` src/bake.ts:854 fn
-`blockerRects` src/regions.ts:333 fn
-`Bounds2` src/plan.ts:989 type
+`blockerRects` src/regions.ts:339 fn
+`Bounds2` src/plan.ts:993 type
 `boundsBox` src/bake.ts:1064 fn
 `boundsFile` src/bake.ts:1104 fn
-`BoundsFile` src/types.ts:60 type
+`BoundsFile` src/types.ts:66 type
 `boundsOf` src/places.ts:319 fn
-`boundsOfTriangles` src/stencil.ts:12 fn
-`boundsOverlap` src/regions.ts:316 fn
-`BOX_EPS` src/doors.ts:51 const
-`Box` src/room-svg.ts:138 type
-`boxBehind` src/room-file.ts:77 fn
-`boxesForBands` src/footprint.ts:899 fn
-`boxesFromRuns` src/footprint.ts:1059 fn
-`boxInModel` src/building-mesh-cut.ts:47 fn
-`boxParts` src/prop.ts:309 fn
-`BRIDGE_M` src/footprint.ts:39 const
+`boundsOfTriangles` src/stencil.ts:15 fn
+`boundsOverlap` src/regions.ts:322 fn
+`BOX_EPS` src/doors.ts:53 const
+`Box` src/room-svg.ts:143 type
+`Box` src/spatial-dag.ts:14 type
+`boxBehind` src/room-file.ts:81 fn
+`boxesForBands` src/footprint.ts:903 fn
+`boxesFromRuns` src/footprint.ts:1063 fn
+`boxInModel` src/building-mesh-cut.ts:43 fn
+`boxParts` src/prop.ts:305 fn
+`boxTriangles` src/spatial-dag.ts:38 fn
+`BRIDGE_M` src/footprint.ts:43 const
 `bridge` src/places.ts:280 fn
 `buildingExtent` src/places.ts:725 fn
-`buildingGround` src/scene-graph.ts:200 fn
-`BuildingRooms` src/rooms-bake.ts:83 type
+`buildingGround` src/scene-graph.ts:201 fn
+`BuildingRooms` src/rooms-bake.ts:89 type
 `buildingToWorld` src/rooms-bake.ts:19 fn
-`buildRegions` src/regions.ts:98 fn
-`buildSceneGraph` src/scene-graph.ts:71 fn
-`Built` src/regions.ts:89 type
+`buildRegions` src/regions.ts:100 fn
+`buildSceneGraph` src/scene-graph.ts:72 fn
+`Built` src/regions.ts:91 type
 `c` src/room-glb.ts:18 fn
-`cabPoint` src/scene-graph.ts:266 fn
-`cachedImage` src/floors-svg.ts:1259 fn
-`call` src/room-svg.ts:826 fn
+`cabPoint` src/scene-graph.ts:267 fn
+`cachedImage` src/floors-svg.ts:1268 fn
+`call` src/room-svg.ts:831 fn
 `canonicalize` src/union.ts:192 fn
-`Cap` src/footprint.ts:80 type
+`Cap` src/footprint.ts:83 type
 `CARDINALS` src/plan.ts:28 const
 `ccwRect` src/places.ts:315 fn
-`CELL_M` src/footprint.ts:5 const
-`CellHit` src/footprint.ts:425 type
-`checkFootprint` src/rooms-bake.ts:1252 fn
-`checkIds` src/room-svg.ts:814 fn
+`CELL_M` src/footprint.ts:8 const
+`CellHit` src/footprint.ts:429 type
+`checkFootprint` src/rooms-bake.ts:1260 fn
+`checkIds` src/room-svg.ts:819 fn
 `checkLandings` src/places.ts:616 fn
 `choose` src/union.ts:153 fn
-`claimPlacementId` src/plan.ts:601 fn
+`claimPlacementId` src/plan.ts:595 fn
 `clamp01` src/room-cut.ts:16 fn
-`clamp` src/regions.ts:310 fn
-`clampToWallSlab` src/building-mesh-cut.ts:152 fn
-`classifyDoorBind` src/plan.ts:163 fn
-`classifyLayer` src/floors-svg.ts:1105 fn
-`clean` src/building-mesh-cut.ts:588 fn
-`Clip` src/footprint.ts:75 type
-`clip` src/hall-floor.ts:213 fn
-`clipPoly` src/footprint.ts:555 fn
-`cloneJson` src/glb.ts:547 fn
-`closer` src/doors.ts:432 fn
-`cmp` src/regions.ts:323 fn
-`cmp` src/scene-graph.ts:502 fn
-`coarseFootprint` src/footprint.ts:349 fn
-`CoarseFootprint` src/footprint.ts:94 type
-`Collect` src/plan.ts:505 type
-`collect` src/room-svg.ts:785 fn
-`CollisionBox` src/types.ts:202 type
-`collisionExtra` src/glb.ts:151 fn
-`collisionFile` src/crate.ts:296 fn
-`CollisionFile` src/types.ts:210 type
-`collisionPathFor` src/crate.ts:315 fn
-`Column` src/footprint.ts:82 type
+`clamp` src/regions.ts:316 fn
+`clampToWallSlab` src/building-mesh-cut.ts:146 fn
+`classifyDoorBind` src/plan.ts:161 fn
+`classifyLayer` src/floors-svg.ts:1114 fn
+`clean` src/building-mesh-cut.ts:579 fn
+`Clip` src/footprint.ts:78 type
+`clip` src/hall-floor.ts:219 fn
+`clipPoly` src/footprint.ts:559 fn
+`cloneJson` src/glb.ts:548 fn
+`closer` src/doors.ts:403 fn
+`cmp` src/regions.ts:329 fn
+`cmp` src/scene-graph.ts:503 fn
+`coarseFootprint` src/footprint.ts:353 fn
+`CoarseFootprint` src/footprint.ts:97 type
+`Collect` src/plan.ts:500 type
+`collect` src/room-svg.ts:790 fn
+`CollisionBox` src/types.ts:206 type
+`collisionExtra` src/glb.ts:152 fn
+`collisionFile` src/crate.ts:300 fn
+`CollisionFile` src/types.ts:214 type
+`collisionPathFor` src/crate.ts:319 fn
+`Column` src/footprint.ts:85 type
 `COMPONENT_SIZE` src/glb.ts:8 const
-`compose` src/glb.ts:284 fn
-`composeNormal` src/rooms-bake.ts:1430 fn
-`consider` src/plan.ts:554 fn
+`compose` src/glb.ts:285 fn
+`composeNormal` src/rooms-bake.ts:1441 fn
+`consider` src/plan.ts:549 fn
 `consume` src/union.ts:174 fn
 `CONTAIN_SLACK_M` src/scene-graph.ts:62 const
-`containsXz` src/footprint.ts:1160 fn
-`coords` src/regions.ts:241 fn
+`containsXz` src/footprint.ts:1164 fn
+`coords` src/regions.ts:247 fn
 `cornerBuffers` src/glb-write.ts:437 fn
-`covered` src/doors.ts:409 fn
-`covers` src/footprint.ts:985 fn
-`CrateCollisionFile` src/crate.ts:14 type
-`CrateDesign` src/crate.ts:68 type
-`crateMesh` src/crate.ts:243 fn
+`covered` src/doors.ts:380 fn
+`covers` src/footprint.ts:989 fn
+`CrateCollisionFile` src/crate.ts:17 type
+`CrateDesign` src/crate.ts:69 type
+`crateMesh` src/crate.ts:247 fn
 `CratePropOptions` src/crate.ts:8 type
 `cutBlockedRoomMeshes` src/bake.ts:791 fn
-`cutBuildingGlb` src/building-mesh-cut.ts:430 fn
-`cutDoorFromBoxes` src/doors.ts:255 fn
-`cutFacadeWalls` src/rooms-bake.ts:846 fn
-`cutFace` src/room-cut.ts:115 fn
-`cutObstacle` src/rooms-bake.ts:1030 fn
+`cutBuildingGlb` src/building-mesh-cut.ts:422 fn
+`cutDoorFromBoxes` src/doors.ts:228 fn
+`cutFacadeWalls` src/rooms-bake.ts:850 fn
+`cutFace` src/room-cut.ts:125 fn
+`cutObstacle` src/rooms-bake.ts:1034 fn
 `CutOpening` src/bake.ts:592 type
 `cutOpenLine` src/bake.ts:744 fn
-`cutPrefixedWalls` src/rooms-bake.ts:985 fn
-`cutPrimitive` src/building-mesh-cut.ts:458 fn
-`cutRoomWalls` src/rooms-bake.ts:831 fn
-`cutRuns` src/footprint.ts:794 fn
+`cutPrefixedWalls` src/rooms-bake.ts:989 fn
+`cutPrimitive` src/building-mesh-cut.ts:449 fn
+`cutRoomWalls` src/rooms-bake.ts:836 fn
+`cutRuns` src/footprint.ts:798 fn
 `cutSkipLine` src/bake.ts:751 fn
-`cutTexturedGlb` src/building-mesh-cut.ts:447 fn
+`cutTexturedGlb` src/building-mesh-cut.ts:438 fn
 `decodeEntities` src/xml.ts:130 fn
 `DEFAULT_HEIGHT` src/regions.ts:14 const
 `DEFAULT_MODELS` src/bake.ts:19 const
 `DEFAULT_RADIUS` src/regions.ts:13 const
-`DEFAULT_TILE_M` src/floors-svg.ts:51 const
-`defaultFloorImage` src/hall-floor.ts:22 fn
-`defaultGamePath` src/cli.ts:205 fn
+`DEFAULT_TILE_M` src/floors-svg.ts:56 const
+`defaultFloorImage` src/hall-floor.ts:24 fn
+`defaultGamePath` src/cli.ts:210 fn
 `delta` src/union.ts:231 fn
-`depthFrame` src/building-mesh-cut.ts:132 fn
-`depthMeters` src/plan.ts:344 fn
+`depthFrame` src/building-mesh-cut.ts:126 fn
+`depthMeters` src/plan.ts:339 fn
 `derivePlaces` src/places.ts:57 fn
-`designPart` src/plan.ts:370 fn
+`designPart` src/plan.ts:365 fn
 `DesignRect` src/plan.ts:107 type
-`disjoint` src/building-mesh-cut.ts:507 fn
-`distance` src/scene-graph.ts:446 fn
-`distanceToFace` src/doors.ts:440 fn
-`distanceToPolygon` src/scene-graph.ts:473 fn
-`distanceToSegment` src/scene-graph.ts:484 fn
-`distToSeg` src/floors-svg.ts:1074 fn
+`disjoint` src/building-mesh-cut.ts:498 fn
+`distance` src/scene-graph.ts:447 fn
+`distanceToFace` src/doors.ts:411 fn
+`distanceToPolygon` src/scene-graph.ts:474 fn
+`distanceToSegment` src/scene-graph.ts:485 fn
+`distToSeg` src/floors-svg.ts:1083 fn
 `distToSeg` src/places.ts:833 fn
-`documentScale` src/plan.ts:466 fn
-`documentUnits` src/plan.ts:457 fn
-`DOOR_DEPTH_M` src/doors.ts:9 const
-`DOOR_FACE_TOL_M` src/doors.ts:22 const
-`DOOR_GAP_DEPTH_M` src/doors.ts:15 const
-`DOOR_HEIGHT_M` src/doors.ts:6 const
-`DOOR_LEAF_DEPTH_M` src/prop.ts:18 const
-`doorClearLocal` src/doors.ts:141 fn
+`documentScale` src/plan.ts:461 fn
+`documentUnits` src/plan.ts:452 fn
+`DOOR_DEPTH_M` src/doors.ts:13 const
+`DOOR_FACE_TOL_M` src/doors.ts:24 const
+`DOOR_GAP_DEPTH_M` src/doors.ts:19 const
+`DOOR_HEIGHT_M` src/doors.ts:8 const
+`DOOR_LEAF_DEPTH_M` src/prop.ts:22 const
+`doorClearLocal` src/doors.ts:127 fn
 `DoorCorner` src/glb-write.ts:4 type
-`doorCutLocal` src/doors.ts:297 fn
-`DoorDesign` src/prop.ts:52 type
-`doorDir` src/floors-svg.ts:894 fn
-`doorElevation` src/plan.ts:766 fn
-`doorFromElement` src/plan.ts:700 fn
-`DoorHinge` src/types.ts:95 type
-`doorMeshes` src/prop.ts:236 fn
-`doorModel` src/plan.ts:754 fn
-`doorOutwardDepth` src/doors.ts:323 fn
-`doorPanelWidth` src/doors.ts:117 fn
+`doorCutLocal` src/doors.ts:268 fn
+`DoorDesign` src/prop.ts:48 type
+`doorDir` src/floors-svg.ts:903 fn
+`doorElevation` src/plan.ts:767 fn
+`doorFromElement` src/plan.ts:701 fn
+`DoorHinge` src/types.ts:100 type
+`doorMeshes` src/prop.ts:232 fn
+`doorModel` src/plan.ts:755 fn
+`doorOutwardDepth` src/doors.ts:294 fn
+`doorPanelWidth` src/doors.ts:107 fn
 `DoorPlacement` src/types.ts:149 type
-`doorProbe` src/scene-graph.ts:134 fn
+`doorProbe` src/scene-graph.ts:135 fn
 `DoorPropOptions` src/prop.ts:9 type
 `DoorsFile` src/types.ts:166 type
-`DoorStand` src/regions.ts:42 type
-`doorToBuildingLocal` src/rooms-bake.ts:1087 fn
-`doorToWorld` src/building-mesh-cut.ts:643 fn
-`doorwayBox` src/rooms-bake.ts:1353 fn
+`DoorStand` src/regions.ts:44 type
+`doorToBuildingLocal` src/rooms-bake.ts:1094 fn
+`doorToWorld` src/building-mesh-cut.ts:634 fn
+`doorwayBox` src/rooms-bake.ts:1361 fn
 `dot` src/room-cut.ts:15 fn
-`Drawn` src/room-svg.ts:144 type
+`Drawn` src/room-svg.ts:149 type
 `drawnRoom` src/places.ts:715 fn
-`dropColinear` src/floors-svg.ts:679 fn
-`dropContained` src/footprint.ts:1129 fn
-`dropContainedBands` src/footprint.ts:972 fn
-`dropFlushSkins` src/footprint.ts:768 fn
-`dropShort` src/footprint.ts:1095 fn
-`EDGE_EPS` src/prop.ts:20 const
-`EDGE_M` src/crate.ts:33 const
-`EDGE_M` src/room-svg.ts:117 const
-`Edge` src/scene-graph.ts:330 type
-`edgeDistance` src/rooms-bake.ts:392 fn
-`edges` src/union.ts:46 fn
-`ELEMENT_ARRAY_BUFFER` src/glb-write.ts:93 const
+`dropColinear` src/floors-svg.ts:688 fn
+`dropContained` src/footprint.ts:1133 fn
+`dropContainedBands` src/footprint.ts:976 fn
+`dropFlushSkins` src/footprint.ts:772 fn
+`dropShort` src/footprint.ts:1099 fn
+`EDGE_EPS` src/prop.ts:24 const
+`EDGE_M` src/crate.ts:36 const
+`EDGE_M` src/room-svg.ts:119 const
+`Edge` src/scene-graph.ts:331 type
+`edgeDistance` src/rooms-bake.ts:400 fn
+`edges` src/union.ts:47 fn
+`ELEMENT_ARRAY_BUFFER` src/glb-write.ts:94 const
 `ELEVATOR_ROOM_M` src/places.ts:460 const
 `elevatorJoin` src/places.ts:679 fn
-`ElevatorPlace` src/types.ts:245 type
+`ElevatorPlace` src/types.ts:258 type
 `elevatorRoom` src/places.ts:467 fn
-`elevatorStops` src/scene-graph.ts:161 fn
+`elevatorStops` src/scene-graph.ts:162 fn
 `emitHollow` src/bake.ts:559 fn
 `emitPlaced` src/bake.ts:536 fn
-`entry` src/cli.ts:385 const
-`EPS` src/footprint.ts:63 const
+`encoded` src/spatial-dag.ts:16 fn
+`entry` src/cli.ts:405 const
+`EPS` src/footprint.ts:66 const
 `EPS` src/union.ts:19 const
-`eraseOpening` src/footprint.ts:998 fn
-`exactCosSin` src/plan.ts:1162 fn
-`expandModelDoor` src/rooms-bake.ts:1115 fn
-`expectEdge` src/crate.ts:178 fn
-`expectSpan` src/room-svg.ts:763 fn
-`explicitName` src/room-svg.ts:632 fn
-`extendOutlineToFacade` src/building-mesh-cut.ts:240 fn
+`eraseOpening` src/footprint.ts:1002 fn
+`exactCosSin` src/plan.ts:1166 fn
+`expandModelDoor` src/rooms-bake.ts:1122 fn
+`expectEdge` src/crate.ts:179 fn
+`expectSpan` src/room-svg.ts:768 fn
+`explicitName` src/room-svg.ts:637 fn
+`extendOutlineToFacade` src/building-mesh-cut.ts:232 fn
 `extendRoomFacade` src/bake.ts:665 fn
-`extendSkinToFacade` src/building-mesh-cut.ts:198 fn
+`extendSkinToFacade` src/building-mesh-cut.ts:191 fn
 `exteriorCutOpenings` src/bake.ts:619 fn
 `ExteriorDoorCut` src/bake.ts:605 type
-`FACADE_BAND_M` src/rooms-bake.ts:118 const
-`FACADE_CUT_EPS` src/rooms-bake.ts:896 const
-`FACADE_PAST_EDGE_M` src/rooms-bake.ts:121 const
-`FACADE_SLIVER_M` src/building-mesh-cut.ts:96 const
+`FACADE_BAND_M` src/rooms-bake.ts:125 const
+`FACADE_CUT_EPS` src/rooms-bake.ts:900 const
+`FACADE_PAST_EDGE_M` src/rooms-bake.ts:128 const
+`FACADE_SLIVER_M` src/building-mesh-cut.ts:92 const
 `facadeCut` src/bake.ts:649 fn
-`FacadeEdge` src/rooms-bake.ts:158 type
-`facadePieceLives` src/rooms-bake.ts:975 fn
-`FacadeRejectReason` src/rooms-bake.ts:123 type
-`FACE_NUDGE_M` src/rooms-bake.ts:177 const
-`FACE_ORDER` src/room-svg.ts:105 const
-`FACE_PROBE_M` src/doors.ts:406 const
-`FACE_PROBE_Y_M` src/doors.ts:407 const
-`Face` src/crate.ts:30 type
-`faceCorners` src/room-glb.ts:25 fn
-`faceName` src/room-svg.ts:319 fn
-`faceOf` src/crate.ts:153 fn
-`FACES` src/crate.ts:29 const
+`FacadeEdge` src/rooms-bake.ts:168 type
+`facadePieceLives` src/rooms-bake.ts:979 fn
+`FacadeRejectReason` src/rooms-bake.ts:130 type
+`FACE_NUDGE_M` src/rooms-bake.ts:187 const
+`FACE_ORDER` src/room-svg.ts:107 const
+`FACE_PROBE_M` src/doors.ts:377 const
+`FACE_PROBE_Y_M` src/doors.ts:378 const
+`Face` src/crate.ts:33 type
+`faceCorners` src/room-glb.ts:24 fn
+`faceName` src/room-svg.ts:324 fn
+`faceOf` src/crate.ts:154 fn
+`FACES` src/crate.ts:32 const
 `FACES` src/room-cut.ts:12 const
-`facesOf` src/doors.ts:367 fn
-`FACET_VOLUME_M3` src/footprint.ts:42 const
-`FaceTexture` src/room-svg.ts:32 type
-`fan` src/building-mesh-cut.ts:599 fn
-`fillInteriors` src/footprint.ts:682 fn
+`facesOf` src/doors.ts:338 fn
+`FACET_VOLUME_M3` src/footprint.ts:46 const
+`FaceTexture` src/room-svg.ts:34 type
+`fan` src/building-mesh-cut.ts:590 fn
+`fillInteriors` src/footprint.ts:686 fn
 `fillModelInterior` src/bake.ts:1319 fn
-`findDescendant` src/floors-svg.ts:1375 fn
-`findPattern` src/floors-svg.ts:1356 fn
-`firstToken` src/plan.ts:864 fn
-`flatAxis` src/rooms-bake.ts:910 fn
-`flatFootprint` src/footprint.ts:269 fn
-`flatInside` src/rooms-bake.ts:933 fn
+`findDescendant` src/floors-svg.ts:1384 fn
+`findPattern` src/floors-svg.ts:1365 fn
+`firstToken` src/plan.ts:865 fn
+`flatAxis` src/rooms-bake.ts:914 fn
+`flatFootprint` src/footprint.ts:274 fn
+`flatInside` src/rooms-bake.ts:937 fn
 `floatBuffer` src/glb-write.ts:512 fn
-`FLOOR_T` src/room-file.ts:14 const
-`FLOOR_Y_M` src/footprint.ts:29 const
-`FloorAcc` src/floors-svg.ts:188 type
-`FloorBake` src/rooms-bake.ts:97 type
-`FloorElevatorSource` src/floors-svg.ts:99 type
-`FloorLandingSource` src/floors-svg.ts:86 type
-`FloorPlatformSource` src/floors-svg.ts:54 type
-`floorPose` src/floors-svg.ts:1131 fn
-`FloorSource` src/floors-svg.ts:118 type
+`FLOOR_T` src/room-file.ts:18 const
+`FLOOR_Y_M` src/footprint.ts:33 const
+`FloorAcc` src/floors-svg.ts:195 type
+`FloorBake` src/rooms-bake.ts:104 type
+`FloorElevatorSource` src/floors-svg.ts:106 type
+`FloorLandingSource` src/floors-svg.ts:90 type
+`FloorPlatformSource` src/floors-svg.ts:59 type
+`floorPose` src/floors-svg.ts:1140 fn
+`FloorSource` src/floors-svg.ts:125 type
 `floorsScaleByModel` src/bake.ts:1324 fn
-`FloorsSource` src/floors-svg.ts:147 type
-`FloorStairsSource` src/floors-svg.ts:67 type
-`FloorTexture` src/floors-svg.ts:42 type
-`flushWithThicker` src/footprint.ts:777 fn
-`fmt` src/measure.ts:152 fn
-`fmt` src/rooms-bake.ts:1501 fn
-`FootprintDetail` src/footprint.ts:101 type
-`footprintDetail` src/footprint.ts:131 fn
-`footprintEdges` src/rooms-bake.ts:363 fn
-`footprintFromTriangles` src/footprint.ts:121 fn
+`FloorsSource` src/floors-svg.ts:154 type
+`FloorStairsSource` src/floors-svg.ts:71 type
+`FloorTexture` src/floors-svg.ts:45 type
+`flushWithThicker` src/footprint.ts:781 fn
+`fmt` src/measure.ts:147 fn
+`fmt` src/rooms-bake.ts:1512 fn
+`fnv` src/spatial-dag.ts:29 fn
+`FootprintDetail` src/footprint.ts:104 type
+`footprintDetail` src/footprint.ts:137 fn
+`footprintEdges` src/rooms-bake.ts:371 fn
+`footprintFromTriangles` src/footprint.ts:125 fn
 `footprintScaleOff` src/places.ts:29 fn
-`footprintSpan` src/rooms-bake.ts:407 fn
-`formatArea` src/floors-svg.ts:1101 fn
-`formatMetres` src/cli.ts:354 fn
-`FRAME_DEPTH_M` src/prop.ts:15 const
+`footprintSpan` src/rooms-bake.ts:415 fn
+`formatArea` src/floors-svg.ts:1110 fn
+`formatMetres` src/cli.ts:374 fn
+`FRAME_DEPTH_M` src/prop.ts:17 const
 `FRAME_NAME_RE` src/bake.ts:985 const
-`frameBars` src/prop.ts:284 fn
+`frameBars` src/prop.ts:280 fn
 `gap1` src/bake.ts:722 fn
-`gap1d` src/footprint.ts:849 fn
+`gap1d` src/footprint.ts:853 fn
 `geometryFor` src/bake.ts:1118 fn
-`glassPrimitives` src/room-glb.ts:97 fn
+`glassPrimitives` src/room-glb.ts:100 fn
 `GLB_MAGIC` src/glb.ts:4 const
-`glbBoundsWarning` src/room-glb.ts:201 fn
+`glbBoundsWarning` src/room-glb.ts:204 fn
 `GlbLoad` src/glb.ts:71 type
 `GlbLoadOptions` src/glb.ts:79 type
 `Gltf` src/glb.ts:59 type
@@ -1390,637 +1621,641 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `GltfMesh` src/glb.ts:42 type
 `GltfNode` src/glb.ts:48 type
 `GltfPrimitive` src/glb.ts:35 type
-`GREY_PNG` src/hall-floor.ts:17 const
-`gridCoords` src/floors-svg.ts:1048 fn
-`GROUND_FLOOR_Y` src/rooms-bake.ts:170 const
+`GREY_PNG` src/hall-floor.ts:19 const
+`gridCoords` src/floors-svg.ts:1057 fn
+`GROUND_FLOOR_Y` src/rooms-bake.ts:180 const
 `GROUND_Y_M` src/scene-graph.ts:55 const
-`groupBounds` src/plan.ts:1011 fn
-`HALL_EDGE_INSET_M` src/hall-floor.ts:14 const
-`HALL_FLOOR_SINK_M` src/hall-floor.ts:8 const
-`hallCells` src/hall-floor.ts:51 fn
-`hallCellsOf` src/hall-floor.ts:140 fn
-`hallFloorGlb` src/hall-floor.ts:171 fn
-`HallFloorMesh` src/rooms-bake.ts:92 type
+`groupBounds` src/plan.ts:1015 fn
+`HALL_EDGE_INSET_M` src/hall-floor.ts:16 const
+`HALL_FLOOR_SINK_M` src/hall-floor.ts:10 const
+`hallCells` src/hall-floor.ts:52 fn
+`hallCellsOf` src/hall-floor.ts:144 fn
+`hallFloorGlb` src/hall-floor.ts:177 fn
+`HallFloorMesh` src/rooms-bake.ts:99 type
 `HallFloorPiece` src/hall-floor.ts:123 type
-`hallFloorPiece` src/hall-floor.ts:149 fn
+`hallFloorPiece` src/hall-floor.ts:156 fn
 `hallPolygon` src/places.ts:249 fn
-`hasPrefix` src/glb.ts:141 fn
-`hingeOnFace` src/doors.ts:103 fn
-`hingeSide` src/prop.ts:167 fn
-`HingeSide` src/prop.ts:23 type
-`Hit` src/floors-svg.ts:186 type
-`Hit` src/room-svg.ts:142 type
-`hitInCell` src/footprint.ts:433 fn
-`hitsBody` src/regions.ts:356 fn
-`hostBox` src/rooms-bake.ts:1387 fn
+`hasPrefix` src/glb.ts:142 fn
+`hingeOnFace` src/doors.ts:93 fn
+`hingeSide` src/prop.ts:163 fn
+`HingeSide` src/prop.ts:27 type
+`Hit` src/floors-svg.ts:193 type
+`Hit` src/room-svg.ts:147 type
+`hitInCell` src/footprint.ts:437 fn
+`hitsBody` src/regions.ts:362 fn
+`hostBox` src/rooms-bake.ts:1395 fn
 `ID_RE` src/measure.ts:10 const
 `ID_RE` src/plan.ts:27 const
 `ident` src/plan.ts:44 fn
 `IDENTITY` src/glb.ts:69 const
-`imageFromDataUri` src/crate.ts:213 fn
-`imageHref` src/plan.ts:335 fn
-`imageMime` src/glb-write.ts:95 fn
-`imageNode` src/room-svg.ts:627 fn
-`imageStamp` src/rooms-bake.ts:522 fn
-`indexPatterns` src/floors-svg.ts:1185 fn
-`inherited` src/floors-svg.ts:1325 fn
+`imageFromDataUri` src/crate.ts:217 fn
+`imageHref` src/plan.ts:330 fn
+`imageMime` src/glb-write.ts:96 fn
+`imageNode` src/room-svg.ts:632 fn
+`imageStamp` src/rooms-bake.ts:530 fn
+`indexPatterns` src/floors-svg.ts:1194 fn
+`inherited` src/floors-svg.ts:1334 fn
 `insetOutline` src/hall-floor.ts:85 fn
-`inside` src/prop.ts:152 fn
-`inside` src/room-svg.ts:724 fn
-`insideAny` src/regions.ts:454 fn
-`insideBounds` src/plan.ts:889 fn
+`inside` src/prop.ts:148 fn
+`inside` src/room-svg.ts:729 fn
+`insideAny` src/regions.ts:460 fn
+`insideBounds` src/plan.ts:890 fn
 `insideSomePiece` src/places.ts:737 fn
 `instanceLine` src/bake.ts:1253 fn
-`instanceToWorld` src/rooms-bake.ts:1240 fn
-`intersectBox` src/doors.ts:460 fn
-`inverseYaw` src/yaw.ts:23 fn
-`isElevator` src/scene-graph.ts:434 fn
-`isFacet` src/footprint.ts:332 fn
-`isPlacement` src/plan.ts:549 fn
+`instanceToWorld` src/rooms-bake.ts:1248 fn
+`intersectBox` src/doors.ts:431 fn
+`inverseYaw` src/yaw.ts:24 fn
+`isElevator` src/scene-graph.ts:435 fn
+`isFacet` src/footprint.ts:337 fn
+`isPlacement` src/plan.ts:544 fn
 `isRoomMesh` src/bake.ts:844 fn
-`isSelected` src/glb.ts:133 fn
-`isStairs` src/scene-graph.ts:430 fn
+`isSelected` src/glb.ts:134 fn
+`isStairs` src/scene-graph.ts:431 fn
 `isStairsPlace` src/places.ts:612 fn
-`Item` src/footprint.ts:65 type
-`itemOf` src/footprint.ts:374 fn
-`joinSkins` src/footprint.ts:821 fn
+`Item` src/footprint.ts:68 type
+`itemOf` src/footprint.ts:378 fn
+`joinSkins` src/footprint.ts:825 fn
 `JSON_CHUNK` src/glb.ts:5 const
-`judgeRoomDoor` src/rooms-bake.ts:277 fn
-`keepWalls` src/footprint.ts:1110 fn
-`keptTriangles` src/footprint.ts:364 fn
+`judgeRoomDoor` src/rooms-bake.ts:285 fn
+`keepWalls` src/footprint.ts:1114 fn
+`keptTriangles` src/footprint.ts:368 fn
 `key` src/union.ts:222 fn
-`knownFace` src/crate.ts:165 fn
-`labeledDesign` src/crate.ts:116 fn
-`labelledId` src/floors-svg.ts:502 fn
+`knownFace` src/crate.ts:166 fn
+`labeledDesign` src/crate.ts:117 fn
+`labelledId` src/floors-svg.ts:511 fn
 `LANDING_JOIN_M` src/places.ts:145 const
 `LANDING_MIN_DEPTH_M` src/places.ts:147 const
 `landingAt` src/places.ts:596 fn
 `landingJoin` src/places.ts:573 fn
-`landingPortal` src/scene-graph.ts:277 fn
+`landingPortal` src/scene-graph.ts:278 fn
 `layerPaths` src/bake.ts:923 fn
-`layerRole` src/room-svg.ts:119 fn
-`LayerShape` src/plan.ts:250 type
-`layerShape` src/plan.ts:287 fn
-`leafImage` src/prop.ts:221 fn
-`lengthToMeters` src/plan.ts:483 fn
-`lengthToMm` src/plan.ts:495 fn
-`lerpAxis` src/footprint.ts:572 fn
-`lerpVert` src/building-mesh-cut.ts:576 fn
-`LIGHT_COLOR_RE` src/room-svg.ts:487 const
-`lightColor` src/room-svg.ts:489 fn
-`lightId` src/room-svg.ts:478 fn
+`layerRole` src/room-svg.ts:121 fn
+`LayerShape` src/plan.ts:245 type
+`layerShape` src/plan.ts:282 fn
+`leafImage` src/prop.ts:217 fn
+`lengthToMeters` src/plan.ts:478 fn
+`lengthToMm` src/plan.ts:490 fn
+`lerpAxis` src/footprint.ts:576 fn
+`lerpVert` src/building-mesh-cut.ts:567 fn
+`LIGHT_COLOR_RE` src/room-svg.ts:492 const
+`lightColor` src/room-svg.ts:494 fn
+`lightId` src/room-svg.ts:483 fn
 `loadDoorPanelWidth` src/bake.ts:999 fn
-`loadFace` src/room-svg.ts:587 fn
-`loadFaces` src/crate.ts:187 fn
-`loadFloors` src/rooms-bake.ts:549 fn
+`loadFace` src/room-svg.ts:592 fn
+`loadFaces` src/crate.ts:188 fn
+`loadFloors` src/rooms-bake.ts:557 fn
 `loadGlb` src/bake.ts:1257 fn
-`LoadInput` src/rooms-bake.ts:179 type
+`LoadInput` src/rooms-bake.ts:189 type
 `loadPropBox` src/bake.ts:973 fn
-`loadRoom` src/rooms-bake.ts:1244 fn
-`loadTexture` src/crate.ts:201 fn
-`loadTexture` src/prop.ts:186 fn
-`loadTextureRef` src/crate.ts:208 fn
-`localBounds` src/plan.ts:992 fn
-`LocalBox` src/types.ts:193 type
+`loadRoom` src/rooms-bake.ts:1252 fn
+`loadTexture` src/crate.ts:202 fn
+`loadTexture` src/prop.ts:182 fn
+`loadTextureRef` src/crate.ts:212 fn
+`localBounds` src/plan.ts:996 fn
+`LocalBox` src/types.ts:197 type
 `localName` src/xml.ts:9 fn
-`localPoints` src/floors-svg.ts:609 fn
-`localYaw` src/floors-svg.ts:1155 fn
-`main` src/cli.ts:132 fn
+`localPoints` src/floors-svg.ts:618 fn
+`localYaw` src/floors-svg.ts:1164 fn
+`main` src/cli.ts:133 fn
 `makePlace` src/places.ts:196 fn
-`mapBox` src/rooms-bake.ts:31 fn
-`mappedBounds` src/plan.ts:1017 fn
-`markBands` src/footprint.ts:588 fn
-`markCaps` src/footprint.ts:631 fn
-`markCells` src/footprint.ts:391 fn
+`mapBox` src/rooms-bake.ts:34 fn
+`mappedBounds` src/plan.ts:1021 fn
+`markBands` src/footprint.ts:592 fn
+`markCaps` src/footprint.ts:635 fn
+`markCells` src/footprint.ts:395 fn
 `Mat` src/plan.ts:42 type
-`materialAttr` src/prop.ts:111 fn
-`MAX_OBSTACLES` src/footprint.ts:15 const
-`MAX_RISER_M` src/stairs-mesh.ts:5 const
-`MAX_ROOM_OBSTACLES` src/room-file.ts:16 const
-`MEASURE_CELL_M` src/footprint.ts:61 const
-`measure` src/measure.ts:48 fn
+`materialAttr` src/prop.ts:107 fn
+`MAX_OBSTACLES` src/footprint.ts:19 const
+`MAX_RISER_M` src/stairs-mesh.ts:7 const
+`MAX_ROOM_OBSTACLES` src/room-file.ts:20 const
+`MEASURE_CELL_M` src/footprint.ts:64 const
+`measure` src/measure.ts:46 fn
 `measureBounds` src/bake.ts:1289 fn
 `MeasureFile` src/measure.ts:12 type
-`measureFootprint` src/footprint.ts:153 fn
+`measureFootprint` src/footprint.ts:158 fn
 `MeasureOptions` src/measure.ts:27 type
 `MeasureResult` src/measure.ts:33 type
-`measureTagged` src/plan.ts:607 fn
-`mergeCells` src/regions.ts:482 fn
+`measureTagged` src/plan.ts:601 fn
+`mergeCells` src/regions.ts:488 fn
 `mergeOpenings` src/bake.ts:681 fn
-`mergeRuns` src/hall-floor.ts:223 fn
-`meshKey` src/rooms-bake.ts:518 fn
-`meshLabel` src/glb.ts:145 fn
+`mergeRuns` src/hall-floor.ts:229 fn
+`meshKey` src/rooms-bake.ts:526 fn
+`meshLabel` src/glb.ts:146 fn
 `meshLine` src/bake.ts:1249 fn
 `meshNames` src/bake.ts:1245 fn
-`MeshPrimitive` src/glb-write.ts:55 type
-`MeshProbe` src/building-mesh-cut.ts:330 type
-`meshProbe` src/building-mesh-cut.ts:345 fn
-`meshTriangles` src/glb.ts:155 fn
+`MeshPrimitive` src/glb-write.ts:56 type
+`MeshProbe` src/building-mesh-cut.ts:322 type
+`meshProbe` src/building-mesh-cut.ts:337 fn
+`meshTriangles` src/glb.ts:156 fn
 `METERS` src/plan.ts:30 const
-`metersPerUserUnit` src/plan.ts:129 fn
-`MIN_LENGTH_M` src/footprint.ts:22 const
-`MIN_THICKNESS_M` src/footprint.ts:21 const
-`mix3` src/building-mesh-cut.ts:625 fn
+`metersPerUserUnit` src/plan.ts:128 fn
+`MIN_LENGTH_M` src/footprint.ts:26 const
+`MIN_THICKNESS_M` src/footprint.ts:25 const
+`mix3` src/building-mesh-cut.ts:616 fn
 `MODEL_RE` src/bake.ts:20 const
 `ModelBake` src/bake.ts:51 type
 `ModelBounds` src/stencil.ts:9 type
-`modelFromLabel` src/plan.ts:1071 fn
-`mul4` src/glb.ts:312 fn
-`mul` src/plan.ts:49 fn
-`NamedMesh` src/glb-write.ts:85 type
-`namedView` src/plan.ts:462 fn
-`nearestFace` src/doors.ts:382 fn
-`nearPoint` src/building-mesh-cut.ts:619 fn
-`nearPoint` src/scene-graph.ts:442 fn
-`nearXz` src/footprint.ts:1153 fn
-`nearY` src/scene-graph.ts:438 fn
-`nodeMatrix` src/glb.ts:272 fn
+`modelFromLabel` src/plan.ts:1075 fn
+`mul4` src/glb.ts:313 fn
+`mul` src/plan.ts:51 fn
+`NamedMesh` src/glb-write.ts:86 type
+`namedView` src/plan.ts:457 fn
+`nearestFace` src/doors.ts:353 fn
+`nearPoint` src/building-mesh-cut.ts:610 fn
+`nearPoint` src/scene-graph.ts:443 fn
+`nearXz` src/footprint.ts:1157 fn
+`nearY` src/scene-graph.ts:439 fn
+`nodeMatrix` src/glb.ts:273 fn
 `noteAxisFit` src/bake.ts:1183 fn
-`Obstacle` src/types.ts:39 type
-`obstaclesFrom` src/regions.ts:211 fn
-`obstacleToLocal` src/rooms-bake.ts:1066 fn
-`occupancy` src/footprint.ts:254 fn
-`OccupancyOptions` src/footprint.ts:234 type
-`onDoorWall` src/doors.ts:359 fn
-`onePart` src/prop.ts:140 fn
+`Obstacle` src/types.ts:42 type
+`obstaclesFrom` src/regions.ts:217 fn
+`obstacleToLocal` src/rooms-bake.ts:1070 fn
+`occupancy` src/footprint.ts:259 fn
+`OccupancyOptions` src/footprint.ts:239 type
+`onDoorWall` src/doors.ts:330 fn
+`onePart` src/prop.ts:136 fn
 `OPENING_LEVEL_M` src/scene-graph.ts:57 const
 `OPENING_MIN_M` src/scene-graph.ts:58 const
-`openingInModel` src/building-mesh-cut.ts:32 fn
-`openingOverlapCounts` src/building-mesh-cut.ts:314 fn
+`openingInModel` src/building-mesh-cut.ts:29 fn
+`openingOverlapCounts` src/building-mesh-cut.ts:306 fn
 `openingSignature` src/bake.ts:876 fn
-`OPPOSITE` src/crate.ts:35 const
-`OPPOSITE` src/room-svg.ts:107 const
-`optionalNumber` src/plan.ts:881 fn
-`optionalPositive` src/plan.ts:803 fn
-`orderPair` src/scene-graph.ts:412 fn
+`OPPOSITE` src/crate.ts:38 const
+`OPPOSITE` src/room-svg.ts:109 const
+`optionalNumber` src/plan.ts:882 fn
+`optionalPositive` src/plan.ts:804 fn
+`orderPair` src/scene-graph.ts:413 fn
 `orient` src/places.ts:823 fn
-`orientEnds` src/regions.ts:603 fn
-`OUTLINE_TOL_M` src/floors-svg.ts:641 const
-`outlinePieces` src/hall-floor.ts:135 fn
-`outsideArea` src/floors-svg.ts:1027 fn
-`outsidePlace` src/scene-graph.ts:146 fn
+`orientEnds` src/regions.ts:609 fn
+`OUTLINE_TOL_M` src/floors-svg.ts:650 const
+`outlinePieces` src/hall-floor.ts:137 fn
+`outsideArea` src/floors-svg.ts:1036 fn
+`outsidePlace` src/scene-graph.ts:147 fn
 `OutsidePlace` src/scene-graph.ts:33 type
 `overlap1` src/bake.ts:718 fn
-`overlap` src/scene-graph.ts:364 fn
-`overlaps` src/prop.ts:159 fn
-`ownImage` src/floors-svg.ts:837 fn
-`pack` src/footprint.ts:1167 fn
+`overlap` src/scene-graph.ts:365 fn
+`overlaps` src/prop.ts:155 fn
+`ownImage` src/floors-svg.ts:846 fn
+`pack` src/footprint.ts:1171 fn
 `packGlb` src/glb-write.ts:526 fn
 `pad` src/glb-write.ts:545 fn
-`PAGE_DIR` src/floors-svg.ts:732 const
-`pageDelta` src/floors-svg.ts:960 fn
-`pageFrame` src/plan.ts:431 fn
-`PageFrame` src/plan.ts:80 type
+`PAGE_DIR` src/floors-svg.ts:741 const
+`pageDelta` src/floors-svg.ts:969 fn
+`pageFrame` src/plan.ts:426 fn
+`PageFrame` src/plan.ts:81 type
 `pageSideFor` src/places.ts:531 fn
-`pageVector` src/floors-svg.ts:934 fn
+`pageVector` src/floors-svg.ts:943 fn
 `PANE_RGBA` src/room-glb.ts:16 const
 `PANEL_NAME_RE` src/bake.ts:984 const
 `panelTriangles` src/bake.ts:1051 fn
-`paneQuad` src/room-glb.ts:121 fn
-`paneRef` src/room-svg.ts:597 fn
-`parseAlphaMode` src/prop.ts:119 fn
-`parseCutoff` src/prop.ts:132 fn
-`parseFlags` src/cli.ts:360 fn
-`parseGlb` src/glb.ts:188 fn
-`parseHinge` src/plan.ts:774 fn
-`parseKey` src/plan.ts:796 fn
+`paneQuad` src/room-glb.ts:124 fn
+`paneRef` src/room-svg.ts:602 fn
+`parseAlphaMode` src/prop.ts:115 fn
+`parseCutoff` src/prop.ts:128 fn
+`parseFlags` src/cli.ts:380 fn
+`parseGlb` src/glb.ts:189 fn
+`parseHinge` src/plan.ts:775 fn
+`parseKey` src/plan.ts:797 fn
 `parseKey` src/union.ts:226 fn
-`parseLocked` src/plan.ts:788 fn
-`parseOpen` src/plan.ts:781 fn
-`parseSides` src/prop.ts:125 fn
-`parseStops` src/floors-svg.ts:994 fn
-`parseTransform` src/plan.ts:1115 fn
-`parseViewBox` src/plan.ts:474 fn
+`parseLocked` src/plan.ts:789 fn
+`parseOpen` src/plan.ts:782 fn
+`parseSides` src/prop.ts:121 fn
+`parseStops` src/floors-svg.ts:1003 fn
+`parseTransform` src/plan.ts:1119 fn
+`parseViewBox` src/plan.ts:469 fn
 `parseXml` src/xml.ts:22 fn
-`parseYawText` src/plan.ts:1088 fn
-`PART_BY_ID` src/plan.ts:222 const
-`PATH_TOKEN` src/plan.ts:894 const
-`pathData` src/measure.ts:122 fn
-`pathHasCurve` src/floors-svg.ts:570 fn
-`pathOf` src/floors-svg.ts:574 fn
-`pathPoints` src/plan.ts:897 fn
-`patternChain` src/floors-svg.ts:1267 fn
-`patternId` src/floors-svg.ts:1366 fn
-`patternImageHref` src/floors-svg.ts:1282 fn
-`patternTile` src/floors-svg.ts:1298 fn
-`PAWN_TOP_M` src/footprint.ts:36 const
-`pawnWalls` src/footprint.ts:737 fn
-`pendingDoor` src/rooms-bake.ts:1284 fn
-`PendingRoomDoor` src/rooms-bake.ts:67 type
-`Piece` src/scene-graph.ts:345 type
+`parseYawText` src/plan.ts:1092 fn
+`PART_BY_ID` src/plan.ts:220 const
+`PATH_TOKEN` src/plan.ts:895 const
+`pathData` src/measure.ts:117 fn
+`pathHasCurve` src/floors-svg.ts:579 fn
+`pathOf` src/floors-svg.ts:583 fn
+`pathPoints` src/plan.ts:901 fn
+`patternChain` src/floors-svg.ts:1276 fn
+`patternId` src/floors-svg.ts:1375 fn
+`patternImageHref` src/floors-svg.ts:1291 fn
+`patternTile` src/floors-svg.ts:1307 fn
+`PAWN_TOP_M` src/footprint.ts:40 const
+`pawnWalls` src/footprint.ts:741 fn
+`pendingDoor` src/rooms-bake.ts:1292 fn
+`PendingRoomDoor` src/rooms-bake.ts:73 type
+`Piece` src/scene-graph.ts:346 type
 `PLACE_Y_M` src/scene-graph.ts:53 const
-`Place` src/room-svg.ts:293 type
-`placeBox` src/yaw.ts:35 fn
+`Place` src/room-svg.ts:298 type
+`placeBox` src/yaw.ts:39 fn
 `PlaceBuilding` src/places.ts:18 type
-`placedUv` src/prop.ts:300 fn
-`PlaceKind` src/types.ts:217 type
-`Placement` src/types.ts:28 type
+`placedUv` src/prop.ts:296 fn
+`PlaceKind` src/types.ts:221 type
+`Placement` src/types.ts:31 type
 `placementOf` src/places.ts:234 fn
-`PlacementsFile` src/types.ts:185 type
-`placeRoomDoors` src/rooms-bake.ts:766 fn
+`PlacementsFile` src/types.ts:186 type
+`placeRoomDoors` src/rooms-bake.ts:773 fn
 `PLANE_EPS` src/building-mesh-cut.ts:13 const
 `PlanError` src/errors.ts:1 class
 `PlanPlacement` src/plan.ts:9 type
-`PlanScene` src/plan.ts:85 type
-`platformIdOf` src/floors-svg.ts:494 fn
-`pngFromDataUri` src/prop.ts:193 fn
-`Point` src/footprint.ts:423 type
+`PlanScene` src/plan.ts:86 type
+`platformIdOf` src/floors-svg.ts:503 fn
+`pngFromDataUri` src/prop.ts:189 fn
+`Point` src/footprint.ts:427 type
 `pointInOrOn` src/places.ts:762 fn
-`pointInPolygon` src/hall-floor.ts:268 fn
-`pointInPolygon` src/regions.ts:438 fn
-`pointInRing` src/floors-svg.ts:1088 fn
+`pointInPolygon` src/hall-floor.ts:274 fn
+`pointInPolygon` src/regions.ts:444 fn
+`pointInRing` src/floors-svg.ts:1097 fn
 `pointInRing` src/places.ts:797 fn
-`pointInRing` src/scene-graph.ts:460 fn
+`pointInRing` src/scene-graph.ts:461 fn
 `pointOf` src/union.ts:237 fn
-`polygonAabb` src/rooms-bake.ts:531 fn
+`polygonAabb` src/rooms-bake.ts:539 fn
 `polygonInside` src/places.ts:741 fn
 `polygonsOverlap` src/places.ts:778 fn
+`Portal` src/spatial-dag.ts:12 type
 `PortalKind` src/scene-graph.ts:14 type
-`portalOrder` src/regions.ts:596 fn
-`portalsOf` src/regions.ts:531 fn
-`Pose` src/floors-svg.ts:202 type
+`portalOrder` src/regions.ts:602 fn
+`portalsOf` src/regions.ts:537 fn
+`Pose` src/floors-svg.ts:209 type
 `poseForPlacement` src/bake.ts:1146 fn
-`positiveBox` src/doors.ts:454 fn
-`positiveOr` src/floors-svg.ts:1009 fn
+`positiveBox` src/doors.ts:425 fn
+`positiveOr` src/floors-svg.ts:1018 fn
 `PROBE_BACK_M` src/scene-graph.ts:50 const
 `PROBE_FRONT_M` src/scene-graph.ts:49 const
-`projectToFace` src/doors.ts:447 fn
-`propFromElement` src/plan.ts:657 fn
+`projectToFace` src/doors.ts:418 fn
+`propFromElement` src/plan.ts:658 fn
 `propObstacle` src/bake.ts:961 fn
 `pushAccessor` src/glb-write.ts:403 fn
 `pushElevator` src/places.ts:379 fn
-`pushElevatorPortals` src/scene-graph.ts:239 fn
+`pushElevatorPortals` src/scene-graph.ts:240 fn
 `pushLanding` src/places.ts:149 fn
-`pushLandingSlab` src/rooms-bake.ts:422 fn
+`pushLandingSlab` src/rooms-bake.ts:430 fn
 `pushOpening` src/bake.ts:739 fn
-`pushOpenings` src/scene-graph.ts:303 fn
+`pushOpenings` src/scene-graph.ts:304 fn
 `pushPlatform` src/places.ts:176 fn
 `pushStair` src/places.ts:339 fn
-`pushStairPortals` src/scene-graph.ts:218 fn
-`pushStairsSteps` src/rooms-bake.ts:473 fn
+`pushStairPortals` src/scene-graph.ts:219 fn
+`pushStairsSteps` src/rooms-bake.ts:481 fn
 `pushView` src/glb-write.ts:417 fn
-`quad` src/prop.ts:328 fn
+`quad` src/prop.ts:324 fn
 `quadIndices` src/glb-write.ts:429 fn
-`quant` src/regions.ts:434 fn
-`QUANT` src/regions.ts:94 const
-`rayHitsBox` src/building-mesh-cut.ts:383 fn
-`reachesHeight` src/doors.ts:426 fn
-`readAccessor` src/glb.ts:223 fn
-`readAssetFiles` src/asset-type.ts:48 fn
-`readAssetTypes` src/asset-type.ts:11 fn
-`readBool` src/room-svg.ts:744 fn
-`readBounds` src/cli.ts:326 fn
-`readComponent` src/glb.ts:253 fn
-`readCrateDesign` src/crate.ts:83 fn
-`readDesignRects` src/plan.ts:234 fn
-`readDoor` src/room-svg.ts:332 fn
-`readDoorDesign` src/prop.ts:73 fn
-`readDoorMaterial` src/prop.ts:97 fn
-`readDoorPlacements` src/cli.ts:315 fn
-`readElevator` src/floors-svg.ts:862 fn
-`readFace` src/room-svg.ts:306 fn
-`readFloatVec2` src/glb.ts:500 fn
-`readFloatVec3` src/glb.ts:510 fn
-`readFloorsSvg` src/floors-svg.ts:222 fn
-`readFloorTexture` src/floors-svg.ts:1205 fn
+`quant` src/regions.ts:440 fn
+`QUANT` src/regions.ts:96 const
+`rayHitsBox` src/building-mesh-cut.ts:375 fn
+`reachesHeight` src/doors.ts:397 fn
+`readAccessor` src/glb.ts:224 fn
+`readAssetFiles` src/asset-type.ts:49 fn
+`readAssetTypes` src/asset-type.ts:12 fn
+`readBool` src/room-svg.ts:749 fn
+`readBounds` src/cli.ts:346 fn
+`readComponent` src/glb.ts:254 fn
+`readCrateDesign` src/crate.ts:84 fn
+`readDesignRects` src/plan.ts:232 fn
+`readDoor` src/room-svg.ts:337 fn
+`readDoorDesign` src/prop.ts:69 fn
+`readDoorMaterial` src/prop.ts:93 fn
+`readDoorPlacements` src/cli.ts:335 fn
+`readElevator` src/floors-svg.ts:871 fn
+`readFace` src/room-svg.ts:311 fn
+`readFloatVec2` src/glb.ts:501 fn
+`readFloatVec3` src/glb.ts:511 fn
+`readFloorsSvg` src/floors-svg.ts:231 fn
+`readFloorTexture` src/floors-svg.ts:1214 fn
 `readGlbBytes` src/bake.ts:1043 fn
-`readHole` src/room-svg.ts:422 fn
-`readImage` src/crate.ts:223 fn
-`readImage` src/glb.ts:480 fn
-`readIntensity` src/room-svg.ts:752 fn
-`readJson` src/cli.ts:334 fn
-`readLanding` src/floors-svg.ts:773 fn
-`readLayerShapes` src/plan.ts:264 fn
-`readLight` src/room-svg.ts:444 fn
-`readObstacleBoxes` src/cli.ts:305 fn
-`readOpening` src/room-svg.ts:395 fn
-`readPlacements` src/cli.ts:309 fn
-`readPlacements` src/plan.ts:154 fn
-`readPlatform` src/floors-svg.ts:580 fn
-`readPng` src/prop.ts:203 fn
-`readPositive` src/cli.ts:298 fn
-`readProp` src/room-svg.ts:434 fn
-`readRoomDoors` src/cli.ts:322 fn
-`readRoomSvg` src/room-svg.ts:156 fn
-`readScalar` src/glb.ts:219 fn
-`readScene` src/plan.ts:173 fn
-`readStair` src/floors-svg.ts:739 fn
-`readSurfaceTile` src/floors-svg.ts:830 fn
-`readSvg` src/crate.ts:75 fn
-`readSvg` src/prop.ts:65 fn
+`readHole` src/room-svg.ts:427 fn
+`readImage` src/crate.ts:227 fn
+`readImage` src/glb.ts:481 fn
+`readIntensity` src/room-svg.ts:757 fn
+`readJson` src/cli.ts:354 fn
+`readLanding` src/floors-svg.ts:782 fn
+`readLayerShapes` src/plan.ts:259 fn
+`readLight` src/room-svg.ts:449 fn
+`readObstacleBoxes` src/cli.ts:325 fn
+`readOpening` src/room-svg.ts:400 fn
+`readPlacements` src/cli.ts:329 fn
+`readPlacements` src/plan.ts:153 fn
+`readPlatform` src/floors-svg.ts:589 fn
+`readPng` src/prop.ts:199 fn
+`readPositive` src/cli.ts:318 fn
+`readProp` src/room-svg.ts:439 fn
+`readRoomDoors` src/cli.ts:342 fn
+`readRoomSvg` src/room-svg.ts:161 fn
+`readScalar` src/glb.ts:220 fn
+`readScene` src/plan.ts:171 fn
+`readStair` src/floors-svg.ts:748 fn
+`readSurfaceTile` src/floors-svg.ts:839 fn
+`readSvg` src/crate.ts:76 fn
+`readSvg` src/prop.ts:61 fn
 `readText` src/bake.ts:1277 fn
-`readText` src/rooms-bake.ts:1484 fn
-`readTexturedGlb` src/glb.ts:391 fn
-`readVec3` src/glb.ts:212 fn
-`readWindow` src/room-svg.ts:364 fn
-`readZ` src/room-svg.ts:736 fn
-`realEdges` src/scene-graph.ts:332 fn
+`readText` src/rooms-bake.ts:1495 fn
+`readTexturedGlb` src/glb.ts:392 fn
+`readVec3` src/glb.ts:213 fn
+`readWindow` src/room-svg.ts:369 fn
+`readZ` src/room-svg.ts:741 fn
+`realEdges` src/scene-graph.ts:333 fn
 `Rect` src/places.ts:26 type
-`Rect` src/prop.ts:22 type
-`Rect` src/regions.ts:87 type
+`Rect` src/prop.ts:26 type
+`Rect` src/regions.ts:89 type
 `rectangleBox` src/bake.ts:1090 fn
-`rectBounds` src/plan.ts:1002 fn
-`rectBox` src/floors-svg.ts:949 fn
-`rectilinearRing` src/floors-svg.ts:648 fn
-`rectOf` src/hall-floor.ts:199 fn
+`rectBounds` src/plan.ts:1006 fn
+`rectBox` src/floors-svg.ts:958 fn
+`rectilinearRing` src/floors-svg.ts:657 fn
+`rectOf` src/hall-floor.ts:205 fn
 `rectOf` src/places.ts:301 fn
-`rectPolygon` src/floors-svg.ts:589 fn
-`rectPolygon` src/regions.ts:383 fn
-`referencePlacement` src/rooms-bake.ts:1126 fn
-`Region` src/regions.ts:18 type
-`RegionBox` src/regions.ts:70 type
-`RegionGraph` src/regions.ts:36 type
-`RegionOptions` src/regions.ts:80 type
-`RegionPlace` src/regions.ts:63 type
-`RegionPortal` src/regions.ts:27 type
-`relate` src/rooms-bake.ts:1436 fn
-`requireFace` src/crate.ts:159 fn
-`requireId` src/plan.ts:857 fn
-`requirePart` src/prop.ts:146 fn
+`rectPolygon` src/floors-svg.ts:598 fn
+`rectPolygon` src/regions.ts:389 fn
+`referencePlacement` src/rooms-bake.ts:1133 fn
+`Region` src/regions.ts:20 type
+`RegionBox` src/regions.ts:72 type
+`RegionGraph` src/regions.ts:38 type
+`RegionOptions` src/regions.ts:82 type
+`RegionPlace` src/regions.ts:65 type
+`RegionPortal` src/regions.ts:29 type
+`relate` src/rooms-bake.ts:1447 fn
+`requireFace` src/crate.ts:160 fn
+`requireId` src/plan.ts:858 fn
+`requirePart` src/prop.ts:142 fn
 `RESERVED_OUTPUTS` src/bake.ts:104 const
-`resolveExteriorDoors` src/rooms-bake.ts:1160 fn
-`resolveProbe` src/scene-graph.ts:180 fn
-`resolveRef` src/room-svg.ts:609 fn
-`resolveTextureHref` src/floors-svg.ts:853 fn
-`rethrow` src/room-svg.ts:834 fn
+`resolveExteriorDoors` src/rooms-bake.ts:1168 fn
+`resolveProbe` src/scene-graph.ts:181 fn
+`resolveRef` src/room-svg.ts:614 fn
+`resolveTextureHref` src/floors-svg.ts:862 fn
+`rethrow` src/room-svg.ts:839 fn
 `rewriteEmptyCut` src/bake.ts:761 fn
 `Ring` src/union.ts:17 type
-`ringArea` src/floors-svg.ts:722 fn
-`ringArea` src/hall-floor.ts:281 fn
-`ROOM_DOOR_BUILDING_CAP_M` src/rooms-bake.ts:175 const
-`roomApertures` src/room-cut.ts:41 fn
-`roomDoor` src/room-file.ts:106 fn
-`RoomDoor` src/room-file.ts:20 type
+`ringArea` src/floors-svg.ts:731 fn
+`ringArea` src/hall-floor.ts:287 fn
+`ROOM_DOOR_BUILDING_CAP_M` src/rooms-bake.ts:185 const
+`roomApertures` src/room-cut.ts:48 fn
+`roomDoor` src/room-file.ts:110 fn
+`RoomDoor` src/room-file.ts:24 type
 `roomDoorDir` src/places.ts:500 fn
-`RoomDoorHosts` src/rooms-bake.ts:739 type
-`RoomFacadeOpening` src/rooms-bake.ts:126 type
-`roomFacadeOpenings` src/rooms-bake.ts:236 fn
-`RoomFacadeRejection` src/rooms-bake.ts:144 type
-`RoomFacadeReport` src/rooms-bake.ts:153 type
+`RoomDoorHosts` src/rooms-bake.ts:747 type
+`RoomFacadeOpening` src/rooms-bake.ts:136 type
+`roomFacadeOpenings` src/rooms-bake.ts:244 fn
+`RoomFacadeRejection` src/rooms-bake.ts:154 type
+`RoomFacadeReport` src/rooms-bake.ts:163 type
 `RoomFace` src/room-svg.ts:30 type
-`roomFile` src/room-file.ts:125 fn
-`RoomFile` src/room-file.ts:57 type
-`roomFootprintAabb` src/hall-floor.ts:30 fn
-`RoomHole` src/room-svg.ts:52 type
+`roomFile` src/room-file.ts:132 fn
+`RoomFile` src/room-file.ts:61 type
+`roomFootprintAabb` src/hall-floor.ts:32 fn
+`RoomHole` src/room-svg.ts:54 type
 `RoomInstanceSource` src/floors-svg.ts:32 type
-`roomLight` src/room-file.ts:193 fn
-`RoomLight` src/room-file.ts:46 type
-`RoomLightSource` src/room-svg.ts:54 type
-`roomMeshes` src/room-glb.ts:73 fn
-`RoomOpening` src/room-svg.ts:45 type
+`roomLight` src/room-file.ts:200 fn
+`RoomLight` src/room-file.ts:50 type
+`RoomLightSource` src/room-svg.ts:56 type
+`roomMeshes` src/room-glb.ts:76 fn
+`RoomOpening` src/room-svg.ts:47 type
 `roomPolygon` src/places.ts:208 fn
-`roomProp` src/room-file.ts:178 fn
-`RoomProp` src/room-file.ts:34 type
-`RoomShape` src/room-svg.ts:34 type
-`RoomsLight` src/rooms-bake.ts:41 type
-`RoomsLightsFile` src/rooms-bake.ts:53 type
-`RoomSource` src/room-svg.ts:70 type
-`RoomsPlacementsFile` src/rooms-bake.ts:59 type
-`roomToBuilding` src/rooms-bake.ts:25 fn
-`RoomWallCut` src/rooms-bake.ts:748 type
-`RoomWindow` src/room-svg.ts:36 type
-`round6` src/crate.ts:319 fn
-`roundBox` src/measure.ts:133 fn
+`roomProp` src/room-file.ts:185 fn
+`RoomProp` src/room-file.ts:38 type
+`RoomShape` src/room-svg.ts:36 type
+`RoomsLight` src/rooms-bake.ts:44 type
+`RoomsLightsFile` src/rooms-bake.ts:56 type
+`RoomSource` src/room-svg.ts:72 type
+`RoomsPlacementsFile` src/rooms-bake.ts:62 type
+`roomToBuilding` src/rooms-bake.ts:28 fn
+`RoomWallCut` src/rooms-bake.ts:759 type
+`RoomWindow` src/room-svg.ts:38 type
+`round6` src/crate.ts:323 fn
+`roundBox` src/measure.ts:128 fn
 `roundDoor` src/bake.ts:905 fn
-`roundDoor` src/rooms-bake.ts:1480 fn
+`roundDoor` src/rooms-bake.ts:1491 fn
 `roundM` src/bake.ts:1352 fn
-`roundM` src/measure.ts:148 fn
+`roundM` src/measure.ts:143 fn
 `roundM` src/places.ts:334 fn
-`roundM` src/room-file.ts:206 fn
-`roundM` src/rooms-bake.ts:1492 fn
-`roundM` src/scene-graph.ts:493 fn
-`roundValue` src/room-file.ts:211 fn
+`roundM` src/room-file.ts:213 fn
+`roundM` src/rooms-bake.ts:1503 fn
+`roundM` src/scene-graph.ts:494 fn
+`roundValue` src/room-file.ts:218 fn
 `roundVec` src/bake.ts:1356 fn
-`roundVec` src/measure.ts:144 fn
-`roundVec` src/rooms-bake.ts:1497 fn
-`roundVec` src/scene-graph.ts:498 fn
-`Run` src/footprint.ts:90 type
-`runBake` src/cli.ts:187 fn
-`runFloors` src/cli.ts:343 fn
-`runMeasure` src/cli.ts:176 fn
-`runProp` src/cli.ts:210 fn
-`runRoom` src/cli.ts:229 fn
-`runsAlongColumns` src/footprint.ts:1049 fn
-`runsAlongRows` src/footprint.ts:1012 fn
-`runSceneGraph` src/cli.ts:249 fn
+`roundVec` src/measure.ts:139 fn
+`roundVec` src/rooms-bake.ts:1508 fn
+`roundVec` src/scene-graph.ts:499 fn
+`Run` src/footprint.ts:93 type
+`runBake` src/cli.ts:192 fn
+`runFloors` src/cli.ts:363 fn
+`runMeasure` src/cli.ts:181 fn
+`runProp` src/cli.ts:230 fn
+`runRoom` src/cli.ts:249 fn
+`runsAlongColumns` src/footprint.ts:1053 fn
+`runsAlongRows` src/footprint.ts:1016 fn
+`runSceneGraph` src/cli.ts:269 fn
+`runSpatialDag` src/cli.ts:215 fn
 `sameDir` src/places.ts:522 fn
 `sameEdge` src/bake.ts:701 fn
-`sameFile` src/room-glb.ts:226 fn
+`sameFile` src/room-glb.ts:229 fn
 `sameOpening` src/bake.ts:777 fn
-`sameXz` src/footprint.ts:1145 fn
+`sameXz` src/footprint.ts:1149 fn
 `scaleBox` src/bake.ts:1078 fn
-`scaleBox` src/rooms-bake.ts:396 fn
+`scaleBox` src/rooms-bake.ts:404 fn
 `scaleForPlacement` src/bake.ts:1169 fn
 `scaleReport` src/bake.ts:1336 fn
 `scaleTriangles` src/bake.ts:1236 fn
-`SceneDoor` src/types.ts:101 type
+`SceneDoor` src/types.ts:107 type
 `SceneGraphFile` src/scene-graph.ts:41 type
+`SceneGraphFile` src/spatial-dag.ts:13 type
 `sceneNodes` src/glb-write.ts:376 fn
-`ScenePlace` src/types.ts:220 type
+`ScenePlace` src/types.ts:227 type
 `scenePlaces` src/bake.ts:505 fn
 `ScenePortal` src/scene-graph.ts:16 type
-`SceneProp` src/types.ts:75 type
-`SceneSpawn` src/types.ts:89 type
-`Scope` src/floors-svg.ts:180 type
-`sealedOpeningBox` src/building-mesh-cut.ts:112 fn
+`SceneProp` src/types.ts:80 type
+`SceneSpawn` src/types.ts:94 type
+`Scope` src/floors-svg.ts:187 type
+`sealedOpeningBox` src/building-mesh-cut.ts:106 fn
 `segmentsCross` src/places.ts:810 fn
-`SEMANTIC` src/room-svg.ts:91 const
-`semanticRole` src/room-svg.ts:804 fn
-`setAxis` src/rooms-bake.ts:938 fn
-`shapeCenter` src/room-svg.ts:683 fn
-`SHAPES` src/room-svg.ts:93 const
+`SEMANTIC` src/room-svg.ts:93 const
+`semanticRole` src/room-svg.ts:809 fn
+`setAxis` src/rooms-bake.ts:942 fn
+`shapeCenter` src/room-svg.ts:688 fn
+`SHAPES` src/room-svg.ts:95 const
 `sharedOpenings` src/bake.ts:771 fn
-`sharedPieces` src/scene-graph.ts:347 fn
-`SHELL_M` src/footprint.ts:48 const
-`shiftBox` src/room-svg.ts:715 fn
+`sharedPieces` src/scene-graph.ts:348 fn
+`SHELL_M` src/footprint.ts:52 const
+`shiftBox` src/room-svg.ts:720 fn
 `sidePoint` src/places.ts:564 fn
 `signedArea` src/places.ts:324 fn
 `signedArea` src/union.ts:203 fn
 `SILL_LIFT_M` src/scene-graph.ts:51 const
 `simplify` src/union.ts:179 fn
-`SituatedDoor` src/doors.ts:41 type
-`situateDoor` src/doors.ts:75 fn
-`situatedSpan` src/rooms-bake.ts:1451 fn
-`SIZE_WARN_M` src/rooms-bake.ts:172 const
-`Size` src/crate.ts:66 type
-`SKIN_M` src/building-mesh-cut.ts:83 const
-`SKIN_REACH_M` src/building-mesh-cut.ts:90 const
-`SLIVER` src/regions.ts:93 const
-`smallest` src/scene-graph.ts:424 fn
+`SituatedDoor` src/doors.ts:43 type
+`situateDoor` src/doors.ts:65 fn
+`situatedSpan` src/rooms-bake.ts:1462 fn
+`SIZE_WARN_M` src/rooms-bake.ts:182 const
+`Size` src/crate.ts:67 type
+`SKIN_M` src/building-mesh-cut.ts:79 const
+`SKIN_REACH_M` src/building-mesh-cut.ts:86 const
+`SLIVER` src/regions.ts:95 const
+`smallest` src/scene-graph.ts:425 fn
 `smallestPlace` src/places.ts:698 fn
-`SNAP` src/regions.ts:91 const
-`snapAxes` src/floors-svg.ts:694 fn
+`SNAP` src/regions.ts:93 const
+`snapAxes` src/floors-svg.ts:703 fn
 `snapCardinal` src/places.ts:517 fn
-`snapShape` src/room-svg.ts:508 fn
-`snapToWall` src/room-svg.ts:520 fn
-`snapToWallPlanes` src/footprint.ts:202 fn
-`snapYaw` src/plan.ts:438 fn
-`SOLID_FACES` src/room-file.ts:18 const
-`solidSpans` src/footprint.ts:658 fn
-`SPAN_OVERLAP_M` src/rooms-bake.ts:171 const
-`Span` src/room-svg.ts:140 type
-`spanAlong` src/doors.ts:363 fn
-`spanAlong` src/floors-svg.ts:1015 fn
+`snapShape` src/room-svg.ts:513 fn
+`snapToWall` src/room-svg.ts:525 fn
+`snapToWallPlanes` src/footprint.ts:207 fn
+`snapYaw` src/plan.ts:433 fn
+`SOLID_FACES` src/room-file.ts:22 const
+`solidSpans` src/footprint.ts:662 fn
+`SPAN_OVERLAP_M` src/rooms-bake.ts:181 const
+`Span` src/room-svg.ts:145 type
+`spanAlong` src/doors.ts:334 fn
+`spanAlong` src/floors-svg.ts:1024 fn
 `spanAlong` src/places.ts:668 fn
-`spanX` src/crate.ts:170 fn
-`spanX` src/room-svg.ts:770 fn
-`spanY` src/crate.ts:174 fn
-`spanZ` src/room-svg.ts:774 fn
+`spanX` src/crate.ts:171 fn
+`spanX` src/room-svg.ts:775 fn
+`spanY` src/crate.ts:175 fn
+`spanZ` src/room-svg.ts:779 fn
 `spawnFile` src/bake.ts:913 fn
-`spawnPoint` src/plan.ts:827 fn
-`SpawnPoint` src/types.ts:177 type
-`splitCoords` src/regions.ts:404 fn
-`splitHoles` src/footprint.ts:856 fn
-`splitPoly` src/building-mesh-cut.ts:551 fn
+`spawnPoint` src/plan.ts:828 fn
+`SpawnPoint` src/types.ts:178 type
+`splitCoords` src/regions.ts:410 fn
+`splitHoles` src/footprint.ts:860 fn
+`splitPoly` src/building-mesh-cut.ts:542 fn
 `St` src/room-cut.ts:8 type
-`STACK_XZ_M` src/footprint.ts:54 const
-`stackBands` src/footprint.ts:944 fn
+`STACK_XZ_M` src/footprint.ts:58 const
+`stackBands` src/footprint.ts:948 fn
 `STAIR_BOTTOM_COST` src/scene-graph.ts:59 const
 `STAIR_TOP_RUN` src/scene-graph.ts:60 const
-`stairsGlb` src/stairs-mesh.ts:47 fn
+`stairsGlb` src/stairs-mesh.ts:55 fn
 `stairsLandings` src/places.ts:431 fn
-`StairsPlace` src/types.ts:233 type
-`stairsStepBoxes` src/stairs-mesh.ts:15 fn
-`stairUp` src/floors-svg.ts:903 fn
-`stamp` src/regions.ts:461 fn
-`stampPlacement` src/asset-type.ts:75 fn
-`standPoints` src/scene-graph.ts:392 fn
-`standRegion` src/regions.ts:282 fn
+`StairsPlace` src/types.ts:243 type
+`stairsStepBoxes` src/stairs-mesh.ts:20 fn
+`stairUp` src/floors-svg.ts:912 fn
+`stamp` src/regions.ts:467 fn
+`stampPlacement` src/asset-type.ts:77 fn
+`standPoints` src/scene-graph.ts:393 fn
+`standRegion` src/regions.ts:288 fn
 `STENCIL_SLIVER_M` src/stencil.ts:7 const
-`stencilBoxes` src/stencil.ts:39 fn
+`stencilBoxes` src/stencil.ts:41 fn
 `stencilCenter` src/bake.ts:1222 fn
-`stencilPose` src/plan.ts:573 fn
-`StencilShape` src/floors-svg.ts:510 type
-`stencilShape` src/floors-svg.ts:517 fn
-`stencilSize` src/stencil.ts:84 fn
-`stencilSvg` src/measure.ts:94 fn
-`STEP_HEIGHT` src/regions.ts:16 const
-`STEP_THICKNESS_M` src/stairs-mesh.ts:8 const
+`stencilPose` src/plan.ts:567 fn
+`StencilShape` src/floors-svg.ts:519 type
+`stencilShape` src/floors-svg.ts:526 fn
+`stencilSize` src/stencil.ts:88 fn
+`stencilSvg` src/measure.ts:89 fn
+`STEP_HEIGHT` src/regions.ts:18 const
+`STEP_THICKNESS_M` src/stairs-mesh.ts:13 const
 `stitch` src/places.ts:271 fn
-`stOf` src/room-cut.ts:19 fn
-`strip` src/regions.ts:329 fn
-`sub3` src/building-mesh-cut.ts:633 fn
+`stOf` src/room-cut.ts:22 fn
+`strip` src/regions.ts:335 fn
+`sub3` src/building-mesh-cut.ts:624 fn
 `sub` src/room-cut.ts:14 fn
-`subpathCounts` src/floors-svg.ts:553 fn
-`subQuad` src/room-cut.ts:27 fn
-`subtractAabbs` src/union.ts:25 fn
-`subtractBox` src/building-mesh-cut.ts:526 fn
-`subtractBox` src/doors.ts:162 fn
-`subtractDoorOpening` src/doors.ts:205 fn
-`subtractFacadePart` src/rooms-bake.ts:903 fn
-`subtractFlat` src/rooms-bake.ts:945 fn
-`surfaceTexture` src/floors-svg.ts:809 fn
-`svgDeltaToLocal` src/floors-svg.ts:973 fn
-`svgGlb` src/room-glb.ts:182 fn
-`svgPointToWorld` src/plan.ts:74 fn
-`taggedModel` src/plan.ts:586 fn
-`takeBounds` src/plan.ts:643 fn
-`takeDoor` src/plan.ts:738 fn
-`takeProp` src/plan.ts:685 fn
-`takeSpawn` src/plan.ts:810 fn
-`TexGltf` src/glb.ts:378 type
-`textAnchor` src/plan.ts:846 fn
-`TEXTURE_ID` src/prop.ts:184 const
-`TexturedGlb` src/glb.ts:368 type
-`TexturedImage` src/glb.ts:356 type
-`TexturedMesh` src/glb.ts:349 type
-`TexturedPrimitive` src/glb.ts:342 type
-`texturedPrimitives` src/glb.ts:433 fn
-`TexturedVertex` src/glb.ts:335 type
-`textureFromElement` src/floors-svg.ts:1227 fn
-`textureSource` src/room-svg.ts:618 fn
-`throughOpening` src/doors.ts:338 fn
-`toLocal` src/floors-svg.ts:214 fn
-`toLocalBox` src/doors.ts:473 fn
-`toLocalBox` src/floors-svg.ts:1161 fn
-`toVertex` src/building-mesh-cut.ts:498 fn
+`subpathCounts` src/floors-svg.ts:562 fn
+`subQuad` src/room-cut.ts:33 fn
+`subtractAabbs` src/union.ts:26 fn
+`subtractBox` src/building-mesh-cut.ts:517 fn
+`subtractBox` src/doors.ts:145 fn
+`subtractDoorOpening` src/doors.ts:186 fn
+`subtractFacadePart` src/rooms-bake.ts:907 fn
+`subtractFlat` src/rooms-bake.ts:949 fn
+`surfaceTexture` src/floors-svg.ts:818 fn
+`svgDeltaToLocal` src/floors-svg.ts:982 fn
+`svgGlb` src/room-glb.ts:185 fn
+`svgPointToWorld` src/plan.ts:73 fn
+`taggedModel` src/plan.ts:580 fn
+`takeBounds` src/plan.ts:640 fn
+`takeDoor` src/plan.ts:739 fn
+`takeProp` src/plan.ts:686 fn
+`takeSpawn` src/plan.ts:811 fn
+`TexGltf` src/glb.ts:379 type
+`textAnchor` src/plan.ts:847 fn
+`TEXTURE_ID` src/prop.ts:180 const
+`TexturedGlb` src/glb.ts:369 type
+`TexturedImage` src/glb.ts:357 type
+`TexturedMesh` src/glb.ts:350 type
+`TexturedPrimitive` src/glb.ts:343 type
+`texturedPrimitives` src/glb.ts:434 fn
+`TexturedVertex` src/glb.ts:336 type
+`textureFromElement` src/floors-svg.ts:1236 fn
+`textureSource` src/room-svg.ts:623 fn
+`throughOpening` src/doors.ts:309 fn
+`toLocal` src/floors-svg.ts:221 fn
+`toLocalBox` src/doors.ts:444 fn
+`toLocalBox` src/floors-svg.ts:1170 fn
+`toVertex` src/building-mesh-cut.ts:489 fn
 `trace` src/union.ts:129 fn
-`transformBounds` src/plan.ts:1048 fn
-`transformFn` src/plan.ts:1131 fn
-`transformNormal` src/glb.ts:518 fn
-`transformPoint` src/glb.ts:326 fn
-`transformXz` src/yaw.ts:9 fn
-`Triangle` src/types.ts:261 type
-`triangleNormal` src/footprint.ts:494 fn
-`triangleOwnsCell` src/footprint.ts:515 fn
-`trianglesFromGlb` src/glb.ts:96 fn
+`transformBounds` src/plan.ts:1052 fn
+`transformFn` src/plan.ts:1135 fn
+`transformNormal` src/glb.ts:519 fn
+`transformPoint` src/glb.ts:327 fn
+`transformXz` src/yaw.ts:7 fn
+`Triangle` src/types.ts:274 type
+`triangleNormal` src/footprint.ts:498 fn
+`triangleOwnsCell` src/footprint.ts:519 fn
+`trianglesFromGlb` src/glb.ts:97 fn
 `trimNum` src/bake.ts:1231 fn
-`trimNum` src/crate.ts:183 fn
-`trimNum` src/plan.ts:453 fn
-`trimNum` src/room-svg.ts:843 fn
+`trimNum` src/crate.ts:184 fn
+`trimNum` src/plan.ts:448 fn
+`trimNum` src/room-svg.ts:848 fn
 `TYPE_COMPONENTS` src/glb.ts:17 const
 `u32Buffer` src/glb-write.ts:519 fn
-`uncutBuildingGlb` src/building-mesh-cut.ts:443 fn
-`uniformScale` src/plan.ts:633 fn
+`uncutBuildingGlb` src/building-mesh-cut.ts:434 fn
+`uniformScale` src/plan.ts:630 fn
 `unionAabbs` src/union.ts:62 fn
-`unionBounds` src/plan.ts:1060 fn
-`unionBox` src/doors.ts:343 fn
+`unionBounds` src/plan.ts:1064 fn
+`unionBox` src/doors.ts:314 fn
 `unionLocal` src/bake.ts:728 fn
-`uniqueSorted` src/hall-floor.ts:257 fn
-`uniqueSorted` src/room-cut.ts:177 fn
+`uniqueSorted` src/hall-floor.ts:263 fn
+`uniqueSorted` src/room-cut.ts:187 fn
 `uniqueSorted` src/union.ts:213 fn
-`unit` src/building-mesh-cut.ts:637 fn
-`unit` src/glb.ts:541 fn
-`unlabeledDesign` src/crate.ts:105 fn
-`unpack` src/footprint.ts:1171 fn
-`USAGE` src/cli.ts:18 const
-`userBox` src/floors-svg.ts:1333 fn
-`userLength` src/plan.ts:499 fn
+`unit` src/building-mesh-cut.ts:628 fn
+`unit` src/glb.ts:542 fn
+`unlabeledDesign` src/crate.ts:106 fn
+`unpack` src/footprint.ts:1175 fn
+`USAGE` src/cli.ts:19 const
+`userBox` src/floors-svg.ts:1342 fn
+`userLength` src/plan.ts:494 fn
 `Vec3` src/types.ts:1 type
 `vec3Accessor` src/glb-write.ts:465 fn
 `Vert` src/building-mesh-cut.ts:15 type
-`vertexAt` src/building-mesh-cut.ts:488 fn
-`walk` src/plan.ts:523 fn
-`WALK` src/regions.ts:96 const
-`walkDesign` src/plan.ts:350 fn
+`vertexAt` src/building-mesh-cut.ts:479 fn
+`walk` src/plan.ts:518 fn
+`WALK` src/regions.ts:98 const
+`walkDesign` src/plan.ts:345 fn
 `WALL_FACES` src/room-glb.ts:13 const
-`WALL_SLAB_M` src/building-mesh-cut.ts:103 const
-`WALL_T` src/room-file.ts:11 const
-`wallAttr` src/room-svg.ts:580 fn
-`WallFace` src/doors.ts:26 type
-`WallFace` src/footprint.ts:166 type
+`WALL_SLAB_M` src/building-mesh-cut.ts:99 const
+`WALL_T` src/room-file.ts:13 const
+`wallAttr` src/room-svg.ts:585 fn
+`WallFace` src/doors.ts:28 type
+`WallFace` src/footprint.ts:171 type
 `WallFace` src/room-svg.ts:29 type
-`wallLine` src/room-svg.ts:125 fn
-`wallNormal` src/rooms-bake.ts:1417 fn
-`wallPlanes` src/footprint.ts:173 fn
-`wallRect` src/room-cut.ts:170 fn
-`warnDeepBuildingDoors` src/rooms-bake.ts:1011 fn
-`weldSkins` src/footprint.ts:799 fn
-`withinOutline` src/floors-svg.ts:1064 fn
-`worldAabb` src/plan.ts:869 fn
-`WorldAabb` src/rooms-bake.ts:1120 type
+`wallLine` src/room-svg.ts:130 fn
+`wallNormal` src/rooms-bake.ts:1428 fn
+`wallPlanes` src/footprint.ts:178 fn
+`wallRect` src/room-cut.ts:180 fn
+`warnDeepBuildingDoors` src/rooms-bake.ts:1015 fn
+`weldSkins` src/footprint.ts:803 fn
+`withinOutline` src/floors-svg.ts:1073 fn
+`worldAabb` src/plan.ts:870 fn
+`WorldAabb` src/rooms-bake.ts:1127 type
 `worldAt` src/places.ts:709 fn
-`WorldBox` src/doors.ts:24 type
-`worldBox` src/room-svg.ts:646 fn
-`worldDoor` src/rooms-bake.ts:1209 fn
-`worldLight` src/rooms-bake.ts:1264 fn
+`WorldBox` src/doors.ts:26 type
+`worldBox` src/room-svg.ts:651 fn
+`worldDoor` src/rooms-bake.ts:1217 fn
+`worldLight` src/rooms-bake.ts:1272 fn
 `worldPoly` src/places.ts:226 fn
-`worldProp` src/rooms-bake.ts:1231 fn
-`worldToBuilding` src/rooms-bake.ts:1078 fn
-`worldToModel` src/building-mesh-cut.ts:652 fn
+`worldProp` src/rooms-bake.ts:1239 fn
+`worldToBuilding` src/rooms-bake.ts:1085 fn
+`worldToModel` src/building-mesh-cut.ts:643 fn
 `writeBuildingCut` src/bake.ts:885 fn
-`writeCrateProp` src/crate.ts:51 fn
-`writeDoorProp` src/prop.ts:41 fn
+`writeCrateProp` src/crate.ts:52 fn
+`writeDoorProp` src/prop.ts:37 fn
 `writeJson` src/bake.ts:1285 fn
 `writeMeshesGlb` src/glb-write.ts:106 fn
 `writePrimitive` src/glb-write.ts:320 fn
-`writeRoom` src/room-glb.ts:146 fn
+`writeRoom` src/room-glb.ts:149 fn
+`writeSpatialDag` src/spatial-dag.ts:58 fn
 `writeTexturedGlb` src/glb-write.ts:279 fn
-`writeTriangleGlb` src/glb-write.ts:18 fn
+`writeTriangleGlb` src/glb-write.ts:19 fn
 `XmlNode` src/xml.ts:3 type
 `Xz` src/scene-graph.ts:64 type
-`xz` src/yaw.ts:30 fn
-`XzBounds` src/types.ts:50 type
-`xzDistance` src/rooms-bake.ts:1200 fn
-`xzOf` src/room-file.ts:89 fn
-`xzOverlap` src/rooms-bake.ts:1190 fn
+`xz` src/yaw.ts:31 fn
+`XzBounds` src/types.ts:53 type
+`xzDistance` src/rooms-bake.ts:1208 fn
+`xzOf` src/room-file.ts:93 fn
+`xzOverlap` src/rooms-bake.ts:1198 fn
 `XzPoint` src/union.ts:11 type
-`XzRect` src/footprint.ts:107 type
-`Y_BAND` src/regions.ts:92 const
-`Yaw` src/types.ts:4 type
-`yawFromSvgMatrix` src/plan.ts:1094 fn
-`yawMessage` src/plan.ts:449 fn
-`yawOf` src/plan.ts:1082 fn
-`yNear` src/regions.ts:306 fn
-`YSpan` src/footprint.ts:77 type
+`XzRect` src/footprint.ts:113 type
+`Y_BAND` src/regions.ts:94 const
+`Yaw` src/types.ts:7 type
+`yawFromSvgMatrix` src/plan.ts:1098 fn
+`yawMessage` src/plan.ts:444 fn
+`yawOf` src/plan.ts:1086 fn
+`yNear` src/regions.ts:312 fn
+`YSpan` src/footprint.ts:80 type
 ```

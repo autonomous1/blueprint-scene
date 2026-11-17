@@ -9,6 +9,7 @@ import { writeCrateProp } from "./crate.ts";
 import { writeDoorProp } from "./prop.ts";
 import { writeRoom } from "./room-glb.ts";
 import { buildSceneGraph } from "./scene-graph.ts";
+import { writeSpatialDag } from "./spatial-dag.ts";
 import { bakeWalkableRegions, DEFAULT_HEIGHT, DEFAULT_RADIUS, obstaclesFrom, type RegionBox } from "./regions.ts";
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { readFloorsSvg } from "./floors-svg.ts";
@@ -164,6 +165,10 @@ export function main(argv: string[]): number {
       runSceneGraph(argv.slice(1));
       return 0;
     }
+    if (command === "spatial-dag") {
+      runSpatialDag(argv.slice(1));
+      return 0;
+    }
     throw new PlanError(`unknown command "${command}"\n${USAGE}`);
   } catch (err) {
     if (err instanceof PlanError) console.error(err.message);
@@ -205,6 +210,21 @@ function runBake(argv: string[]): void {
 function defaultGamePath(): string | undefined {
   const candidate = path.join("web", "game", "arena.game.json");
   return existsSync(candidate) ? candidate : undefined;
+}
+
+function runSpatialDag(argv: string[]): void {
+  const flags = parseFlags(argv, new Set(["placements", "scene-graph", "bounds", "out"]));
+  if (!flags.placements || !flags["scene-graph"] || !flags.out) throw new PlanError(`missing --placements/--scene-graph/--out\n${USAGE}`);
+  const read = (file: string) => JSON.parse(readFileSync(file, "utf8")) as never;
+  const bounds = flags.bounds ? read(flags.bounds) : { minX: 0, maxX: 0, minY: 0, maxY: 0, minZ: 0, maxZ: 0 };
+  const result = writeSpatialDag({
+    placements: read(flags.placements),
+    sceneGraph: read(flags["scene-graph"]),
+    bounds,
+    outPath: flags.out,
+    write: (file, text) => writeFileSync(file, text),
+  });
+  console.log(`wrote ${flags.out} (${result.nodes} nodes, ${result.chunks} chunks, hash ${result.hash})`);
 }
 
 function runProp(argv: string[]): void {

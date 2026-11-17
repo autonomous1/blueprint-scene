@@ -2,22 +2,24 @@ import { PlanError } from "./errors.ts";
 import type { DoorPlacement, LocalBox, SceneDoor, Triangle, Vec3, Yaw } from "./types.ts";
 import { inverseYaw, placeBox, transformXz } from "./yaw.ts";
 
-/** Panel height when the rectangle does not set `data-height`. */
+/**
+ * @when Panel height when the rectangle does not set `data-height`.
+ */
 export const DOOR_HEIGHT_M = 2.1;
 
-/** Panel thickness when the rectangle does not set `data-depth`. */
+/**
+ * @when Panel thickness when the rectangle does not set `data-depth`.
+ */
 export const DOOR_DEPTH_M = 0.08;
 
 /**
- * Minimum hole through the wall. A 0.5 m pawn needs a passage deeper than
- * the wall's outer skin, so the stamp is at least this deep.
+ * Minimum hole through the wall.
+ * @why A 0.5 m pawn needs a passage deeper than the wall's outer skin, so the stamp is at least this deep.
  */
 export const DOOR_GAP_DEPTH_M = 2;
 
 /**
- * A wall box is on the door's wall when its outer side is within this of the
- * face the hinge sits on. A box whose outside is deeper (an interior or
- * opposite wall the 2 m stamp reaches) is left whole.
+ * @why A wall box is on the door's wall when its outer side is within this of the face the hinge sits on. A box whose outside is deeper (an interior or opposite wall the 2 m stamp reaches) is left whole.
  */
 export const DOOR_FACE_TOL_M = 0.5;
 
@@ -51,26 +53,14 @@ export type SituatedDoor = {
 const BOX_EPS = 1e-6;
 
 /**
- * Put the hinge on the hinge edge of the drawn rectangle, on the nearest
- * exposed wall face. The door GLB's origin is its hinge (the arena mounts
- * that origin at `position`), and the clear opening runs one width from it,
- * so the mesh, the opening, and the drawn rectangle share one span.
- * Local +X is `transformXz(1, 0, yaw)`. A left hinge sits on the
- * rectangle's local −X edge, a right hinge on its +X edge.
- *
- * The width, in order:
- * - `data-width`, centered on the rectangle (the hinge sits half that width
- *   from the center);
- * - `modelWidth`, the door GLB's panel width, measured from the hinge edge of
- *   the drawn rectangle, so a rectangle drawn wider than the model does not
- *   widen the hole;
- * - the drawn rectangle's span along the wall.
- * The door itself is not an obstacle.
- *
+ * Put the hinge on the hinge edge of the drawn rectangle, on the nearest exposed wall face.
  * Check: a 2 m rectangle centered at x 10 on a yaw-0 face, left hinge:
  * position x 9, opening world x 9..11. Right hinge: position x 11, same span.
  * With `modelWidth` 1.05: left hinge x 9, opening 9..10.05; right hinge x 11,
  * opening 9.95..11.
+ * @pre The width, in order: `data-width`, centered on the rectangle (the hinge sits half that width from the center); `modelWidth`, the door GLB's panel width, measured from the hinge edge of the drawn rectangle, so a rectangle drawn wider than the model does not widen the hole; the drawn rectangle's span along the wall.
+ * @post Local +X is `transformXz(1, 0, yaw)`. A left hinge sits on the rectangle's local −X edge, a right hinge on its +X edge. The door itself is not an obstacle.
+ * @why The door GLB's origin is its hinge (the arena mounts that origin at `position`), and the clear opening runs one width from it, so the mesh, the opening, and the drawn rectangle share one span.
  */
 export function situateDoor(door: SceneDoor, boxes: readonly WorldBox[], modelWidth?: number): SituatedDoor {
   const face = nearestFace(door.center[0], door.center[1], door.center[2], boxes);
@@ -110,9 +100,9 @@ function hingeOnFace(door: SceneDoor, face: WallFace, span: number): { x: number
 }
 
 /**
- * Panel width of a door GLB: the X extent of its `door` mesh (the swinging
- * panel `prop --shape door` writes), in model meters. The frame stiles are
- * left out; they overlap the jambs. Undefined when there is no panel mesh.
+ * Panel width of a door GLB: the X extent of its `door` mesh (the swinging panel `prop --shape door` writes), in model meters.
+ * @post Undefined when there is no panel mesh.
+ * @why The frame stiles are left out; they overlap the jambs.
  */
 export function doorPanelWidth(triangles: readonly Triangle[]): number | undefined {
   let minX = Infinity;
@@ -129,14 +119,10 @@ export function doorPanelWidth(triangles: readonly Triangle[]): number | undefin
 
 /**
  * Hinge-aligned opening in the door GLB's local frame.
- * A left hinge occupies x 0..width. A right hinge occupies x −width..0.
- * Y is the clear height above the placement: the frame bottom sits on that
- * y, so the hole is 0..height, not the GLB's mid-height origin.
- * −Z is inward. The stamp is `DOOR_GAP_DEPTH_M`, deeper than the panel, so a
- * pawn clears the skin. A thicker host keeps the solid behind that depth.
- *
  * Check: left hinge, width 2, height 2.1. The box is x 0..2, y 0..2.1, z −2..0.
  * A right hinge is x −2..0. It is not x −1..1.
+ * @post A left hinge occupies x 0..width. A right hinge occupies x −width..0. Y is the clear height above the placement: the frame bottom sits on that y, so the hole is 0..height, not the GLB's mid-height origin. −Z is inward.
+ * @why The stamp is `DOOR_GAP_DEPTH_M`, deeper than the panel, so a pawn clears the skin. A thicker host keeps the solid behind that depth.
  */
 export function doorClearLocal(placement: DoorPlacement): LocalBox {
   const [width, height] = placement.size;
@@ -153,11 +139,8 @@ export function doorClearLocal(placement: DoorPlacement): LocalBox {
 }
 
 /**
- * AABB difference. At most six pieces: full-height slabs on either side of
- * the cut along X, then the Y slabs across the cut's X (the original Z),
- * then the Z slabs across the cut's X and Y. The six do not overlap. A
- * piece thinner than 1e-6 is dropped. No overlap with the cut means the
- * original box.
+ * AABB difference. At most six pieces: full-height slabs on either side of the cut along X, then the Y slabs across the cut's X (the original Z), then the Z slabs across the cut's X and Y.
+ * @post The six do not overlap. A piece thinner than 1e-6 is dropped. No overlap with the cut means the original box.
  */
 export function subtractBox(box: LocalBox, cut: LocalBox): LocalBox[] {
   const hole = intersectBox(box, cut);
@@ -196,10 +179,8 @@ export function subtractBox(box: LocalBox, cut: LocalBox): LocalBox[] {
 
 /**
  * Replace one wall AABB with the solid that remains around a door opening.
- * Both boxes are in the same frame: X along the wall, Y up, Z through the
- * thickness. A through-wall door is the two jambs, the lintel, and a sill
- * when the wall extends below the opening. A host thicker than the opening
- * also keeps the plug behind it. Pieces stay inside the wall.
+ * @pre Both boxes are in the same frame: X along the wall, Y up, Z through the thickness.
+ * @post A through-wall door is the two jambs, the lintel, and a sill when the wall extends below the opening. A host thicker than the opening also keeps the plug behind it. Pieces stay inside the wall.
  */
 
 export function subtractDoorOpening(wall: LocalBox, opening: LocalBox): LocalBox[] {
@@ -239,18 +220,10 @@ export function subtractDoorOpening(wall: LocalBox, opening: LocalBox): LocalBox
 
 /**
  * Cut `situated.opening` out of every model-space wall box it overlaps.
- * A facade is often several boxes with vertical seams, so the opening can
- * straddle two or more of them. Each one is split around its share of the
- * hole: jambs, lintel, and sill, clipped to that box. Untouched boxes keep
- * their place in the list and are not re-transformed.
- * Only boxes on the door's own wall count: the box must reach the face
- * (outer side within `DOOR_FACE_TOL_M`) and extend inward. A box that only
- * touches the opening along an edge or face is not a hit. A face skin that
- * stands proud of the hinge face is cut through too, so no sliver seals the
- * doorway. No hit at all is a plan error, unless `requireHit` is false
- * (a room wall the opening may miss). Then the boxes are returned unchanged.
- * `outwardCap` limits how far past the opening's outer face the hole runs.
- * Infinity, the default, still reaches the host box's far face.
+ * Each one is split around its share of the hole: jambs, lintel, and sill, clipped to that box.
+ * @pre Only boxes on the door's own wall count: the box must reach the face (outer side within `DOOR_FACE_TOL_M`) and extend inward. A box that only touches the opening along an edge or face is not a hit.
+ * @post Untouched boxes keep their place in the list and are not re-transformed. No hit at all is a plan error, unless `requireHit` is false (a room wall the opening may miss). Then the boxes are returned unchanged. `outwardCap` limits how far past the opening's outer face the hole runs. Infinity, the default, still reaches the host box's far face.
+ * @why A facade is often several boxes with vertical seams, so the opening can straddle two or more of them. A face skin that stands proud of the hinge face is cut through too, so no sliver seals the doorway.
  */
 export function cutDoorFromBoxes(
   modelBoxes: readonly LocalBox[],
@@ -289,10 +262,8 @@ export function cutDoorFromBoxes(
 
 /**
  * Door-local AABB of the solid `cutDoorFromBoxes` removes.
- * Same hit rule: the wall must meet the hinge face, and the stamp extends
- * out through a skin that stands proud of that face. Undefined when no wall
- * is hit. The box is the union of those intersections, so its depth is the
- * wall that was actually cut, not the 2 m inward stamp alone.
+ * @pre Same hit rule: the wall must meet the hinge face, and the stamp extends out through a skin that stands proud of that face.
+ * @post Undefined when no wall is hit. The box is the union of those intersections, so its depth is the wall that was actually cut, not the 2 m inward stamp alone.
  */
 export function doorCutLocal(
   modelBoxes: readonly LocalBox[],
@@ -317,8 +288,8 @@ export function doorCutLocal(
 
 /**
  * Metres the box extends past the opening's outer face, in the door frame.
- * Undefined when the box is not this door's wall. +Z is outward from the
- * hinge face. A thin shell is under a metre. A filled hall is several.
+ * @post Undefined when the box is not this door's wall.
+ * @why +Z is outward from the hinge face. A thin shell is under a metre. A filled hall is several.
  */
 export function doorOutwardDepth(
   box: LocalBox,

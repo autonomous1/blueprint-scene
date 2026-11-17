@@ -5,8 +5,9 @@ const ASSET_TYPE_SET: ReadonlySet<string> = new Set(ASSET_TYPES);
 
 /**
  * Asset id to placement type, from `arena.game.json`.
- * `assets` may be an array of `{ id, type }` or an object of those records.
- * An asset with no type is absent from the map. `kind` (model or texture) is ignored.
+ * @pre `assets` may be an array of `{ id, type }` or an object of those records.
+ * @post An asset with no type is absent from the map.
+ * @why `kind` (model or texture) is ignored.
  */
 export function readAssetTypes(text: string, filePath: string): Map<string, AssetType> {
   let doc: unknown;
@@ -42,8 +43,8 @@ export function readAssetTypes(text: string, filePath: string): Map<string, Asse
 
 /**
  * Asset id to the file name its `uri` ends in, from `arena.game.json`.
- * `door-1` declared with `"uri": "/assets/models/door1.glb"` maps to `door1.glb`.
- * Assets with no string `uri` are absent. Types are not checked here.
+ * @post `door-1` declared with "uri": "/assets/models/door1.glb" maps to `door1.glb`. Assets with no string `uri` are absent.
+ * @why Types are not checked here.
  */
 export function readAssetFiles(text: string, filePath: string): Map<string, string> {
   let doc: unknown;
@@ -70,7 +71,8 @@ export function readAssetFiles(text: string, filePath: string): Map<string, stri
 
 /**
  * Copy the asset type onto a placement, after `model`.
- * No asset type leaves the field off. A leftover `kind` is not written.
+ * @post No asset type leaves the field off.
+ * @why A leftover `kind` is not written.
  */
 export function stampPlacement<T extends { model: string }>(
   placement: T,

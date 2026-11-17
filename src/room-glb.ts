@@ -19,8 +19,7 @@ const c = (position: Vec3, normal: Vec3, uv: readonly [number, number]): DoorCor
 
 /**
  * One quad, wound counter-clockwise from inside the room.
- * Wall UVs are the crate ones: V = 0 is the top of the PNG. Floor and ceiling
- * use the plan: U grows with +X and V = 0 is +Z.
+ * @why Wall UVs are the crate ones: V = 0 is the top of the PNG. Floor and ceiling use the plan: U grows with +X and V = 0 is +Z.
  */
 export function faceCorners(face: RoomFace, hx: number, hz: number, y1: number): DoorCorner[] {
   switch (face) {
@@ -69,7 +68,11 @@ export function faceCorners(face: RoomFace, hx: number, hz: number, y1: number):
   }
 }
 
-/** Floor, ceiling, and the four inside walls. Origin is the floor centre. Cuts are in (s, t). */
+/**
+ * Floor, ceiling, and the four inside walls.
+ * @why Origin is the floor centre.
+ * @post Cuts are in (s, t).
+ */
 export function roomMeshes(room: RoomSource, images: (ref: string) => Uint8Array): NamedMesh[] {
   const hx = room.width / 2;
   const hz = room.depth / 2;
@@ -139,9 +142,9 @@ function paneQuad(c: readonly DoorCorner[], aperture: Aperture): DoorCorner[] {
 }
 
 /**
- * Read a room SVG. Without `glbPath`, write the generated inside-face GLB.
- * With `glbPath`, copy that Blender GLB (origin at the floor centre).
- * Either way, write `<id>.room.json` next to `--out`.
+ * Read a room SVG.
+ * @when Without `glbPath`, write the generated inside-face GLB. With `glbPath`, copy that Blender GLB (origin at the floor centre).
+ * @post Either way, write `<id>.room.json` next to `--out`.
  */
 export function writeRoom(options: {
   svgPath: string;

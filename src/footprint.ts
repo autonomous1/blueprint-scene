@@ -1,17 +1,21 @@
 import { PlanError } from "./errors.ts";
 import type { LocalBox, Triangle } from "./types.ts";
 
-/** Occupancy cell on XZ. Doubled once when a model still has more than `MAX_OBSTACLES` runs. */
+/**
+ * Occupancy cell on XZ.
+ * @when Doubled once when a model still has more than `MAX_OBSTACLES` runs.
+ */
 export const CELL_M = 0.5;
 
 /**
- * Vertical slice of the same grid. A triangle marks a band only where it
- * overlaps that slice inside the cell. A span at y = 3 does not paint y = 0.
- * Bands stack when they share a footprint, so a solid wall is one box.
+ * Vertical slice of the same grid.
+ * @why A triangle marks a band only where it overlaps that slice inside the cell. A span at y = 3 does not paint y = 0. Bands stack when they share a footprint, so a solid wall is one box.
  */
 export const BAND_M = 0.5;
 
-/** Per instance, after scale. The second pass uses `CELL_M * 2` and then stops. */
+/**
+ * @when Per instance, after scale. The second pass uses `CELL_M * 2` and then stops.
+ */
 export const MAX_OBSTACLES = 32;
 
 /**
@@ -54,9 +58,8 @@ const SHELL_M = 0.1;
 const STACK_XZ_M = 0.15;
 
 /**
- * Measure grid on the unscaled GLB, in GLB units. Arena meters are the SVG
- * instance scale, applied later. A run of one cell is kept. The bake cutoffs
- * (`MIN_LENGTH_M`, `MIN_THICKNESS_M`) are not applied here.
+ * Measure grid on the unscaled GLB, in GLB units.
+ * @why Arena meters are the SVG instance scale, applied later. A run of one cell is kept. The bake cutoffs (`MIN_LENGTH_M`, `MIN_THICKNESS_M`) are not applied here.
  */
 export const MEASURE_CELL_M = 0.05;
 
@@ -103,7 +106,10 @@ export type FootprintDetail = {
   facetsDropped: number;
 };
 
-/** Axis-aligned opening in the same XZ space as the occupancy grid. */
+/**
+ * Axis-aligned opening.
+ * @pre In the same XZ space as the occupancy grid.
+ */
 export type XzRect = {
   minX: number;
   maxX: number;
@@ -112,11 +118,9 @@ export type XzRect = {
 };
 
 /**
- * Project triangles onto XZ, then bin each solid cell into 0.5 m vertical
- * bands. Call this after scale and before yaw. A doorway is a run of empty
- * cells; gaps wider than one cell are left open. A box's Y is the bands the
- * mesh covers there, not the building's max height. From y = 0 to 2 m the
- * covered cells merge before any run is dropped.
+ * Project triangles onto XZ, then bin each solid cell into 0.5 m vertical bands.
+ * @pre Call this after scale and before yaw.
+ * @why A doorway is a run of empty cells; gaps wider than one cell are left open. A box's Y is the bands the mesh covers there, not the building's max height. From y = 0 to 2 m the covered cells merge before any run is dropped.
  */
 export function footprintFromTriangles(
   triangles: Triangle[],
@@ -127,7 +131,9 @@ export function footprintFromTriangles(
   return footprintDetail(triangles, cellSize, openings, fillInterior).boxes;
 }
 
-/** Same grid as `footprintFromTriangles`, plus how many facet boxes were dropped. */
+/**
+ * @see `footprintFromTriangles`, the same grid, plus how many facet boxes were dropped.
+ */
 export function footprintDetail(
   triangles: Triangle[],
   cellSize = CELL_M,
@@ -146,9 +152,8 @@ export function footprintDetail(
 }
 
 /**
- * Footprint of a raw GLB, in the same units as the vertex positions. Every
- * triangle is projected. The cell is 0.05. A run stays when its long side is
- * at least one cell. This is the measure stencil, not the bake obstacle grid.
+ * Footprint of a raw GLB, in the same units as the vertex positions.
+ * @why Every triangle is projected. The cell is 0.05. A run stays when its long side is at least one cell. This is the measure stencil, not the bake obstacle grid.
  */
 export function measureFootprint(triangles: Triangle[]): LocalBox[] {
   const boxes = occupancy(triangles, {
@@ -342,9 +347,8 @@ function isFacet(box: LocalBox, minLength: number): boolean {
 }
 
 /**
- * 0.5 m grid, or 1 m when the first pass still exceeds `MAX_OBSTACLES`.
- * `fillInterior` false is the shell only. Bake passes that for a model
- * whose floors file already describes the interior.
+ * @when 0.5 m grid, or 1 m when the first pass still exceeds `MAX_OBSTACLES`.
+ * @why `fillInterior` false is the shell only. Bake passes that for a model whose floors file already describes the interior.
  */
 export function coarseFootprint(triangles: Triangle[], fillInterior = true): CoarseFootprint {
   const fine = footprintDetail(triangles, CELL_M, [], fillInterior);

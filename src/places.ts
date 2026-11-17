@@ -52,7 +52,7 @@ function footprintScaleOff(
 
 /**
  * Rooms, halls, platforms, landings, stairs, and elevators from floors files and room prefabs.
- * A building with no floors file adds nothing.
+ * @post A building with no floors file adds nothing.
  */
 export function derivePlaces(args: {
   buildings: readonly PlaceBuilding[];

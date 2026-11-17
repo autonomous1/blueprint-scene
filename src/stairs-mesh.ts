@@ -1,16 +1,21 @@
 import { writeMeshesGlb, type DoorCorner } from "./glb-write.ts";
 import type { LocalBox } from "./types.ts";
 
-/** Tallest riser the bake emits. Under the arena's 0.3 m STEP_HEIGHT, and a normal building riser. */
+/**
+ * @why Tallest riser the bake emits. Under the arena's 0.3 m STEP_HEIGHT, and a normal building riser.
+ */
 export const MAX_RISER_M = 0.18;
 
-/** Thickness of each step slab under its tread. The space below the flight stays open. */
+/**
+ * Thickness of each step slab under its tread.
+ * @why The space below the flight stays open.
+ */
 export const STEP_THICKNESS_M = 0.3;
 
 /**
- * One slab per step, building-local: STEP_THICKNESS_M thick under its tread
- * (clamped so it never goes below `bottom`), leaving the space under the flight open. `up` is
- * the climb direction in local XZ (unit, axis-aligned after the quarter-turn yaw).
+ * One slab per step, building-local.
+ * @pre `up` is the climb direction in local XZ (unit, axis-aligned after the quarter-turn yaw).
+ * @post `STEP_THICKNESS_M` thick under its tread (clamped so it never goes below `bottom`), leaving the space under the flight open.
  */
 export function stairsStepBoxes(
   polygon: readonly (readonly [number, number])[],
@@ -43,7 +48,10 @@ export function stairsStepBoxes(
   return boxes;
 }
 
-/** Closed boxes with the floor image tiled in building-local metres. */
+/**
+ * Closed boxes.
+ * @why The floor image is tiled in building-local metres.
+ */
 export function stairsGlb(args: { boxes: readonly LocalBox[]; image: Uint8Array; tileX: number; tileZ: number }): Uint8Array {
   const corners: DoorCorner[] = [];
   const { tileX: tx, tileZ: tz } = args;

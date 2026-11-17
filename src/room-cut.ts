@@ -15,7 +15,10 @@ const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 
-/** (s, t) of a point on the face. c = faceCorners(...). */
+/**
+ * (s, t) of a point on the face.
+ * @pre c = faceCorners(...).
+ */
 export function stOf(c: readonly DoorCorner[], p: Vec3): [number, number] {
   const e1 = sub(c[1]!.position, c[0]!.position);
   const e3 = sub(c[3]!.position, c[0]!.position);
@@ -23,7 +26,10 @@ export function stOf(c: readonly DoorCorner[], p: Vec3): [number, number] {
   return [dot(d, e1) / dot(e1, e1), dot(d, e3) / dot(e3, e3)];
 }
 
-/** Quad for a sub-rectangle, same winding and UV mapping as the whole face. */
+/**
+ * Quad for a sub-rectangle.
+ * @post Same winding and UV mapping as the whole face.
+ */
 export function subQuad(c: readonly DoorCorner[], r: St): DoorCorner[] {
   const at = (s: number, t: number): DoorCorner => {
     const lerp = (i: 0 | 1 | 2, k: "position") =>
@@ -36,7 +42,8 @@ export function subQuad(c: readonly DoorCorner[], r: St): DoorCorner[] {
 
 /**
  * Doors, windows, openings, and holes as rectangles in each face's (s, t).
- * s runs along c0→c1 and t along c0→c3. Values are clamped to [0, 1].
+ * @pre s runs along c0→c1 and t along c0→c3.
+ * @post Values are clamped to [0, 1].
  */
 export function roomApertures(room: RoomSource): Record<RoomFace, Aperture[]> {
   const hx = room.width / 2;
@@ -111,7 +118,10 @@ export function roomApertures(room: RoomSource): Record<RoomFace, Aperture[]> {
   return out;
 }
 
-/** Kept rectangles. No apertures returns the single cell `{0, 1, 0, 1}`. */
+/**
+ * Kept rectangles.
+ * @post No apertures returns the single cell `{0, 1, 0, 1}`.
+ */
 export function cutFace(apertures: readonly Aperture[]): St[] {
   const ss = uniqueSorted([0, 1, ...apertures.flatMap((aperture) => [aperture.s0, aperture.s1])]);
   const ts = uniqueSorted([0, 1, ...apertures.flatMap((aperture) => [aperture.t0, aperture.t1])]);

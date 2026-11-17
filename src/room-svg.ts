@@ -28,7 +28,9 @@ import { attr, localName, parseXml, type XmlNode } from "./xml.ts";
 
 export type WallFace = "front" | "back" | "left" | "right";
 export type RoomFace = WallFace | "floor" | "ceiling";
-/** `ref` is a data URI or a path resolved against the SVG folder (or an absref). */
+/**
+ * @pre `ref` is a data URI or a path resolved against the SVG folder (or an absref).
+ */
 export type FaceTexture = { face: RoomFace; source: RoomFace; ref: string };
 
 export type RoomShape = { id: string; minX: number; maxX: number; minZ: number; maxZ: number };
@@ -121,7 +123,10 @@ export function layerRole(label: string | undefined): string | undefined {
   return SEMANTIC.has(name) ? name : name === "ignore" ? "ignore" : undefined;
 }
 
-/** Inner wall line in room-local metres. Doors, windows, and openings snap onto it. */
+/**
+ * Inner wall line in room-local metres.
+ * @why Doors, windows, and openings snap onto it.
+ */
 export function wallLine(wall: WallFace, width: number, depth: number): { axis: "x" | "z"; at: number } {
   switch (wall) {
     case "front":
@@ -150,8 +155,8 @@ type Drawn = {
 };
 
 /**
- * Read one room prefab. The file name is the room id. 1 mm = 1 m.
- * The origin is the centre of the floor, y = 0 is the floor, front is +Z, and right is +X.
+ * Read one room prefab.
+ * @why The file name is the room id. 1 mm = 1 m. The origin is the centre of the floor, y = 0 is the floor, front is +Z, and right is +X.
  */
 export function readRoomSvg(svgText: string, svgPath: string): RoomSource {
   const id = path.basename(svgPath, ".svg");

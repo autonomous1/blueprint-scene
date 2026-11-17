@@ -12,7 +12,9 @@ import type { Vec3 } from "./types.ts";
 
 export const DEFAULT_RADIUS = 0.5;
 export const DEFAULT_HEIGHT = 1.8;
-/** A box whose top is at most this far above the stand is a step, not a wall. */
+/**
+ * @why A box whose top is at most this far above the stand is a step, not a wall.
+ */
 export const STEP_HEIGHT = 0.3;
 
 export type Region = {
@@ -159,9 +161,10 @@ export function buildRegions(place: RegionPlace, boxes: readonly RegionBox[], op
 }
 
 /**
- * Partition every walkable place. Shafts, cab rooms, stairs, and landings are omitted.
- * Elevator-room obstacles are dropped: those walls ride with the cab.
- * `boxes` are static world AABBs (buildings, props, room shells). An empty list is valid.
+ * Partition every walkable place.
+ * @pre `boxes` are static world AABBs (buildings, props, room shells).
+ * @post Shafts, cab rooms, stairs, and landings are omitted. An empty list is valid.
+ * @why Elevator-room obstacles are dropped: those walls ride with the cab.
  */
 export function bakeWalkableRegions(
   graph: SceneGraphFile,
@@ -207,7 +210,10 @@ export function bakeWalkableRegions(
   return { version: 1, radius, height, places };
 }
 
-/** Placement-file `obstacles`. Missing or non-aabb entries fail the bake. */
+/**
+ * Placement-file `obstacles`.
+ * @pre Missing or non-aabb entries fail the bake.
+ */
 export function obstaclesFrom(value: unknown, filePath: string): RegionBox[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new PlanError(`${filePath} has no obstacles`);

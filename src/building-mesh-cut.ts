@@ -19,15 +19,12 @@ type Vert = {
 };
 
 /**
- * The door gap in the building GLB's space. That space is the one
- * `trianglesFromGlb` returns: node transforms applied, placement scale not.
- * The gap is `doorClearLocal` — X along the wall, Y up from the sill, Z from
- * `-DOOR_GAP_DEPTH_M` (inward) to 0 (the face). Eight corners go door → world
- * → model. Cardinal yaw keeps the result an AABB.
- *
+ * The door gap in the building GLB's space.
  * Check: building (-20.611524, 0, 0.25919), yaw 90, scale 30, left hinge
  * (-23.754711, 2.75, 15.259191), yaw 0, width 1.055523, height 2.1.
  * Local (0, 0, 0) is model (-0.5, 0.091667, -0.104773).
+ * @pre That space is the one `trianglesFromGlb` returns: node transforms applied, placement scale not. The gap is `doorClearLocal` — X along the wall, Y up from the sill, Z from `-DOOR_GAP_DEPTH_M` (inward) to 0 (the face).
+ * @why Eight corners go door → world → model. Cardinal yaw keeps the result an AABB.
  */
 export function openingInModel(
   placement: DoorPlacement,
@@ -39,10 +36,9 @@ export function openingInModel(
 }
 
 /**
- * `local` is in the door frame (`doorClearLocal`: hinge at the origin, −Z
- * inward). Eight corners go door → world → model. Cardinal yaw keeps an AABB.
- * `openingInModel` is this for the 2 m inward stamp. A wall cut passes the
- * thicker box `doorCutLocal` measured, so the punch includes the proud face.
+ * @pre `local` is in the door frame (`doorClearLocal`: hinge at the origin, −Z inward).
+ * @see `openingInModel` is this for the 2 m inward stamp.
+ * @why Eight corners go door → world → model. Cardinal yaw keeps an AABB. A wall cut passes the thicker box `doorCutLocal` measured, so the punch includes the proud face.
  */
 export function boxInModel(
   placement: DoorPlacement,
@@ -103,11 +99,9 @@ const FACADE_SLIVER_M = 0.002;
 const WALL_SLAB_M = 1;
 
 /**
- * Door-local cut volume in model space, shrunk to the wall slab on the
- * door normal, then grown onto a facade face it only just misses.
- * `depth` is that slab's extent in world metres.
- * The face is door-local z = 0. Inward is −Z. A hit more than
- * `WALL_SLAB_M` from the face is left in the mesh.
+ * Door-local cut volume in model space.
+ * @why Shrunk to the wall slab on the door normal, then grown onto a facade face it only just misses. `depth` is that slab's extent in world metres.
+ * @post The face is door-local z = 0. Inward is −Z. A hit more than `WALL_SLAB_M` from the face is left in the mesh.
  */
 export function sealedOpeningBox(
   triangles: readonly Triangle[],
@@ -190,10 +184,9 @@ function clampToWallSlab(
 }
 
 /**
- * Grow `box` out to a mesh face the doorway center actually hits. A thin
- * axis may reach `SKIN_REACH_M`. Any axis may reach `FACADE_SLIVER_M`, so a
- * punch that stops just short of the facade removes that face. The door
- * width is not grown out to the next wall.
+ * Grow `box` out to a mesh face the doorway center actually hits.
+ * @why A thin axis may reach `SKIN_REACH_M`. Any axis may reach `FACADE_SLIVER_M`, so a punch that stops just short of the facade removes that face.
+ * @post The door width is not grown out to the next wall.
  */
 export function extendSkinToFacade(triangles: readonly Triangle[], box: LocalBox): LocalBox {
   const min = [box.minX, box.minY, box.minZ];
@@ -233,9 +226,8 @@ export function extendSkinToFacade(triangles: readonly Triangle[], box: LocalBox
 
 /**
  * Move a room-facade box's outer face out to the mesh.
- * The ray starts at the box centre and runs along `outward` on `axis`.
- * The furthest hit within `WALL_SLAB_M` world metres past that face becomes
- * the face, plus `FACADE_SLIVER_M` further out. No such hit leaves `box`.
+ * @pre The ray starts at the box centre and runs along `outward` on `axis`.
+ * @post The furthest hit within `WALL_SLAB_M` world metres past that face becomes the face, plus `FACADE_SLIVER_M` further out. No such hit leaves `box`.
  */
 export function extendOutlineToFacade(
   triangles: readonly Triangle[],
@@ -307,9 +299,9 @@ function axisHits(triangles: readonly Triangle[], origin: Vec3, dir: Vec3, axis:
 }
 
 /**
- * Source triangles that are not strictly outside `opening`, one count per
- * opening. A triangle that only touches the box from the outside is not
- * counted. The bake logs this as the triangles the punch removes.
+ * Source triangles that are not strictly outside `opening`, one count per opening.
+ * @post A triangle that only touches the box from the outside is not counted.
+ * @why The bake logs this as the triangles the punch removes.
  */
 export function openingOverlapCounts(bytes: Uint8Array, openings: readonly LocalBox[]): number[] {
   const doc = readTexturedGlb(bytes);
@@ -340,7 +332,7 @@ export type MeshProbe = {
 
 /**
  * Triangles of a textured GLB in `openingInModel` space, for doorway probes.
- * One parse serves every instance of a shared room mesh.
+ * @why One parse serves every instance of a shared room mesh.
  */
 export function meshProbe(bytes: Uint8Array): MeshProbe {
   const doc = readTexturedGlb(bytes);
@@ -421,11 +413,11 @@ function rayHitsBox(
 }
 
 /**
- * Punch `openings` out of a textured building GLB. Each opening is an AABB in
- * the mesh's model space. Triangles that miss an opening keep their vertices.
- * A triangle that crosses one is split; UVs and normals are barycentric on
- * the cut edges. Image bytes and materials are copied through.
- * An empty opening list returns `bytes` unchanged.
+ * Punch `openings` out of a textured building GLB.
+ * A triangle that crosses one is split; UVs and normals are barycentric on the cut edges.
+ * @pre Each opening is an AABB in the mesh's model space.
+ * @post Triangles that miss an opening keep their vertices. An empty opening list returns `bytes` unchanged.
+ * @why Image bytes and materials are copied through.
  */
 export function cutBuildingGlb(bytes: Uint8Array, openings: readonly LocalBox[]): Uint8Array {
   if (openings.length === 0) return bytes;
@@ -435,10 +427,9 @@ export function cutBuildingGlb(bytes: Uint8Array, openings: readonly LocalBox[])
 }
 
 /**
- * Source mesh in the cut-file form: node transforms baked, identity nodes,
- * no door punches. `cutBuildingGlb` with an empty list returns `bytes`
- * unchanged, which would keep a source node's scale. A stale `.cut.glb`
- * has to be replaced with this instead.
+ * Source mesh in the cut-file form.
+ * @post Node transforms baked, identity nodes, no door punches.
+ * @why `cutBuildingGlb` with an empty list returns `bytes` unchanged, which would keep a source node's scale. A stale `.cut.glb` has to be replaced with this instead.
  */
 export function uncutBuildingGlb(bytes: Uint8Array): Uint8Array {
   return writeTexturedGlb(readTexturedGlb(bytes));

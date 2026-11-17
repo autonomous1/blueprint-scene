@@ -4,7 +4,7 @@ import { attr, localName, parseXml, type XmlNode } from "./xml.ts";
 
 /**
  * A tagged instance before the model size is known.
- * `drawnWidth` / `drawnDepth` are world meters along model +X and model +Z.
+ * @why `drawnWidth` / `drawnDepth` are world meters along model +X and model +Z.
  */
 export type PlanPlacement = {
   id: string;
@@ -45,7 +45,9 @@ export function ident(): Mat {
   return [1, 0, 0, 1, 0, 0];
 }
 
-/** `m` is applied after `n`. */
+/**
+ * @pre `m` is applied after `n`.
+ */
 export function mul(m: Mat, n: Mat): Mat {
   const [a1, b1, c1, d1, e1, f1] = m;
   const [a2, b2, c2, d2, e2, f2] = n;
@@ -64,19 +66,18 @@ export function apply(m: Mat, x: number, y: number): [number, number] {
 }
 
 /**
- * Inkscape toolbar coordinates are the room. The toolbar is user space, Y-up,
- * with its origin at the lower-left of the page. The SVG `y` attribute is
- * measured down from the top, so toolbar y is `pageMaxY - svgY`.
- * World x is toolbar x. World z is toolbar y. World y is 0.
- * The page height is not added again, toolbar y is not negated, and the
- * bounds rectangle is not subtracted.
+ * Inkscape toolbar coordinates are the room.
+ * @why The toolbar is user space, Y-up, with its origin at the lower-left of the page. The SVG `y` attribute is measured down from the top, so toolbar y is `pageMaxY - svgY`. The page height is not added again, toolbar y is not negated, and the bounds rectangle is not subtracted.
+ * @post World x is toolbar x. World z is toolbar y. World y is 0.
  */
 export function svgPointToWorld(svgX: number, svgY: number, svgZ: number,frame: PageFrame): Vec3 {
   const toolbarY = frame.pageMaxY - svgY;
   return [svgX * frame.meters, svgZ, toolbarY * frame.meters];
 }
 
-/** SVG user units, plus the SVG y of the page bottom (toolbar y = 0). */
+/**
+ * @why SVG user units, plus the SVG y of the page bottom (toolbar y = 0).
+ */
 export type PageFrame = {
   meters: number;
   pageMaxY: number;
@@ -100,9 +101,8 @@ export type PlanScene = {
 };
 
 /**
- * One rectangle or image on a named Inkscape layer, in toolbar meters. Y is up.
- * The part is the element id: `data-part-frame`, `data-part-door`,
- * `data-part-hinge`, or `data-part-texture`.
+ * One rectangle or image on a named Inkscape layer, in toolbar meters.
+ * @why Y is up. The part is the element id: `data-part-frame`, `data-part-door`, `data-part-hinge`, or `data-part-texture`.
  */
 export type DesignRect = {
   id: string;
@@ -122,9 +122,8 @@ export type DesignRect = {
 };
 
 /**
- * World meters per SVG user unit. The drawing scale treats 1 mm as 1 m,
- * so this is millimeters per user unit:
- * `widthInMm / viewBoxWidth / documentScale`.
+ * World meters per SVG user unit.
+ * @why The drawing scale treats 1 mm as 1 m, so this is millimeters per user unit: `widthInMm / viewBoxWidth / documentScale`.
  */
 export function metersPerUserUnit(svg: XmlNode): number {
   const viewBox = attr(svg, "viewBox");
@@ -156,9 +155,8 @@ export function readPlacements(svgText: string): PlanPlacement[] {
 }
 
 /**
- * `data-building` names a model when any placement uses that model. That
- * includes a placement whose id is the same string: the opening is shared.
- * Otherwise it must be exactly one placement id.
+ * @pre `data-building` names a model when any placement uses that model. That includes a placement whose id is the same string: the opening is shared.
+ * @post Otherwise it must be exactly one placement id.
  */
 export function classifyDoorBind(
   building: string,
@@ -227,9 +225,9 @@ const PART_BY_ID: Record<string, string> = {
 };
 
 /**
- * Rectangles and images on one Inkscape layer, in the same toolbar meters as the plan.
- * X is toolbar x. Y is toolbar y, up. A rotated rectangle fails.
- * A door design names each part with its element id.
+ * Rectangles and images on one Inkscape layer, in the same toolbar meters as the plan. A door design names each part with its element id.
+ * @why X is toolbar x. Y is toolbar y, up.
+ * @post A rotated rectangle fails.
  */
 export function readDesignRects(svgText: string, layer: string): DesignRect[] {
   const svg = parseXml(svgText);
@@ -241,11 +239,8 @@ export function readDesignRects(svgText: string, layer: string): DesignRect[] {
 }
 
 /**
- * A rectangle or image on one Inkscape layer, in toolbar meters. Y is up.
- * `label` is the Inkscape label. `face` is `data-face`. `href` is an image
- * href. `dataTexture` and `depth` are the `data-texture` and `data-depth`
- * attributes. An image nested in a rectangle is that rectangle's texture,
- * not a second shape.
+ * A rectangle or image on one Inkscape layer, in toolbar meters. Y is up. `label` is the Inkscape label. `face` is `data-face`. `href` is an image href. `dataTexture` and `depth` are the `data-texture` and `data-depth` attributes.
+ * @why An image nested in a rectangle is that rectangle's texture, not a second shape.
  */
 export type LayerShape = {
   id: string;
@@ -564,11 +559,10 @@ function consider(el: XmlNode, matrix: Mat, stack: string[], collect: Collect): 
 }
 
 /**
- * A copied `measure` stencil is a group with a `path` child. Its local (0, 0)
- * is the model origin and its local unit is one model unit. A group of
- * rectangles, or a bare rectangle, is not a stencil and keeps the drawn-box rule.
- * Check: `matrix(30 0 0 30 10 90)` on a 100-unit page at 1 m per unit puts the
- * origin at world (10, 0, 10) with scale 30.
+ * A copied `measure` stencil is a group with a `path` child.
+ * Check: `matrix(30 0 0 30 10 90)` on a 100-unit page at 1 m per unit puts the origin at world (10, 0, 10) with scale 30.
+ * @why Its local (0, 0) is the model origin and its local unit is one model unit.
+ * @post A group of rectangles, or a bare rectangle, is not a stencil and keeps the drawn-box rule.
  */
 export function stencilPose(el: XmlNode, matrix: Mat, frame: PageFrame): { origin: Vec3; scale: number } | undefined {
   if (localName(el.name) !== "g" && localName(el.name) !== "path") return undefined;
@@ -629,7 +623,10 @@ export function measureTagged(
   };
 }
 
-/** Uniform SVG scale. A plain rectangle is 1. `scale(2)` is 2. */
+/**
+ * Uniform SVG scale.
+ * @post A plain rectangle is 1. `scale(2)` is 2.
+ */
 export function uniformScale(matrix: Mat, id: string): number {
   const lenX = Math.hypot(matrix[0], matrix[1]);
   const lenY = Math.hypot(matrix[2], matrix[3]);
@@ -653,7 +650,11 @@ function takeBounds(el: XmlNode, matrix: Mat, collect: Collect): void {
   };
 }
 
-/** A props-layer rectangle. Unlabelled rectangles are skipped. The caller claims the id. */
+/**
+ * A props-layer rectangle.
+ * @post Unlabelled rectangles are skipped.
+ * @pre The caller claims the id.
+ */
 export function propFromElement(
   el: XmlNode,
   matrix: Mat,
@@ -693,9 +694,9 @@ function takeProp(el: XmlNode, matrix: Mat, collect: Collect): void {
 }
 
 /**
- * Door rectangle geometry. `building` is the caller's bind string: a plan
- * door's `data-building` (model id or placement id), a floors door's model,
- * or a room's id. This does not claim ids and does not read `data-building`.
+ * Door rectangle geometry.
+ * @pre `building` is the caller's bind string: a plan door's `data-building` (model id or placement id), a floors door's model, or a room's id.
+ * @post This does not claim ids and does not read `data-building`.
  */
 export function doorFromElement(
   el: XmlNode,
@@ -893,7 +894,10 @@ function insideBounds(box: XzBounds, x: number, z: number): boolean {
 
 const PATH_TOKEN = /[MmLlHhVvCcSsQqTtAaZz]|[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g;
 
-/** Endpoints and control points of an SVG path, in the element's local space. */
+/**
+ * Endpoints and control points of an SVG path.
+ * @post In the element's local space.
+ */
 export function pathPoints(raw: string | undefined, id: string, kind = "spawn"): Array<[number, number]> {
   const label = `${kind} "${id}"`;
   const tokens = raw?.match(PATH_TOKEN) ?? [];

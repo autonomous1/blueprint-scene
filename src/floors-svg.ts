@@ -38,7 +38,10 @@ export type RoomInstanceSource = {
   drawnDepth: number;
 };
 
-/** Tileable albedo for one floor's hall. Tile sizes are metres. */
+/**
+ * Tileable albedo for one floor's hall.
+ * @why Tile sizes are metres.
+ */
 export type FloorTexture = {
   image: Uint8Array;
   /** Metres per tile along building-local +X. */
@@ -47,7 +50,9 @@ export type FloorTexture = {
   tileZ: number;
 };
 
-/** Used when an image has no `data-tile-m` and no pattern tile. */
+/**
+ * @when Used when an image has no `data-tile-m` and no pattern tile.
+ */
 export const DEFAULT_TILE_M = 2;
 
 /** A `platform:<id>` rect or path, in building-local metres. */
@@ -60,9 +65,8 @@ export type FloorPlatformSource = {
 };
 
 /**
- * A `stairs:<id>` rect, in building-local metres. `bottom` and `top` are
- * metres above the building ground. `up` is a unit vector in local XZ.
- * `floor` is omitted for a `stairs-external` run.
+ * A `stairs:<id>` rect, in building-local metres. `bottom` and `top` are metres above the building ground. `up` is a unit vector in local XZ.
+ * @when `floor` is omitted for a `stairs-external` run.
  */
 export type FloorStairsSource = {
   id: string;
@@ -79,9 +83,9 @@ export type FloorStairsSource = {
 };
 
 /**
- * A `landing:<id>` rect or path, in building-local metres. `elevation` is
- * metres above the building ground, the same frame as a stair's `bottom`.
- * `floor` is omitted for a `stairs-external` landing.
+ * A `landing:<id>` rect or path, in building-local metres.
+ * @why `elevation` is metres above the building ground, the same frame as a stair's `bottom`.
+ * @when `floor` is omitted for a `stairs-external` landing.
  */
 export type FloorLandingSource = {
   id: string;
@@ -95,7 +99,10 @@ export type FloorLandingSource = {
   texture: FloorTexture;
 };
 
-/** An `elevator:<id>` cab, in building-local metres. Stops are above the building ground. */
+/**
+ * An `elevator:<id>` cab, in building-local metres.
+ * @why Stops are above the building ground.
+ */
 export type FloorElevatorSource = {
   id: string;
   floor: number;
@@ -216,8 +223,10 @@ function toLocal(x: number, z: number, origin: Vec3, yaw: Yaw): { x: number; z: 
 }
 
 /**
- * Read one building's floors file. Positions are building-local metres.
- * Hidden layers are read. `ignore` and everything under it is skipped.
+ * Read one building's floors file.
+ * @why Positions are building-local metres.
+ * @when Hidden layers are read.
+ * @pre `ignore` and everything under it is skipped.
  */
 export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
   const svg = parseXml(svgText);

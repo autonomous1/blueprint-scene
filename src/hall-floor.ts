@@ -4,12 +4,14 @@ import type { Yaw } from "./types.ts";
 import type { Aabb2 } from "./union.ts";
 import { placeBox } from "./yaw.ts";
 
-/** Drop the visible hall a millimetre under the walk surface so it does not z-fight a room floor. */
+/**
+ * @why Drop the visible hall a millimetre under the walk surface so it does not z-fight a room floor.
+ */
 export const HALL_FLOOR_SINK_M = 0.001;
 
 /**
- * Pull facade edges in by this much so the floor ends inside the wall thickness.
- * Room edges are not inset.
+ * @why Pull facade edges in by this much so the floor ends inside the wall thickness.
+ * @post Room edges are not inset.
  */
 export const HALL_EDGE_INSET_M = 0.05;
 
@@ -24,8 +26,8 @@ export function defaultFloorImage(): Uint8Array {
 }
 
 /**
- * Building-local footprint of one room instance. The box is the `.room.json`
- * footprint placed at the instance centre, the same rectangle a hall place cuts out.
+ * Building-local footprint of one room instance.
+ * @why The box is the `.room.json` footprint placed at the instance centre, the same rectangle a hall place cuts out.
  */
 export function roomFootprintAabb(
   inst: { center: { x: number; z: number }; yaw: Yaw },
@@ -43,10 +45,9 @@ export function roomFootprintAabb(
 }
 
 /**
- * Outline minus room rectangles. The outline is pulled in by `HALL_EDGE_INSET_M`
- * first; room edges stay put. A cell is kept when its centre is inside the
- * outline (even-odd) and inside no room. Rows are merged, then equal-width
- * rows are stacked. Empty when the rooms cover the outline.
+ * Outline minus room rectangles.
+ * @pre The outline is pulled in by `HALL_EDGE_INSET_M` first; room edges stay put.
+ * @post A cell is kept when its centre is inside the outline (even-odd) and inside no room. Rows are merged, then equal-width rows are stacked. Empty when the rooms cover the outline.
  */
 export function hallCells(
   outline: readonly (readonly [number, number])[],
@@ -78,9 +79,8 @@ export function hallCells(
 }
 
 /**
- * Move each outline edge inward by `inset` metres. A rectilinear counter-clockwise
- * ring stays one. An edge that would flip is left unmoved, and the original ring
- * is returned.
+ * Move each outline edge inward by `inset` metres.
+ * @post A rectilinear counter-clockwise ring stays one. An edge that would flip is left unmoved, and the original ring is returned.
  */
 export function insetOutline(
   outline: readonly (readonly [number, number])[],
@@ -131,12 +131,16 @@ export type HallFloorPiece = {
   slabMaxY: number;
 };
 
-/** A floor's outline pieces: `outlines`, or `[outline]` when it has one. */
+/**
+ * @when A floor's outline pieces: `outlines`, or `[outline]` when it has one.
+ */
 export function outlinePieces(floor: { outline: Array<[number, number]>; outlines?: Array<Array<[number, number]>> }): Array<Array<[number, number]>> {
   return floor.outlines ?? [floor.outline];
 }
 
-/** `hallCells` of each outline piece, concatenated. One piece is the same as `hallCells`. */
+/**
+ * @see `hallCells` of each outline piece, concatenated. One piece is the same as `hallCells`.
+ */
 export function hallCellsOf(
   outlines: readonly (readonly (readonly [number, number])[])[],
   rooms: readonly Aabb2[],
@@ -145,7 +149,10 @@ export function hallCellsOf(
   return outlines.flatMap((outline) => hallCells(outline, rooms));
 }
 
-/** Elevated-floor hall in building-local metres. Undefined when the hall has no area. */
+/**
+ * Elevated-floor hall in building-local metres.
+ * @post Undefined when the hall has no area.
+ */
 export function hallFloorPiece(
   elevation: number,
   outlines: readonly (readonly (readonly [number, number])[])[],
@@ -162,11 +169,10 @@ export function hallFloorPiece(
 }
 
 /**
- * One textured mesh in building-local metres. The quad is wound so its
- * geometric normal is +Y (visible from above).
+ * One textured mesh in building-local metres.
  * Check: edge (+x, 0, 0) × edge (0, 0, −z) = (0, +1, 0).
- * UVs are building-local metres over the tile (`u = x / tileX`, `v = z / tileZ`),
- * so the image repeats with no seam between rectangles.
+ * @post The quad is wound so its geometric normal is +Y (visible from above).
+ * @why UVs are building-local metres over the tile (`u = x / tileX`, `v = z / tileZ`), so the image repeats with no seam between rectangles.
  */
 export function hallFloorGlb(args: {
   cells: readonly Aabb2[];
