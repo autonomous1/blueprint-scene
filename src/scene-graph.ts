@@ -72,6 +72,11 @@ type Xz = readonly [number, number];
 export function buildSceneGraph(args: {
   places: readonly AnyPlace[];
   doors: readonly DoorPlacement[];
+  /**
+   * Placements read via `--room-doors`. Their `locked`/`key` are not copied onto the
+   * portal: the arena loader drops them for room leaves so KeyE still works.
+   */
+  roomDoorIds?: ReadonlySet<string>;
   bounds: BoundsFile;
 }): { graph: SceneGraphFile; warnings: string[] } {
   const warnings: string[] = [];
@@ -94,14 +99,15 @@ export function buildSceneGraph(args: {
     }
     if (!frontId || !backId || frontId === backId) continue;
     const ends = orderPair(frontId, backId, front, back);
+    const roomDoor = args.roomDoorIds?.has(door.id) === true;
     portals.push({
       id: door.id,
       kind: "door",
       a: ends.a,
       b: ends.b,
       door: door.id,
-      ...(door.locked ? { locked: true } : {}),
-      ...(door.key ? { key: door.key } : {}),
+      ...(door.locked && !roomDoor ? { locked: true } : {}),
+      ...(door.key && !roomDoor ? { key: door.key } : {}),
       at: ends.at,
       width: roundM(door.size[0]),
       cost: roundM(distance(front, back)),

@@ -8,21 +8,21 @@ Per file: `imports` = local modules it imports, `pkgs` = packages, `used by` = l
 ## Files
 
 ```text
-src/ (30 files, 14955 lines)
+src/ (30 files, 15017 lines)
   asset-type.ts 103L 3x
   bake.ts 1358L 3x
   building-mesh-cut.ts 646L 10x
-  cli.ts 408L 1x
+  cli.ts 409L 1x
   crate.ts 325L 4x
   doors.ts 467L 13x
   errors.ts 6L 1x
-  floors-svg.ts 1391L 10x
+  floors-svg.ts 1429L 10x
   footprint.ts 1178L 11x
   glb-write.ts 552L 7x
   glb.ts 550L 9x
   hall-floor.ts 295L 11x
   measure.ts 150L 5x
-  places.ts 845L 1x
+  places.ts 862L 1x
   plan.ts 1175L 33x
   prop.ts 335L 4x
   regions.ts 624L 15x — Walkable region adjacency for one flat floor.
@@ -31,7 +31,7 @@ src/ (30 files, 14955 lines)
   room-glb.ts 238L 3x
   room-svg.ts 850L 12x
   rooms-bake.ts 1514L 29x
-  scene-graph.ts 505L 6x
+  scene-graph.ts 511L 6x
   spatial-dag.ts 121L 1x — Static spatial DAG output: merged obstacle chunks plus a place hierarchy.
   stairs-mesh.ts 75L 4x
   stencil.ts 101L 4x
@@ -189,7 +189,7 @@ used by: src/bake.ts
 - `doorToWorld` fn (local) :634 `(placement: DoorPlacement, x: number, y: number, z: number): Vec3`
 - `worldToModel` fn (local) :643 `(world: Vec3, origin: Vec3, yaw: Yaw, scale: number): Vec3`
 
-### src/cli.ts (408)
+### src/cli.ts (409)
 imports: src/bake.ts, src/crate.ts, src/errors.ts, src/floors-svg.ts, src/measure.ts, src/places.ts, src/prop.ts, src/regions.ts, src/room-file.ts, src/room-glb.ts, src/scene-graph.ts, src/spatial-dag.ts, src/types.ts
 pkgs: node:fs, node:path, node:url
 - `USAGE` const (local) :19 `= `blueprint-scene measure --glb model.glb --out buildings/<id>.json --svg buildings/<id>.svg blueprint-scene bake --svg plan.svg --models ./models --out web/g…`
@@ -201,17 +201,17 @@ pkgs: node:fs, node:path, node:url
 - `runProp` fn (local) :230 `(argv: string[]): void`
 - `runRoom` fn (local) :249 `(argv: string[]): void`
 - `runSceneGraph` fn (local) :269 `(argv: string[]): void`
-- `readPositive` fn (local) :318 `(value: string | undefined, name: string, fallback: number): number`
-- `readObstacleBoxes` fn (local) :325 `(filePath: string): RegionBox[]`
-- `readPlacements` fn (local) :329 `(filePath: string): Placement[]`
-- `readDoorPlacements` fn (local) :335 `(filePath: string): DoorPlacement[]`
-- `readRoomDoors` fn (local) :342 `(filePath: string): DoorPlacement[]` — Room files mix room meshes and doors.
-- `readBounds` fn (local) :346 `(filePath: string): BoundsFile`
-- `readJson` fn (local) :354 `(filePath: string): unknown`
-- `runFloors` fn (local) :363 `(argv: string[]): void`
-- `formatMetres` fn (local) :374 `(n: number): string`
-- `parseFlags` fn (local) :380 `(argv: string[], known: Set<string>): Record<string, string>`
-- `entry` const (local) :405 `= process.argv[1]`
+- `readPositive` fn (local) :319 `(value: string | undefined, name: string, fallback: number): number`
+- `readObstacleBoxes` fn (local) :326 `(filePath: string): RegionBox[]`
+- `readPlacements` fn (local) :330 `(filePath: string): Placement[]`
+- `readDoorPlacements` fn (local) :336 `(filePath: string): DoorPlacement[]`
+- `readRoomDoors` fn (local) :343 `(filePath: string): DoorPlacement[]` — Room files mix room meshes and doors.
+- `readBounds` fn (local) :347 `(filePath: string): BoundsFile`
+- `readJson` fn (local) :355 `(filePath: string): unknown`
+- `runFloors` fn (local) :364 `(argv: string[]): void`
+- `formatMetres` fn (local) :375 `(n: number): string`
+- `parseFlags` fn (local) :381 `(argv: string[], known: Set<string>): Record<string, string>`
+- `entry` const (local) :406 `= process.argv[1]`
 
 ### src/crate.ts (325)
 imports: src/errors.ts, src/glb-write.ts, src/plan.ts, src/types.ts
@@ -315,90 +315,93 @@ used by: src/asset-type.ts, src/bake.ts, src/building-mesh-cut.ts, src/cli.ts, s
 - `PlanError` class :1 `extends Error`
   - `constructor` ctor :2 `(message: string)`
 
-### src/floors-svg.ts (1391)
-imports: src/crate.ts, src/errors.ts, src/hall-floor.ts, src/plan.ts, src/types.ts, src/xml.ts, src/yaw.ts
+### src/floors-svg.ts (1429)
+imports: src/crate.ts, src/errors.ts, src/hall-floor.ts, src/plan.ts, src/types.ts, src/union.ts, src/xml.ts, src/yaw.ts
 pkgs: node:fs, node:path
 used by: src/bake.ts, src/cli.ts, src/places.ts, src/rooms-bake.ts
-- `RoomInstanceSource` type :32 `= { id: string; prefab: string; center: { x: number; z: number }; yaw: Yaw; drawnWidth: number; drawnDepth: number; }`
-- `FloorTexture` type :45 `= { image: Uint8Array; tileX: number; tileZ: number; }` — Tileable albedo for one floor's hall.
+- `RoomInstanceSource` type :33 `= { id: string; prefab: string; center: { x: number; z: number }; yaw: Yaw; drawnWidth: number; drawnDepth: number; }`
+- `FloorTexture` type :46 `= { image: Uint8Array; tileX: number; tileZ: number; }` — Tileable albedo for one floor's hall.
   `@why` Tile sizes are metres.
-- `DEFAULT_TILE_M` const :56 `= 2`
+- `DEFAULT_TILE_M` const :57 `= 2`
   `@when` Used when an image has no `data-tile-m` and no pattern tile.
-- `FloorPlatformSource` type :59 `= { id: string; polygon: Array<[number, number]>; deck: number; }` — A `platform:<id>` rect or path, in building-local metres.
-- `FloorStairsSource` type :71 `= { id: string; floor?: number; polygon: Array<[number, number]>; up: [number, number]; bottom: number; top: number; texture: FloorTexture; }` — A `stairs:<id>` rect, in building-local metres.
+- `FloorPlatformSource` type :60 `= { id: string; polygon: Array<[number, number]>; deck: number; }` — A `platform:<id>` rect or path, in building-local metres.
+- `FloorStairsSource` type :72 `= { id: string; floor?: number; polygon: Array<[number, number]>; up: [number, number]; bottom: number; top: number; texture: FloorTexture; }` — A `stairs:<id>` rect, in building-local metres.
   `@when` `floor` is omitted for a `stairs-external` run.
-- `FloorLandingSource` type :90 `= { id: string; floor?: number; polygon: Array<[number, number]>; elevation: number; texture: FloorTexture; }` — A `landing:<id>` rect or path, in building-local metres.
+- `FloorLandingSource` type :91 `= { id: string; floor?: number; polygon: Array<[number, number]>; elevation: number; texture: FloorTexture; }` — A `landing:<id>` rect or path, in building-local metres.
   `@when` `floor` is omitted for a `stairs-external` landing.
   `@why` `elevation` is metres above the building ground, the same frame as a stair's `bottom`.
-- `FloorElevatorSource` type :106 `= { id: string; floor: number; polygon: Array<[number, number]>; door: [number, number]; doorExplicit: boolean; doorSide: string; stops: number[]; waitS: numbe…` — An `elevator:<id>` cab, in building-local metres.
+- `FloorElevatorSource` type :107 `= { id: string; floor: number; polygon: Array<[number, number]>; door: [number, number]; doorExplicit: boolean; doorSide: string; stops: number[]; waitS: numbe…` — An `elevator:<id>` cab, in building-local metres.
   `@why` Stops are above the building ground.
-- `FloorSource` type :125 `= { n: number; name: string; elevation: number; height?: number; footprint: Array<[number, number]>; outline: Array<[number, number]>; outlineFallback?: "diago…`
-- `FloorsSource` type :154 `= { model: string; scale: number; yaw: Yaw; origin: Vec3; footprint: Array<[number, number]>; outline: Array<[number, number]>; outlineFallback?: "diagonal" | …`
-- `Scope` type (local) :187 `= | { kind: "floor"; floor: FloorAcc } | { kind: "texture"; n: number } | { kind: "doors" } | { kind: "stairs" }`
-- `Hit` type (local) :193 `= { el: XmlNode; matrix: Mat }`
-- `FloorAcc` type (local) :195 `= { n: number; name: string; layer: XmlNode; stencils: Hit[]; rooms: Hit[]; platforms: Hit[]; stairs: Hit[]; landings: Hit[]; elevators: Hit[]; textures: Hit[]…`
-- `Pose` type (local) :209 `= { model: string; scale: number; yaw: Yaw; origin: Vec3; elevation: number; }`
-- `toLocal` fn (local) :221 `(x: number, z: number, origin: Vec3, yaw: Yaw): { x: number; z: number }` — Page-world point to building-local metres.
-- `readFloorsSvg` fn :231 `(svgText: string, svgPath?: string): FloorsSource` — Read one building's floors file.
+- `FloorSource` type :126 `= { n: number; name: string; elevation: number; height?: number; footprint: Array<[number, number]>; outline: Array<[number, number]>; outlineFallback?: "diago…`
+- `FloorsSource` type :161 `= { model: string; scale: number; yaw: Yaw; origin: Vec3; footprint: Array<[number, number]>; outline: Array<[number, number]>; outlineFallback?: "diagonal" | …`
+- `Scope` type (local) :194 `= | { kind: "floor"; floor: FloorAcc } | { kind: "texture"; n: number } | { kind: "doors" } | { kind: "stairs" }`
+- `Hit` type (local) :200 `= { el: XmlNode; matrix: Mat }`
+- `FloorAcc` type (local) :202 `= { n: number; name: string; layer: XmlNode; stencils: Hit[]; rooms: Hit[]; voids: Hit[]; platforms: Hit[]; stairs: Hit[]; landings: Hit[]; elevators: Hit[]; t…`
+- `Pose` type (local) :217 `= { model: string; scale: number; yaw: Yaw; origin: Vec3; elevation: number; }`
+- `toLocal` fn (local) :229 `(x: number, z: number, origin: Vec3, yaw: Yaw): { x: number; z: number }` — Page-world point to building-local metres.
+- `voidAabb` fn (local) :239 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): Aabb2` — A `void` rect in building-local metres.
+  `@pre` The element is a `rect` on a `floor-<n>` layer.
+  `@post` The AABB of the page rect through its matrix and the floor pose; axis-aligned because floor rects are.
+- `readFloorsSvg` fn :262 `(svgText: string, svgPath?: string): FloorsSource` — Read one building's floors file.
   `@pre` `ignore` and everything under it is skipped.
   `@when` Hidden layers are read.
   `@why` Positions are building-local metres.
-- `platformIdOf` fn (local) :503 `(el: XmlNode): string | undefined`
-- `labelledId` fn (local) :511 `(el: XmlNode, kind: "stairs" | "elevator" | "landing"): string | undefined` — `stairs:<id>`, `elevator:<id>`, or `landing:<id>`.
-- `StencilShape` type (local) :519 `= { footprint: Array<[number, number]>; outline: Array<[number, number]>; outlines: Array<Array<[number, number]>>; fallback?: "diagonal" | "curve"; }`
-- `stencilShape` fn (local) :526 `(hit: Hit, frame: PageFrame, origin: Vec3, yaw: Yaw): StencilShape`
-- `subpathCounts` fn (local) :562 `(raw: string | undefined, id: string): number[]` — Point count of each subpath in `d`, in `pathPoints` order.
-- `pathHasCurve` fn (local) :579 `(raw: string | undefined): boolean` — C, S, Q and A contribute control points.
-- `pathOf` fn (local) :583 `(el: XmlNode, id: string): XmlNode`
-- `readPlatform` fn (local) :589 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): FloorPlatformSource`
-- `rectPolygon` fn (local) :598 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, id: string): Array<[number, number]>`
-- `localPoints` fn (local) :618 `(el: XmlNode, matrix: Mat, frame: PageFrame, origin: Vec3, yaw: Yaw, id: string): Array<{ x: number; z: number }>` — Path vertices in building-local metres.
-- `aabbPolygon` fn (local) :635 `(points: Array<{ x: number; z: number }>, id: string): Array<[number, number]>`
-- `OUTLINE_TOL_M` const (local) :650 `= 1e-4`
-- `rectilinearRing` fn (local) :657 `(points: Array<{ x: number; z: number }>): Array<[number, number]> | undefined` — Counter-clockwise rectilinear ring, or undefined when an edge is diagonal.
-- `axisEdge` fn (local) :679 `(poly: readonly (readonly [number, number])[], index: number): boolean`
-- `dropColinear` fn (local) :688 `(poly: Array<[number, number]>): Array<[number, number]>`
-- `snapAxes` fn (local) :703 `(poly: readonly (readonly [number, number])[]): Array<[number, number]>` — Each vertex becomes the crossing of its two axis-aligned edges.
-- `ringArea` fn (local) :731 `(poly: readonly (readonly [number, number])[]): number`
-- `PAGE_DIR` const (local) :741 `: Record<string, [number, number]>`
-- `readStair` fn (local) :748 `(hit: Hit, floor: number | undefined, elevation: number, next: number | undefined, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, svgPath…`
-- `readLanding` fn (local) :782 `(hit: Hit, floor: number | undefined, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, svgPath: string, cache: Map<string, Uint8Array>, flo…`
-- `surfaceTexture` fn (local) :818 `(el: XmlNode, svgPath: string, what: string, cache: Map<string, Uint8Array>, floorTexture: FloorTexture | undefined): FloorTexture` — `data-texture` (or a child image href, then `absref`) is this element's image.
-- `readSurfaceTile` fn (local) :839 `(el: XmlNode, what: string): number | undefined`
-- `ownImage` fn (local) :846 `(el: XmlNode, svgPath: string, what: string, cache: Map<string, Uint8Array>): Uint8Array | undefined` — Same lookup as a room `data-texture`: attribute, then image href, then absref.
-- `resolveTextureHref` fn (local) :862 `(svgPath: string, raw: string, absref: string | undefined, what: string): string`
-- `readElevator` fn (local) :871 `(hit: Hit, floor: number, elevation: number, elevations: readonly number[], frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): FloorElevator…`
-- `doorDir` fn (local) :903 `(hit: Hit, id: string): { dir: [number, number]; explicit: boolean; side: string }`
-- `stairUp` fn (local) :912 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, id: string): [number, number]` — Element-local page direction, mapped through the rect matrix into building-local XZ.
-- `pageVector` fn (local) :943 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, dir: [number, number], what: string): [number, number]`
-- `rectBox` fn (local) :958 `(hit: Hit, frame: PageFrame, units: string | undefined, id: string): { minX: number; minY: number; maxX: number; maxY: number }`
-- `pageDelta` fn (local) :969 `(hit: Hit, box: { minX: number; minY: number; maxX: number; maxY: number }, dx: number, dy: number): [number, number]`
-- `svgDeltaToLocal` fn (local) :982 `(sx: number, sy: number, dx: number, dy: number, frame: PageFrame, origin: Vec3, yaw: Yaw, what: string): [number, number]`
-- `parseStops` fn (local) :1003 `(raw: string | undefined, id: string): number[] | undefined`
-- `positiveOr` fn (local) :1018 `(raw: string | undefined, fallback: number, what: string): number`
-- `spanAlong` fn (local) :1024 `(polygon: readonly (readonly [number, number])[], up: readonly [number, number]): number`
-- `outsideArea` fn (local) :1036 `(upper: readonly (readonly [number, number])[], lower: readonly (readonly (readonly [number, number])[])[]): number` — Area of `upper` that sits outside every ring of `lower`, for rectilinear outlines.
-- `gridCoords` fn (local) :1057 `(a: readonly (readonly [number, number])[], b: readonly (readonly [number, number])[], axis: 0 | 1): number[]`
-- `withinOutline` fn (local) :1073 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean` — Inside the ring, or within `OUTLINE_TOL_M` of an edge.
-- `distToSeg` fn (local) :1083 `(x: number, z: number, a: readonly [number, number], b: readonly [number, number]): number`
-- `pointInRing` fn (local) :1097 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean`
-- `formatArea` fn (local) :1110 `(area: number): string`
-- `classifyLayer` fn (local) :1114 `(label: string): | { kind: "floor"; n: number } | { kind: "floor-texture"; n: number } | { kind: "doors" } | { kind: "stairs" } | { kind: "ignore" }`
-- `floorPose` fn (local) :1140 `(floor: FloorAcc, frame: ReturnType<typeof pageFrame>): Pose`
-- `localYaw` fn (local) :1164 `(elementYaw: Yaw, yaw: Yaw): Yaw`
-- `toLocalBox` fn (local) :1170 `(minX: number, maxX: number, minZ: number, maxZ: number, origin: Vec3, yaw: Yaw): { minX: number; maxX: number; minZ: number; maxZ: number }`
-- `indexPatterns` fn (local) :1194 `(svg: XmlNode): Map<string, XmlNode>`
-- `readFloorTexture` fn (local) :1214 `(hits: readonly Hit[], patterns: ReadonlyMap<string, XmlNode>, frame: PageFrame, svgPath: string, cache: Map<string, Uint8Array>, floorN: number): FloorTexture…` — First labelled `floor-texture` that carries an image or a pattern fill.
-- `textureFromElement` fn (local) :1236 `(el: XmlNode, patterns: ReadonlyMap<string, XmlNode>, frame: PageFrame, svgPath: string, cache: Map<string, Uint8Array>, floorN: number): FloorTexture | undefi…`
-- `cachedImage` fn (local) :1268 `(cache: Map<string, Uint8Array>, svgPath: string, href: string, what: string): Uint8Array`
-- `patternChain` fn (local) :1276 `(id: string, patterns: ReadonlyMap<string, XmlNode>, floorN: number): XmlNode[]`
-- `patternImageHref` fn (local) :1291 `(chain: readonly XmlNode[]): string | undefined`
-- `patternTile` fn (local) :1307 `(chain: readonly XmlNode[], frame: PageFrame, host: XmlNode, floorN: number): { x: number; z: number }` — Tile period in metres.
-- `inherited` fn (local) :1334 `(chain: readonly XmlNode[], name: string): string | undefined`
-- `userBox` fn (local) :1342 `(el: XmlNode, floorN: number): { width: number; height: number }`
-- `findPattern` fn (local) :1365 `(el: XmlNode): { id: string; host: XmlNode } | undefined`
-- `patternId` fn (local) :1375 `(el: XmlNode): string | undefined`
-- `findDescendant` fn (local) :1384 `(el: XmlNode, name: string): XmlNode | undefined`
+- `platformIdOf` fn (local) :541 `(el: XmlNode): string | undefined`
+- `labelledId` fn (local) :549 `(el: XmlNode, kind: "stairs" | "elevator" | "landing"): string | undefined` — `stairs:<id>`, `elevator:<id>`, or `landing:<id>`.
+- `StencilShape` type (local) :557 `= { footprint: Array<[number, number]>; outline: Array<[number, number]>; outlines: Array<Array<[number, number]>>; fallback?: "diagonal" | "curve"; }`
+- `stencilShape` fn (local) :564 `(hit: Hit, frame: PageFrame, origin: Vec3, yaw: Yaw): StencilShape`
+- `subpathCounts` fn (local) :600 `(raw: string | undefined, id: string): number[]` — Point count of each subpath in `d`, in `pathPoints` order.
+- `pathHasCurve` fn (local) :617 `(raw: string | undefined): boolean` — C, S, Q and A contribute control points.
+- `pathOf` fn (local) :621 `(el: XmlNode, id: string): XmlNode`
+- `readPlatform` fn (local) :627 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): FloorPlatformSource`
+- `rectPolygon` fn (local) :636 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, id: string): Array<[number, number]>`
+- `localPoints` fn (local) :656 `(el: XmlNode, matrix: Mat, frame: PageFrame, origin: Vec3, yaw: Yaw, id: string): Array<{ x: number; z: number }>` — Path vertices in building-local metres.
+- `aabbPolygon` fn (local) :673 `(points: Array<{ x: number; z: number }>, id: string): Array<[number, number]>`
+- `OUTLINE_TOL_M` const (local) :688 `= 1e-4`
+- `rectilinearRing` fn (local) :695 `(points: Array<{ x: number; z: number }>): Array<[number, number]> | undefined` — Counter-clockwise rectilinear ring, or undefined when an edge is diagonal.
+- `axisEdge` fn (local) :717 `(poly: readonly (readonly [number, number])[], index: number): boolean`
+- `dropColinear` fn (local) :726 `(poly: Array<[number, number]>): Array<[number, number]>`
+- `snapAxes` fn (local) :741 `(poly: readonly (readonly [number, number])[]): Array<[number, number]>` — Each vertex becomes the crossing of its two axis-aligned edges.
+- `ringArea` fn (local) :769 `(poly: readonly (readonly [number, number])[]): number`
+- `PAGE_DIR` const (local) :779 `: Record<string, [number, number]>`
+- `readStair` fn (local) :786 `(hit: Hit, floor: number | undefined, elevation: number, next: number | undefined, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, svgPath…`
+- `readLanding` fn (local) :820 `(hit: Hit, floor: number | undefined, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, svgPath: string, cache: Map<string, Uint8Array>, flo…`
+- `surfaceTexture` fn (local) :856 `(el: XmlNode, svgPath: string, what: string, cache: Map<string, Uint8Array>, floorTexture: FloorTexture | undefined): FloorTexture` — `data-texture` (or a child image href, then `absref`) is this element's image.
+- `readSurfaceTile` fn (local) :877 `(el: XmlNode, what: string): number | undefined`
+- `ownImage` fn (local) :884 `(el: XmlNode, svgPath: string, what: string, cache: Map<string, Uint8Array>): Uint8Array | undefined` — Same lookup as a room `data-texture`: attribute, then image href, then absref.
+- `resolveTextureHref` fn (local) :900 `(svgPath: string, raw: string, absref: string | undefined, what: string): string`
+- `readElevator` fn (local) :909 `(hit: Hit, floor: number, elevation: number, elevations: readonly number[], frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): FloorElevator…`
+- `doorDir` fn (local) :941 `(hit: Hit, id: string): { dir: [number, number]; explicit: boolean; side: string }`
+- `stairUp` fn (local) :950 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, id: string): [number, number]` — Element-local page direction, mapped through the rect matrix into building-local XZ.
+- `pageVector` fn (local) :981 `(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw, dir: [number, number], what: string): [number, number]`
+- `rectBox` fn (local) :996 `(hit: Hit, frame: PageFrame, units: string | undefined, id: string): { minX: number; minY: number; maxX: number; maxY: number }`
+- `pageDelta` fn (local) :1007 `(hit: Hit, box: { minX: number; minY: number; maxX: number; maxY: number }, dx: number, dy: number): [number, number]`
+- `svgDeltaToLocal` fn (local) :1020 `(sx: number, sy: number, dx: number, dy: number, frame: PageFrame, origin: Vec3, yaw: Yaw, what: string): [number, number]`
+- `parseStops` fn (local) :1041 `(raw: string | undefined, id: string): number[] | undefined`
+- `positiveOr` fn (local) :1056 `(raw: string | undefined, fallback: number, what: string): number`
+- `spanAlong` fn (local) :1062 `(polygon: readonly (readonly [number, number])[], up: readonly [number, number]): number`
+- `outsideArea` fn (local) :1074 `(upper: readonly (readonly [number, number])[], lower: readonly (readonly (readonly [number, number])[])[]): number` — Area of `upper` that sits outside every ring of `lower`, for rectilinear outlines.
+- `gridCoords` fn (local) :1095 `(a: readonly (readonly [number, number])[], b: readonly (readonly [number, number])[], axis: 0 | 1): number[]`
+- `withinOutline` fn (local) :1111 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean` — Inside the ring, or within `OUTLINE_TOL_M` of an edge.
+- `distToSeg` fn (local) :1121 `(x: number, z: number, a: readonly [number, number], b: readonly [number, number]): number`
+- `pointInRing` fn (local) :1135 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean`
+- `formatArea` fn (local) :1148 `(area: number): string`
+- `classifyLayer` fn (local) :1152 `(label: string): | { kind: "floor"; n: number } | { kind: "floor-texture"; n: number } | { kind: "doors" } | { kind: "stairs" } | { kind: "ignore" }`
+- `floorPose` fn (local) :1178 `(floor: FloorAcc, frame: ReturnType<typeof pageFrame>): Pose`
+- `localYaw` fn (local) :1202 `(elementYaw: Yaw, yaw: Yaw): Yaw`
+- `toLocalBox` fn (local) :1208 `(minX: number, maxX: number, minZ: number, maxZ: number, origin: Vec3, yaw: Yaw): { minX: number; maxX: number; minZ: number; maxZ: number }`
+- `indexPatterns` fn (local) :1232 `(svg: XmlNode): Map<string, XmlNode>`
+- `readFloorTexture` fn (local) :1252 `(hits: readonly Hit[], patterns: ReadonlyMap<string, XmlNode>, frame: PageFrame, svgPath: string, cache: Map<string, Uint8Array>, floorN: number): FloorTexture…` — First labelled `floor-texture` that carries an image or a pattern fill.
+- `textureFromElement` fn (local) :1274 `(el: XmlNode, patterns: ReadonlyMap<string, XmlNode>, frame: PageFrame, svgPath: string, cache: Map<string, Uint8Array>, floorN: number): FloorTexture | undefi…`
+- `cachedImage` fn (local) :1306 `(cache: Map<string, Uint8Array>, svgPath: string, href: string, what: string): Uint8Array`
+- `patternChain` fn (local) :1314 `(id: string, patterns: ReadonlyMap<string, XmlNode>, floorN: number): XmlNode[]`
+- `patternImageHref` fn (local) :1329 `(chain: readonly XmlNode[]): string | undefined`
+- `patternTile` fn (local) :1345 `(chain: readonly XmlNode[], frame: PageFrame, host: XmlNode, floorN: number): { x: number; z: number }` — Tile period in metres.
+- `inherited` fn (local) :1372 `(chain: readonly XmlNode[], name: string): string | undefined`
+- `userBox` fn (local) :1380 `(el: XmlNode, floorN: number): { width: number; height: number }`
+- `findPattern` fn (local) :1403 `(el: XmlNode): { id: string; host: XmlNode } | undefined`
+- `patternId` fn (local) :1413 `(el: XmlNode): string | undefined`
+- `findDescendant` fn (local) :1422 `(el: XmlNode, name: string): XmlNode | undefined`
 
 ### src/footprint.ts (1178)
 imports: src/errors.ts, src/types.ts
@@ -628,7 +631,7 @@ used by: src/cli.ts
 - `roundM` fn (local) :143 `(n: number): number`
 - `fmt` fn (local) :147 `(n: number): string`
 
-### src/places.ts (845)
+### src/places.ts (862)
 imports: src/errors.ts, src/floors-svg.ts, src/hall-floor.ts, src/room-file.ts, src/rooms-bake.ts, src/types.ts, src/union.ts, src/yaw.ts
 used by: src/bake.ts, src/cli.ts
 - `PlaceBuilding` type (local) :18 `= { id: string; model: string; position: Vec3; yaw: Yaw; scale: number; }`
@@ -643,43 +646,46 @@ used by: src/bake.ts, src/cli.ts
 - `makePlace` fn (local) :196 `(id: string, kind: ScenePlace["kind"], building: string, floor: string, y: number, polygon: Array<[number, number]>): ScenePlace`
 - `roomPolygon` fn (local) :208 `(building: PlaceBuilding, inst: RoomInstanceSource, footprint: RoomFile["footprint"]): Array<[number, number]>`
 - `worldPoly` fn (local) :226 `(building: PlaceBuilding, local: Array<[number, number]>): Array<[number, number]>`
-- `placementOf` fn (local) :234 `(building: PlaceBuilding): Placement`
-- `hallPolygon` fn (local) :249 `(outline: Array<[number, number]>, pieces: readonly (readonly (readonly [number, number])[])[], rooms: readonly (readonly (readonly [number, number])[])[], war…` — Outline minus room rectangles.
-- `stitch` fn (local) :271 `(rings: Array<Array<[number, number]>>): Array<[number, number]> | undefined` — One contour.
-- `bridge` fn (local) :280 `(host: Array<[number, number]>, extra: Array<[number, number]>): Array<[number, number]>`
-- `rectOf` fn (local) :301 `(polygon: readonly (readonly [number, number])[]): Rect`
-- `ccwRect` fn (local) :315 `(rect: Rect): Array<[number, number]>`
-- `boundsOf` fn (local) :319 `(polygon: readonly (readonly [number, number])[]): ScenePlace["bounds"]`
-- `signedArea` fn (local) :324 `(polygon: readonly (readonly [number, number])[]): number`
-- `roundM` fn (local) :334 `(n: number): number`
-- `pushStair` fn (local) :339 `(places: AnyPlace[], warnings: string[], claim: (id: string) => void, building: PlaceBuilding, floors: readonly FloorSource[], stair: FloorStairsSource): void`
-- `pushElevator` fn (local) :379 `(places: AnyPlace[], warnings: string[], claim: (id: string) => void, building: PlaceBuilding, floors: readonly FloorSource[], elevator: FloorElevatorSource, r…`
-- `stairsLandings` fn (local) :431 `(corners: Array<[number, number]>, up: [number, number], bottom: number, top: number): { width: number; run: number; bottom: Vec3; top: Vec3 }` — Landings sit 0.4 m beyond the low and high edges.
-- `ELEVATOR_ROOM_M` const (local) :460 `= 0.01` — 1 cm.
-- `elevatorRoom` fn (local) :467 `(building: PlaceBuilding, floors: readonly FloorSource[], elevator: FloorElevatorSource, roomFileFor: (prefab: string) => RoomFile | undefined): RoomInstanceSo…` — Room on the elevator's lowest stop whose drawn rect contains the shaft.
-- `roomDoorDir` fn (local) :500 `(inst: RoomInstanceSource, file: RoomFile | undefined, elevatorId: string): [number, number]` — Room-door side in building-local XZ.
-- `snapCardinal` fn (local) :517 `(x: number, z: number): [number, number]`
-- `sameDir` fn (local) :522 `(a: readonly [number, number], b: readonly [number, number]): boolean`
-- `pageSideFor` fn (local) :531 `(authoredSide: string, authoredLocal: readonly [number, number], want: readonly [number, number]): string` — `data-door-side` token whose building-local image is `want`.
-- `sidePoint` fn (local) :564 `(corners: readonly (readonly [number, number])[], dir: readonly [number, number], offset: number): [number, number]` — Centre of the side `dir` faces, then `offset` metres further out.
-- `landingJoin` fn (local) :573 `(places: readonly AnyPlace[], building: PlaceBuilding, floors: readonly FloorSource[], elevation: number, point: Vec3, end: "bottom" | "top", id: string, warni…`
-- `landingAt` fn (local) :596 `(places: readonly AnyPlace[], buildingId: string, point: Vec3): string | undefined` — Smallest landing in this building whose walk height matches `point` and whose polygon contains it.
-- `isStairsPlace` fn (local) :612 `(place: AnyPlace): place is StairsPlace` — Orphan and dead-end landings warn.
-- `checkLandings` fn (local) :616 `(places: readonly AnyPlace[], warnings: string[], building: PlaceBuilding, source: FloorsSource): void`
-- `spanAlong` fn (local) :668 `(polygon: readonly (readonly [number, number])[], up: readonly [number, number]): number`
-- `elevatorJoin` fn (local) :679 `(places: readonly AnyPlace[], building: PlaceBuilding, floors: readonly FloorSource[], elevation: number, point: Vec3, id: string, index: number, warnings: str…`
-- `smallestPlace` fn (local) :698 `(places: readonly AnyPlace[], buildingId: string, point: Vec3): AnyPlace | undefined`
-- `worldAt` fn (local) :709 `(building: PlaceBuilding, x: number, y: number, z: number): Vec3`
-- `drawnRoom` fn (local) :715 `(inst: RoomInstanceSource): Array<[number, number]>` — The authored room rectangle, in building-local metres.
-- `buildingExtent` fn (local) :725 `(floors: readonly FloorSource[]): Array<[number, number]>` — AABB of every floor's footprint: the building extent.
-- `insideSomePiece` fn (local) :737 `(polygon: readonly (readonly [number, number])[], floor: FloorSource): boolean` — Inside one of the floor's outline pieces.
-- `polygonInside` fn (local) :741 `(inner: readonly (readonly [number, number])[], outer: readonly (readonly [number, number])[], tol = 1e-4): boolean`
-- `pointInOrOn` fn (local) :762 `(polygon: readonly (readonly [number, number])[], x: number, z: number, tol = 1e-4): boolean`
-- `polygonsOverlap` fn (local) :778 `(a: readonly (readonly [number, number])[], b: readonly (readonly [number, number])[]): boolean` — True when the polygons share area.
-- `pointInRing` fn (local) :797 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean`
-- `segmentsCross` fn (local) :810 `(a: readonly [number, number], b: readonly [number, number], c: readonly [number, number], d: readonly [number, number]): boolean`
-- `orient` fn (local) :823 `(a: readonly [number, number], b: readonly [number, number], c: readonly [number, number]): number`
-- `distToSeg` fn (local) :833 `(x: number, z: number, a: readonly [number, number], b: readonly [number, number]): number`
+- `worldAabb` fn (local) :239 `(building: PlaceBuilding, rect: Aabb2): Aabb2` — A building-local rect in the world frame `hallPolygon` works in.
+  `@pre` The rect is axis-aligned in the building frame.
+  `@post` The world AABB of the two mapped corners; a 90° placement swaps the axes.
+- `placementOf` fn (local) :250 `(building: PlaceBuilding): Placement`
+- `hallPolygon` fn (local) :265 `(outline: Array<[number, number]>, pieces: readonly (readonly (readonly [number, number])[])[], rooms: readonly (readonly (readonly [number, number])[])[], voi…` — Outline minus room rectangles and authored voids.
+- `stitch` fn (local) :288 `(rings: Array<Array<[number, number]>>): Array<[number, number]> | undefined` — One contour.
+- `bridge` fn (local) :297 `(host: Array<[number, number]>, extra: Array<[number, number]>): Array<[number, number]>`
+- `rectOf` fn (local) :318 `(polygon: readonly (readonly [number, number])[]): Rect`
+- `ccwRect` fn (local) :332 `(rect: Rect): Array<[number, number]>`
+- `boundsOf` fn (local) :336 `(polygon: readonly (readonly [number, number])[]): ScenePlace["bounds"]`
+- `signedArea` fn (local) :341 `(polygon: readonly (readonly [number, number])[]): number`
+- `roundM` fn (local) :351 `(n: number): number`
+- `pushStair` fn (local) :356 `(places: AnyPlace[], warnings: string[], claim: (id: string) => void, building: PlaceBuilding, floors: readonly FloorSource[], stair: FloorStairsSource): void`
+- `pushElevator` fn (local) :396 `(places: AnyPlace[], warnings: string[], claim: (id: string) => void, building: PlaceBuilding, floors: readonly FloorSource[], elevator: FloorElevatorSource, r…`
+- `stairsLandings` fn (local) :448 `(corners: Array<[number, number]>, up: [number, number], bottom: number, top: number): { width: number; run: number; bottom: Vec3; top: Vec3 }` — Landings sit 0.4 m beyond the low and high edges.
+- `ELEVATOR_ROOM_M` const (local) :477 `= 0.01` — 1 cm.
+- `elevatorRoom` fn (local) :484 `(building: PlaceBuilding, floors: readonly FloorSource[], elevator: FloorElevatorSource, roomFileFor: (prefab: string) => RoomFile | undefined): RoomInstanceSo…` — Room on the elevator's lowest stop whose drawn rect contains the shaft.
+- `roomDoorDir` fn (local) :517 `(inst: RoomInstanceSource, file: RoomFile | undefined, elevatorId: string): [number, number]` — Room-door side in building-local XZ.
+- `snapCardinal` fn (local) :534 `(x: number, z: number): [number, number]`
+- `sameDir` fn (local) :539 `(a: readonly [number, number], b: readonly [number, number]): boolean`
+- `pageSideFor` fn (local) :548 `(authoredSide: string, authoredLocal: readonly [number, number], want: readonly [number, number]): string` — `data-door-side` token whose building-local image is `want`.
+- `sidePoint` fn (local) :581 `(corners: readonly (readonly [number, number])[], dir: readonly [number, number], offset: number): [number, number]` — Centre of the side `dir` faces, then `offset` metres further out.
+- `landingJoin` fn (local) :590 `(places: readonly AnyPlace[], building: PlaceBuilding, floors: readonly FloorSource[], elevation: number, point: Vec3, end: "bottom" | "top", id: string, warni…`
+- `landingAt` fn (local) :613 `(places: readonly AnyPlace[], buildingId: string, point: Vec3): string | undefined` — Smallest landing in this building whose walk height matches `point` and whose polygon contains it.
+- `isStairsPlace` fn (local) :629 `(place: AnyPlace): place is StairsPlace` — Orphan and dead-end landings warn.
+- `checkLandings` fn (local) :633 `(places: readonly AnyPlace[], warnings: string[], building: PlaceBuilding, source: FloorsSource): void`
+- `spanAlong` fn (local) :685 `(polygon: readonly (readonly [number, number])[], up: readonly [number, number]): number`
+- `elevatorJoin` fn (local) :696 `(places: readonly AnyPlace[], building: PlaceBuilding, floors: readonly FloorSource[], elevation: number, point: Vec3, id: string, index: number, warnings: str…`
+- `smallestPlace` fn (local) :715 `(places: readonly AnyPlace[], buildingId: string, point: Vec3): AnyPlace | undefined`
+- `worldAt` fn (local) :726 `(building: PlaceBuilding, x: number, y: number, z: number): Vec3`
+- `drawnRoom` fn (local) :732 `(inst: RoomInstanceSource): Array<[number, number]>` — The authored room rectangle, in building-local metres.
+- `buildingExtent` fn (local) :742 `(floors: readonly FloorSource[]): Array<[number, number]>` — AABB of every floor's footprint: the building extent.
+- `insideSomePiece` fn (local) :754 `(polygon: readonly (readonly [number, number])[], floor: FloorSource): boolean` — Inside one of the floor's outline pieces.
+- `polygonInside` fn (local) :758 `(inner: readonly (readonly [number, number])[], outer: readonly (readonly [number, number])[], tol = 1e-4): boolean`
+- `pointInOrOn` fn (local) :779 `(polygon: readonly (readonly [number, number])[], x: number, z: number, tol = 1e-4): boolean`
+- `polygonsOverlap` fn (local) :795 `(a: readonly (readonly [number, number])[], b: readonly (readonly [number, number])[]): boolean` — True when the polygons share area.
+- `pointInRing` fn (local) :814 `(polygon: readonly (readonly [number, number])[], x: number, z: number): boolean`
+- `segmentsCross` fn (local) :827 `(a: readonly [number, number], b: readonly [number, number], c: readonly [number, number], d: readonly [number, number]): boolean`
+- `orient` fn (local) :840 `(a: readonly [number, number], b: readonly [number, number], c: readonly [number, number]): number`
+- `distToSeg` fn (local) :850 `(x: number, z: number, a: readonly [number, number], b: readonly [number, number]): number`
 
 ### src/plan.ts (1175)
 imports: src/errors.ts, src/types.ts, src/xml.ts
@@ -1132,7 +1138,7 @@ used by: src/bake.ts, src/places.ts
 - `roundVec` fn (local) :1508 `(v: Vec3): Vec3`
 - `fmt` fn (local) :1512 `(n: number): string`
 
-### src/scene-graph.ts (505)
+### src/scene-graph.ts (511)
 imports: src/doors.ts, src/hall-floor.ts, src/types.ts
 used by: src/bake.ts, src/cli.ts, src/regions.ts
 - `PortalKind` type :14 `= "door" | "landing" | "elevator" | "opening"`
@@ -1150,42 +1156,42 @@ used by: src/bake.ts, src/cli.ts, src/regions.ts
 - `STAIR_TOP_RUN` const (local) :60 `= 1.3`
 - `CONTAIN_SLACK_M` const (local) :62 `= HALL_EDGE_INSET_M + 0.01` — Facade inset plus a centimetre, so a probe in the inset strip still hits the hall.
 - `Xz` type (local) :64 `= readonly [number, number]`
-- `buildSceneGraph` fn :72 `(args: { places: readonly AnyPlace[]; doors: readonly DoorPlacement[]; bounds: BoundsFile; }): { graph: SceneGraphFile; warnings: string[] }` — Link places through doors, stairs, elevators, and hall/platform openings.
+- `buildSceneGraph` fn :72 `(args: { places: readonly AnyPlace[]; doors: readonly DoorPlacement[]; roomDoorIds?: ReadonlySet<string>; bounds: BoundsFile; }): { graph: SceneGraphFile; warn…` — Link places through doors, stairs, elevators, and hall/platform openings.
   `@invariant` A linking door's portal id is that door's id, so distinct door ids stay distinct portal ids. (test: scene_graph_door_portal_ids)
   `@pre` `places` is the `derivePlaces` list. `doors` is building doors plus room doors.
   `@post` A probe that matches nothing does not fail the bake; it is a warning and no portal.
-- `doorProbe` fn :135 `(door: DoorPlacement, localZ: number): Vec3` — World point of the opening's middle, `localZ` metres along door local +Z.
+- `doorProbe` fn :141 `(door: DoorPlacement, localZ: number): Vec3` — World point of the opening's middle, `localZ` metres along door local +Z.
   `@post` A left hinge's middle is `+width/2`; a right hinge's middle is `−width/2`.
   `@why` Local +X is `(cos θ, −sin θ)` and local +Z is `(sin θ, cos θ)`, θ the yaw.
-- `outsidePlace` fn (local) :147 `(bounds: BoundsFile): OutsidePlace`
-- `elevatorStops` fn (local) :162 `(places: readonly AnyPlace[]): ScenePlace[]` — One cab place per stop.
-- `resolveProbe` fn (local) :181 `(probe: Vec3, door: DoorPlacement, places: readonly AnyPlace[], stops: readonly ScenePlace[]): string | undefined`
-- `buildingGround` fn (local) :201 `(doorId: string, places: readonly AnyPlace[]): number`
-- `pushStairPortals` fn (local) :219 `(stair: StairsPlace, portals: ScenePortal[]): void`
-- `pushElevatorPortals` fn (local) :240 `(cab: ElevatorPlace, portals: ScenePortal[]): void`
-- `cabPoint` fn (local) :267 `(cab: ElevatorPlace, y: number): Vec3`
-- `landingPortal` fn (local) :278 `(id: string, left: string, right: string, at: Vec3, width: number, cost: number): ScenePortal`
-- `pushOpenings` fn (local) :304 `(places: readonly AnyPlace[], portals: ScenePortal[]): void` — Hall and platform only.
-- `Edge` type (local) :331 `= { a: Xz; b: Xz }`
-- `realEdges` fn (local) :333 `(polygon: readonly Xz[]): Edge[]`
-- `Piece` type (local) :346 `= { mid: [number, number]; length: number; dir: [number, number] }`
-- `sharedPieces` fn (local) :348 `(left: readonly Edge[], right: readonly Edge[]): Piece[]`
-- `overlap` fn (local) :365 `(a: Edge, b: Edge): Piece | undefined`
-- `standPoints` fn (local) :393 `(mid: readonly [number, number], dir: readonly [number, number], aPoly: readonly Xz[], bPoly: readonly Xz[], y: number): { a: Vec3; b: Vec3 }` — Stand 0.4 m off the shared edge, one side in each place.
-- `orderPair` fn (local) :413 `(aId: string, bId: string, aAt: Vec3, bAt: Vec3): { a: string; b: string; at: { a: Vec3; b: Vec3 } }`
-- `smallest` fn (local) :425 `(places: readonly { id: string; polygon: readonly Xz[] }[]): { id: string } | undefined`
-- `isStairs` fn (local) :431 `(place: AnyPlace): place is StairsPlace`
-- `isElevator` fn (local) :435 `(place: AnyPlace): place is ElevatorPlace`
-- `nearY` fn (local) :439 `(placeY: number, sill: number): boolean`
-- `nearPoint` fn (local) :443 `(a: Xz, b: Xz): boolean`
-- `distance` fn (local) :447 `(a: Vec3, b: Vec3): number`
-- `areaOf` fn (local) :451 `(polygon: readonly Xz[]): number`
-- `pointInRing` fn (local) :461 `(polygon: readonly Xz[], x: number, z: number): boolean`
-- `distanceToPolygon` fn (local) :474 `(polygon: readonly Xz[], x: number, z: number): number`
-- `distanceToSegment` fn (local) :485 `(x: number, z: number, a: Xz, b: Xz): number`
-- `roundM` fn (local) :494 `(n: number): number`
-- `roundVec` fn (local) :499 `(v: Vec3): Vec3`
-- `cmp` fn (local) :503 `(a: string, b: string): number`
+- `outsidePlace` fn (local) :153 `(bounds: BoundsFile): OutsidePlace`
+- `elevatorStops` fn (local) :168 `(places: readonly AnyPlace[]): ScenePlace[]` — One cab place per stop.
+- `resolveProbe` fn (local) :187 `(probe: Vec3, door: DoorPlacement, places: readonly AnyPlace[], stops: readonly ScenePlace[]): string | undefined`
+- `buildingGround` fn (local) :207 `(doorId: string, places: readonly AnyPlace[]): number`
+- `pushStairPortals` fn (local) :225 `(stair: StairsPlace, portals: ScenePortal[]): void`
+- `pushElevatorPortals` fn (local) :246 `(cab: ElevatorPlace, portals: ScenePortal[]): void`
+- `cabPoint` fn (local) :273 `(cab: ElevatorPlace, y: number): Vec3`
+- `landingPortal` fn (local) :284 `(id: string, left: string, right: string, at: Vec3, width: number, cost: number): ScenePortal`
+- `pushOpenings` fn (local) :310 `(places: readonly AnyPlace[], portals: ScenePortal[]): void` — Hall and platform only.
+- `Edge` type (local) :337 `= { a: Xz; b: Xz }`
+- `realEdges` fn (local) :339 `(polygon: readonly Xz[]): Edge[]`
+- `Piece` type (local) :352 `= { mid: [number, number]; length: number; dir: [number, number] }`
+- `sharedPieces` fn (local) :354 `(left: readonly Edge[], right: readonly Edge[]): Piece[]`
+- `overlap` fn (local) :371 `(a: Edge, b: Edge): Piece | undefined`
+- `standPoints` fn (local) :399 `(mid: readonly [number, number], dir: readonly [number, number], aPoly: readonly Xz[], bPoly: readonly Xz[], y: number): { a: Vec3; b: Vec3 }` — Stand 0.4 m off the shared edge, one side in each place.
+- `orderPair` fn (local) :419 `(aId: string, bId: string, aAt: Vec3, bAt: Vec3): { a: string; b: string; at: { a: Vec3; b: Vec3 } }`
+- `smallest` fn (local) :431 `(places: readonly { id: string; polygon: readonly Xz[] }[]): { id: string } | undefined`
+- `isStairs` fn (local) :437 `(place: AnyPlace): place is StairsPlace`
+- `isElevator` fn (local) :441 `(place: AnyPlace): place is ElevatorPlace`
+- `nearY` fn (local) :445 `(placeY: number, sill: number): boolean`
+- `nearPoint` fn (local) :449 `(a: Xz, b: Xz): boolean`
+- `distance` fn (local) :453 `(a: Vec3, b: Vec3): number`
+- `areaOf` fn (local) :457 `(polygon: readonly Xz[]): number`
+- `pointInRing` fn (local) :467 `(polygon: readonly Xz[], x: number, z: number): boolean`
+- `distanceToPolygon` fn (local) :480 `(polygon: readonly Xz[], x: number, z: number): number`
+- `distanceToSegment` fn (local) :491 `(x: number, z: number, a: Xz, b: Xz): number`
+- `roundM` fn (local) :500 `(n: number): number`
+- `roundVec` fn (local) :505 `(v: Vec3): Vec3`
+- `cmp` fn (local) :509 `(a: string, b: string): number`
 
 ### src/spatial-dag.ts (121)
 Static spatial DAG output: merged obstacle chunks plus a place hierarchy.
@@ -1273,7 +1279,7 @@ used by: src/asset-type.ts, src/bake.ts, src/building-mesh-cut.ts, src/cli.ts, s
 
 ### src/union.ts (240)
 imports: src/errors.ts
-used by: src/hall-floor.ts, src/measure.ts, src/places.ts, src/rooms-bake.ts
+used by: src/floors-svg.ts, src/hall-floor.ts, src/measure.ts, src/places.ts, src/rooms-bake.ts
 - `Aabb2` type :4 `= { minX: number; maxX: number; minZ: number; maxZ: number; }` — Axis-aligned rectangle on the ground plane.
 - `XzPoint` type :11 `= { x: number; z: number }`
 - `Ring` type :17 `= { points: XzPoint[]; area: number }` — One closed ring of the union.
@@ -1324,7 +1330,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 
 ```text
 `Aabb2` src/union.ts:4 type
-`aabbPolygon` src/floors-svg.ts:635 fn
+`aabbPolygon` src/floors-svg.ts:673 fn
 `addCoveredColumns` src/footprint.ts:472 fn
 `addYaw` src/rooms-bake.ts:16 fn
 `alongSpan` src/room-svg.ts:562 fn
@@ -1334,7 +1340,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `apply` src/plan.ts:64 fn
 `area2` src/building-mesh-cut.ts:599 fn
 `area` src/footprint.ts:1145 fn
-`areaOf` src/scene-graph.ts:451 fn
+`areaOf` src/scene-graph.ts:457 fn
 `ARRAY_BUFFER` src/glb-write.ts:93 const
 `assertImage` src/crate.ts:237 fn
 `assertLightInside` src/room-svg.ts:502 fn
@@ -1350,7 +1356,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `attr` src/xml.ts:14 fn
 `axisAligned` src/plan.ts:419 fn
 `axisAligned` src/room-svg.ts:783 fn
-`axisEdge` src/floors-svg.ts:679 fn
+`axisEdge` src/floors-svg.ts:717 fn
 `axisFit` src/bake.ts:1198 fn
 `axisHi` src/rooms-bake.ts:931 fn
 `axisHits` src/building-mesh-cut.ts:271 fn
@@ -1377,7 +1383,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `boundsBox` src/bake.ts:1064 fn
 `boundsFile` src/bake.ts:1104 fn
 `BoundsFile` src/types.ts:66 type
-`boundsOf` src/places.ts:319 fn
+`boundsOf` src/places.ts:336 fn
 `boundsOfTriangles` src/stencil.ts:15 fn
 `boundsOverlap` src/regions.ts:322 fn
 `BOX_EPS` src/doors.ts:53 const
@@ -1390,34 +1396,34 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `boxParts` src/prop.ts:305 fn
 `boxTriangles` src/spatial-dag.ts:38 fn
 `BRIDGE_M` src/footprint.ts:43 const
-`bridge` src/places.ts:280 fn
-`buildingExtent` src/places.ts:725 fn
-`buildingGround` src/scene-graph.ts:201 fn
+`bridge` src/places.ts:297 fn
+`buildingExtent` src/places.ts:742 fn
+`buildingGround` src/scene-graph.ts:207 fn
 `BuildingRooms` src/rooms-bake.ts:89 type
 `buildingToWorld` src/rooms-bake.ts:19 fn
 `buildRegions` src/regions.ts:100 fn
 `buildSceneGraph` src/scene-graph.ts:72 fn
 `Built` src/regions.ts:91 type
 `c` src/room-glb.ts:18 fn
-`cabPoint` src/scene-graph.ts:267 fn
-`cachedImage` src/floors-svg.ts:1268 fn
+`cabPoint` src/scene-graph.ts:273 fn
+`cachedImage` src/floors-svg.ts:1306 fn
 `call` src/room-svg.ts:831 fn
 `canonicalize` src/union.ts:192 fn
 `Cap` src/footprint.ts:83 type
 `CARDINALS` src/plan.ts:28 const
-`ccwRect` src/places.ts:315 fn
+`ccwRect` src/places.ts:332 fn
 `CELL_M` src/footprint.ts:8 const
 `CellHit` src/footprint.ts:429 type
 `checkFootprint` src/rooms-bake.ts:1260 fn
 `checkIds` src/room-svg.ts:819 fn
-`checkLandings` src/places.ts:616 fn
+`checkLandings` src/places.ts:633 fn
 `choose` src/union.ts:153 fn
 `claimPlacementId` src/plan.ts:595 fn
 `clamp01` src/room-cut.ts:16 fn
 `clamp` src/regions.ts:316 fn
 `clampToWallSlab` src/building-mesh-cut.ts:146 fn
 `classifyDoorBind` src/plan.ts:161 fn
-`classifyLayer` src/floors-svg.ts:1114 fn
+`classifyLayer` src/floors-svg.ts:1152 fn
 `clean` src/building-mesh-cut.ts:579 fn
 `Clip` src/footprint.ts:78 type
 `clip` src/hall-floor.ts:219 fn
@@ -1425,7 +1431,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `cloneJson` src/glb.ts:548 fn
 `closer` src/doors.ts:403 fn
 `cmp` src/regions.ts:329 fn
-`cmp` src/scene-graph.ts:503 fn
+`cmp` src/scene-graph.ts:509 fn
 `coarseFootprint` src/footprint.ts:353 fn
 `CoarseFootprint` src/footprint.ts:97 type
 `Collect` src/plan.ts:500 type
@@ -1469,7 +1475,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `DEFAULT_HEIGHT` src/regions.ts:14 const
 `DEFAULT_MODELS` src/bake.ts:19 const
 `DEFAULT_RADIUS` src/regions.ts:13 const
-`DEFAULT_TILE_M` src/floors-svg.ts:56 const
+`DEFAULT_TILE_M` src/floors-svg.ts:57 const
 `defaultFloorImage` src/hall-floor.ts:24 fn
 `defaultGamePath` src/cli.ts:210 fn
 `delta` src/union.ts:231 fn
@@ -1479,12 +1485,12 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `designPart` src/plan.ts:365 fn
 `DesignRect` src/plan.ts:107 type
 `disjoint` src/building-mesh-cut.ts:498 fn
-`distance` src/scene-graph.ts:447 fn
+`distance` src/scene-graph.ts:453 fn
 `distanceToFace` src/doors.ts:411 fn
-`distanceToPolygon` src/scene-graph.ts:474 fn
-`distanceToSegment` src/scene-graph.ts:485 fn
-`distToSeg` src/floors-svg.ts:1083 fn
-`distToSeg` src/places.ts:833 fn
+`distanceToPolygon` src/scene-graph.ts:480 fn
+`distanceToSegment` src/scene-graph.ts:491 fn
+`distToSeg` src/floors-svg.ts:1121 fn
+`distToSeg` src/places.ts:850 fn
 `documentScale` src/plan.ts:461 fn
 `documentUnits` src/plan.ts:452 fn
 `DOOR_DEPTH_M` src/doors.ts:13 const
@@ -1496,7 +1502,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `DoorCorner` src/glb-write.ts:4 type
 `doorCutLocal` src/doors.ts:268 fn
 `DoorDesign` src/prop.ts:48 type
-`doorDir` src/floors-svg.ts:903 fn
+`doorDir` src/floors-svg.ts:941 fn
 `doorElevation` src/plan.ts:767 fn
 `doorFromElement` src/plan.ts:701 fn
 `DoorHinge` src/types.ts:100 type
@@ -1505,7 +1511,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `doorOutwardDepth` src/doors.ts:294 fn
 `doorPanelWidth` src/doors.ts:107 fn
 `DoorPlacement` src/types.ts:149 type
-`doorProbe` src/scene-graph.ts:135 fn
+`doorProbe` src/scene-graph.ts:141 fn
 `DoorPropOptions` src/prop.ts:9 type
 `DoorsFile` src/types.ts:166 type
 `DoorStand` src/regions.ts:44 type
@@ -1514,8 +1520,8 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `doorwayBox` src/rooms-bake.ts:1361 fn
 `dot` src/room-cut.ts:15 fn
 `Drawn` src/room-svg.ts:149 type
-`drawnRoom` src/places.ts:715 fn
-`dropColinear` src/floors-svg.ts:688 fn
+`drawnRoom` src/places.ts:732 fn
+`dropColinear` src/floors-svg.ts:726 fn
 `dropContained` src/footprint.ts:1133 fn
 `dropContainedBands` src/footprint.ts:976 fn
 `dropFlushSkins` src/footprint.ts:772 fn
@@ -1523,19 +1529,19 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `EDGE_EPS` src/prop.ts:24 const
 `EDGE_M` src/crate.ts:36 const
 `EDGE_M` src/room-svg.ts:119 const
-`Edge` src/scene-graph.ts:331 type
+`Edge` src/scene-graph.ts:337 type
 `edgeDistance` src/rooms-bake.ts:400 fn
 `edges` src/union.ts:47 fn
 `ELEMENT_ARRAY_BUFFER` src/glb-write.ts:94 const
-`ELEVATOR_ROOM_M` src/places.ts:460 const
-`elevatorJoin` src/places.ts:679 fn
+`ELEVATOR_ROOM_M` src/places.ts:477 const
+`elevatorJoin` src/places.ts:696 fn
 `ElevatorPlace` src/types.ts:258 type
-`elevatorRoom` src/places.ts:467 fn
-`elevatorStops` src/scene-graph.ts:162 fn
+`elevatorRoom` src/places.ts:484 fn
+`elevatorStops` src/scene-graph.ts:168 fn
 `emitHollow` src/bake.ts:559 fn
 `emitPlaced` src/bake.ts:536 fn
 `encoded` src/spatial-dag.ts:16 fn
-`entry` src/cli.ts:405 const
+`entry` src/cli.ts:406 const
 `EPS` src/footprint.ts:66 const
 `EPS` src/union.ts:19 const
 `eraseOpening` src/footprint.ts:1002 fn
@@ -1573,8 +1579,8 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `fan` src/building-mesh-cut.ts:590 fn
 `fillInteriors` src/footprint.ts:686 fn
 `fillModelInterior` src/bake.ts:1319 fn
-`findDescendant` src/floors-svg.ts:1384 fn
-`findPattern` src/floors-svg.ts:1365 fn
+`findDescendant` src/floors-svg.ts:1422 fn
+`findPattern` src/floors-svg.ts:1403 fn
 `firstToken` src/plan.ts:865 fn
 `flatAxis` src/rooms-bake.ts:914 fn
 `flatFootprint` src/footprint.ts:274 fn
@@ -1582,17 +1588,17 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `floatBuffer` src/glb-write.ts:512 fn
 `FLOOR_T` src/room-file.ts:18 const
 `FLOOR_Y_M` src/footprint.ts:33 const
-`FloorAcc` src/floors-svg.ts:195 type
+`FloorAcc` src/floors-svg.ts:202 type
 `FloorBake` src/rooms-bake.ts:104 type
-`FloorElevatorSource` src/floors-svg.ts:106 type
-`FloorLandingSource` src/floors-svg.ts:90 type
-`FloorPlatformSource` src/floors-svg.ts:59 type
-`floorPose` src/floors-svg.ts:1140 fn
-`FloorSource` src/floors-svg.ts:125 type
+`FloorElevatorSource` src/floors-svg.ts:107 type
+`FloorLandingSource` src/floors-svg.ts:91 type
+`FloorPlatformSource` src/floors-svg.ts:60 type
+`floorPose` src/floors-svg.ts:1178 fn
+`FloorSource` src/floors-svg.ts:126 type
 `floorsScaleByModel` src/bake.ts:1324 fn
-`FloorsSource` src/floors-svg.ts:154 type
-`FloorStairsSource` src/floors-svg.ts:71 type
-`FloorTexture` src/floors-svg.ts:45 type
+`FloorsSource` src/floors-svg.ts:161 type
+`FloorStairsSource` src/floors-svg.ts:72 type
+`FloorTexture` src/floors-svg.ts:46 type
 `flushWithThicker` src/footprint.ts:781 fn
 `fmt` src/measure.ts:147 fn
 `fmt` src/rooms-bake.ts:1512 fn
@@ -1603,8 +1609,8 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `footprintFromTriangles` src/footprint.ts:125 fn
 `footprintScaleOff` src/places.ts:29 fn
 `footprintSpan` src/rooms-bake.ts:415 fn
-`formatArea` src/floors-svg.ts:1110 fn
-`formatMetres` src/cli.ts:374 fn
+`formatArea` src/floors-svg.ts:1148 fn
+`formatMetres` src/cli.ts:375 fn
 `FRAME_DEPTH_M` src/prop.ts:17 const
 `FRAME_NAME_RE` src/bake.ts:985 const
 `frameBars` src/prop.ts:280 fn
@@ -1622,7 +1628,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `GltfNode` src/glb.ts:48 type
 `GltfPrimitive` src/glb.ts:35 type
 `GREY_PNG` src/hall-floor.ts:19 const
-`gridCoords` src/floors-svg.ts:1057 fn
+`gridCoords` src/floors-svg.ts:1095 fn
 `GROUND_FLOOR_Y` src/rooms-bake.ts:180 const
 `GROUND_Y_M` src/scene-graph.ts:55 const
 `groupBounds` src/plan.ts:1015 fn
@@ -1634,12 +1640,12 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `HallFloorMesh` src/rooms-bake.ts:99 type
 `HallFloorPiece` src/hall-floor.ts:123 type
 `hallFloorPiece` src/hall-floor.ts:156 fn
-`hallPolygon` src/places.ts:249 fn
+`hallPolygon` src/places.ts:265 fn
 `hasPrefix` src/glb.ts:142 fn
 `hingeOnFace` src/doors.ts:93 fn
 `hingeSide` src/prop.ts:163 fn
 `HingeSide` src/prop.ts:27 type
-`Hit` src/floors-svg.ts:193 type
+`Hit` src/floors-svg.ts:200 type
 `Hit` src/room-svg.ts:147 type
 `hitInCell` src/footprint.ts:437 fn
 `hitsBody` src/regions.ts:362 fn
@@ -1653,25 +1659,25 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `imageMime` src/glb-write.ts:96 fn
 `imageNode` src/room-svg.ts:632 fn
 `imageStamp` src/rooms-bake.ts:530 fn
-`indexPatterns` src/floors-svg.ts:1194 fn
-`inherited` src/floors-svg.ts:1334 fn
+`indexPatterns` src/floors-svg.ts:1232 fn
+`inherited` src/floors-svg.ts:1372 fn
 `insetOutline` src/hall-floor.ts:85 fn
 `inside` src/prop.ts:148 fn
 `inside` src/room-svg.ts:729 fn
 `insideAny` src/regions.ts:460 fn
 `insideBounds` src/plan.ts:890 fn
-`insideSomePiece` src/places.ts:737 fn
+`insideSomePiece` src/places.ts:754 fn
 `instanceLine` src/bake.ts:1253 fn
 `instanceToWorld` src/rooms-bake.ts:1248 fn
 `intersectBox` src/doors.ts:431 fn
 `inverseYaw` src/yaw.ts:24 fn
-`isElevator` src/scene-graph.ts:435 fn
+`isElevator` src/scene-graph.ts:441 fn
 `isFacet` src/footprint.ts:337 fn
 `isPlacement` src/plan.ts:544 fn
 `isRoomMesh` src/bake.ts:844 fn
 `isSelected` src/glb.ts:134 fn
-`isStairs` src/scene-graph.ts:431 fn
-`isStairsPlace` src/places.ts:612 fn
+`isStairs` src/scene-graph.ts:437 fn
+`isStairsPlace` src/places.ts:629 fn
 `Item` src/footprint.ts:68 type
 `itemOf` src/footprint.ts:378 fn
 `joinSkins` src/footprint.ts:825 fn
@@ -1682,12 +1688,12 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `key` src/union.ts:222 fn
 `knownFace` src/crate.ts:166 fn
 `labeledDesign` src/crate.ts:117 fn
-`labelledId` src/floors-svg.ts:511 fn
+`labelledId` src/floors-svg.ts:549 fn
 `LANDING_JOIN_M` src/places.ts:145 const
 `LANDING_MIN_DEPTH_M` src/places.ts:147 const
-`landingAt` src/places.ts:596 fn
-`landingJoin` src/places.ts:573 fn
-`landingPortal` src/scene-graph.ts:278 fn
+`landingAt` src/places.ts:613 fn
+`landingJoin` src/places.ts:590 fn
+`landingPortal` src/scene-graph.ts:284 fn
 `layerPaths` src/bake.ts:923 fn
 `layerRole` src/room-svg.ts:121 fn
 `LayerShape` src/plan.ts:245 type
@@ -1714,8 +1720,8 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `localBounds` src/plan.ts:996 fn
 `LocalBox` src/types.ts:197 type
 `localName` src/xml.ts:9 fn
-`localPoints` src/floors-svg.ts:618 fn
-`localYaw` src/floors-svg.ts:1164 fn
+`localPoints` src/floors-svg.ts:656 fn
+`localYaw` src/floors-svg.ts:1202 fn
 `main` src/cli.ts:133 fn
 `makePlace` src/places.ts:196 fn
 `mapBox` src/rooms-bake.ts:34 fn
@@ -1762,9 +1768,9 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `namedView` src/plan.ts:457 fn
 `nearestFace` src/doors.ts:353 fn
 `nearPoint` src/building-mesh-cut.ts:610 fn
-`nearPoint` src/scene-graph.ts:443 fn
+`nearPoint` src/scene-graph.ts:449 fn
 `nearXz` src/footprint.ts:1157 fn
-`nearY` src/scene-graph.ts:439 fn
+`nearY` src/scene-graph.ts:445 fn
 `nodeMatrix` src/glb.ts:273 fn
 `noteAxisFit` src/bake.ts:1183 fn
 `Obstacle` src/types.ts:42 type
@@ -1783,27 +1789,27 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `OPPOSITE` src/room-svg.ts:109 const
 `optionalNumber` src/plan.ts:882 fn
 `optionalPositive` src/plan.ts:804 fn
-`orderPair` src/scene-graph.ts:413 fn
-`orient` src/places.ts:823 fn
+`orderPair` src/scene-graph.ts:419 fn
+`orient` src/places.ts:840 fn
 `orientEnds` src/regions.ts:609 fn
-`OUTLINE_TOL_M` src/floors-svg.ts:650 const
+`OUTLINE_TOL_M` src/floors-svg.ts:688 const
 `outlinePieces` src/hall-floor.ts:137 fn
-`outsideArea` src/floors-svg.ts:1036 fn
-`outsidePlace` src/scene-graph.ts:147 fn
+`outsideArea` src/floors-svg.ts:1074 fn
+`outsidePlace` src/scene-graph.ts:153 fn
 `OutsidePlace` src/scene-graph.ts:33 type
 `overlap1` src/bake.ts:718 fn
-`overlap` src/scene-graph.ts:365 fn
+`overlap` src/scene-graph.ts:371 fn
 `overlaps` src/prop.ts:155 fn
-`ownImage` src/floors-svg.ts:846 fn
+`ownImage` src/floors-svg.ts:884 fn
 `pack` src/footprint.ts:1171 fn
 `packGlb` src/glb-write.ts:526 fn
 `pad` src/glb-write.ts:545 fn
-`PAGE_DIR` src/floors-svg.ts:741 const
-`pageDelta` src/floors-svg.ts:969 fn
+`PAGE_DIR` src/floors-svg.ts:779 const
+`pageDelta` src/floors-svg.ts:1007 fn
 `pageFrame` src/plan.ts:426 fn
 `PageFrame` src/plan.ts:81 type
-`pageSideFor` src/places.ts:531 fn
-`pageVector` src/floors-svg.ts:943 fn
+`pageSideFor` src/places.ts:548 fn
+`pageVector` src/floors-svg.ts:981 fn
 `PANE_RGBA` src/room-glb.ts:16 const
 `PANEL_NAME_RE` src/bake.ts:984 const
 `panelTriangles` src/bake.ts:1051 fn
@@ -1811,7 +1817,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `paneRef` src/room-svg.ts:602 fn
 `parseAlphaMode` src/prop.ts:115 fn
 `parseCutoff` src/prop.ts:128 fn
-`parseFlags` src/cli.ts:380 fn
+`parseFlags` src/cli.ts:381 fn
 `parseGlb` src/glb.ts:189 fn
 `parseHinge` src/plan.ts:775 fn
 `parseKey` src/plan.ts:797 fn
@@ -1819,7 +1825,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `parseLocked` src/plan.ts:789 fn
 `parseOpen` src/plan.ts:782 fn
 `parseSides` src/prop.ts:121 fn
-`parseStops` src/floors-svg.ts:1003 fn
+`parseStops` src/floors-svg.ts:1041 fn
 `parseTransform` src/plan.ts:1119 fn
 `parseViewBox` src/plan.ts:469 fn
 `parseXml` src/xml.ts:22 fn
@@ -1827,18 +1833,18 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `PART_BY_ID` src/plan.ts:220 const
 `PATH_TOKEN` src/plan.ts:895 const
 `pathData` src/measure.ts:117 fn
-`pathHasCurve` src/floors-svg.ts:579 fn
-`pathOf` src/floors-svg.ts:583 fn
+`pathHasCurve` src/floors-svg.ts:617 fn
+`pathOf` src/floors-svg.ts:621 fn
 `pathPoints` src/plan.ts:901 fn
-`patternChain` src/floors-svg.ts:1276 fn
-`patternId` src/floors-svg.ts:1375 fn
-`patternImageHref` src/floors-svg.ts:1291 fn
-`patternTile` src/floors-svg.ts:1307 fn
+`patternChain` src/floors-svg.ts:1314 fn
+`patternId` src/floors-svg.ts:1413 fn
+`patternImageHref` src/floors-svg.ts:1329 fn
+`patternTile` src/floors-svg.ts:1345 fn
 `PAWN_TOP_M` src/footprint.ts:40 const
 `pawnWalls` src/footprint.ts:741 fn
 `pendingDoor` src/rooms-bake.ts:1292 fn
 `PendingRoomDoor` src/rooms-bake.ts:73 type
-`Piece` src/scene-graph.ts:346 type
+`Piece` src/scene-graph.ts:352 type
 `PLACE_Y_M` src/scene-graph.ts:53 const
 `Place` src/room-svg.ts:298 type
 `placeBox` src/yaw.ts:39 fn
@@ -1846,49 +1852,49 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `placedUv` src/prop.ts:296 fn
 `PlaceKind` src/types.ts:221 type
 `Placement` src/types.ts:31 type
-`placementOf` src/places.ts:234 fn
+`placementOf` src/places.ts:250 fn
 `PlacementsFile` src/types.ts:186 type
 `placeRoomDoors` src/rooms-bake.ts:773 fn
 `PLANE_EPS` src/building-mesh-cut.ts:13 const
 `PlanError` src/errors.ts:1 class
 `PlanPlacement` src/plan.ts:9 type
 `PlanScene` src/plan.ts:86 type
-`platformIdOf` src/floors-svg.ts:503 fn
+`platformIdOf` src/floors-svg.ts:541 fn
 `pngFromDataUri` src/prop.ts:189 fn
 `Point` src/footprint.ts:427 type
-`pointInOrOn` src/places.ts:762 fn
+`pointInOrOn` src/places.ts:779 fn
 `pointInPolygon` src/hall-floor.ts:274 fn
 `pointInPolygon` src/regions.ts:444 fn
-`pointInRing` src/floors-svg.ts:1097 fn
-`pointInRing` src/places.ts:797 fn
-`pointInRing` src/scene-graph.ts:461 fn
+`pointInRing` src/floors-svg.ts:1135 fn
+`pointInRing` src/places.ts:814 fn
+`pointInRing` src/scene-graph.ts:467 fn
 `pointOf` src/union.ts:237 fn
 `polygonAabb` src/rooms-bake.ts:539 fn
-`polygonInside` src/places.ts:741 fn
-`polygonsOverlap` src/places.ts:778 fn
+`polygonInside` src/places.ts:758 fn
+`polygonsOverlap` src/places.ts:795 fn
 `Portal` src/spatial-dag.ts:12 type
 `PortalKind` src/scene-graph.ts:14 type
 `portalOrder` src/regions.ts:602 fn
 `portalsOf` src/regions.ts:537 fn
-`Pose` src/floors-svg.ts:209 type
+`Pose` src/floors-svg.ts:217 type
 `poseForPlacement` src/bake.ts:1146 fn
 `positiveBox` src/doors.ts:425 fn
-`positiveOr` src/floors-svg.ts:1018 fn
+`positiveOr` src/floors-svg.ts:1056 fn
 `PROBE_BACK_M` src/scene-graph.ts:50 const
 `PROBE_FRONT_M` src/scene-graph.ts:49 const
 `projectToFace` src/doors.ts:418 fn
 `propFromElement` src/plan.ts:658 fn
 `propObstacle` src/bake.ts:961 fn
 `pushAccessor` src/glb-write.ts:403 fn
-`pushElevator` src/places.ts:379 fn
-`pushElevatorPortals` src/scene-graph.ts:240 fn
+`pushElevator` src/places.ts:396 fn
+`pushElevatorPortals` src/scene-graph.ts:246 fn
 `pushLanding` src/places.ts:149 fn
 `pushLandingSlab` src/rooms-bake.ts:430 fn
 `pushOpening` src/bake.ts:739 fn
-`pushOpenings` src/scene-graph.ts:304 fn
+`pushOpenings` src/scene-graph.ts:310 fn
 `pushPlatform` src/places.ts:176 fn
-`pushStair` src/places.ts:339 fn
-`pushStairPortals` src/scene-graph.ts:219 fn
+`pushStair` src/places.ts:356 fn
+`pushStairPortals` src/scene-graph.ts:225 fn
 `pushStairsSteps` src/rooms-bake.ts:481 fn
 `pushView` src/glb-write.ts:417 fn
 `quad` src/prop.ts:324 fn
@@ -1901,43 +1907,43 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `readAssetFiles` src/asset-type.ts:49 fn
 `readAssetTypes` src/asset-type.ts:12 fn
 `readBool` src/room-svg.ts:749 fn
-`readBounds` src/cli.ts:346 fn
+`readBounds` src/cli.ts:347 fn
 `readComponent` src/glb.ts:254 fn
 `readCrateDesign` src/crate.ts:84 fn
 `readDesignRects` src/plan.ts:232 fn
 `readDoor` src/room-svg.ts:337 fn
 `readDoorDesign` src/prop.ts:69 fn
 `readDoorMaterial` src/prop.ts:93 fn
-`readDoorPlacements` src/cli.ts:335 fn
-`readElevator` src/floors-svg.ts:871 fn
+`readDoorPlacements` src/cli.ts:336 fn
+`readElevator` src/floors-svg.ts:909 fn
 `readFace` src/room-svg.ts:311 fn
 `readFloatVec2` src/glb.ts:501 fn
 `readFloatVec3` src/glb.ts:511 fn
-`readFloorsSvg` src/floors-svg.ts:231 fn
-`readFloorTexture` src/floors-svg.ts:1214 fn
+`readFloorsSvg` src/floors-svg.ts:262 fn
+`readFloorTexture` src/floors-svg.ts:1252 fn
 `readGlbBytes` src/bake.ts:1043 fn
 `readHole` src/room-svg.ts:427 fn
 `readImage` src/crate.ts:227 fn
 `readImage` src/glb.ts:481 fn
 `readIntensity` src/room-svg.ts:757 fn
-`readJson` src/cli.ts:354 fn
-`readLanding` src/floors-svg.ts:782 fn
+`readJson` src/cli.ts:355 fn
+`readLanding` src/floors-svg.ts:820 fn
 `readLayerShapes` src/plan.ts:259 fn
 `readLight` src/room-svg.ts:449 fn
-`readObstacleBoxes` src/cli.ts:325 fn
+`readObstacleBoxes` src/cli.ts:326 fn
 `readOpening` src/room-svg.ts:400 fn
-`readPlacements` src/cli.ts:329 fn
+`readPlacements` src/cli.ts:330 fn
 `readPlacements` src/plan.ts:153 fn
-`readPlatform` src/floors-svg.ts:589 fn
+`readPlatform` src/floors-svg.ts:627 fn
 `readPng` src/prop.ts:199 fn
-`readPositive` src/cli.ts:318 fn
+`readPositive` src/cli.ts:319 fn
 `readProp` src/room-svg.ts:439 fn
-`readRoomDoors` src/cli.ts:342 fn
+`readRoomDoors` src/cli.ts:343 fn
 `readRoomSvg` src/room-svg.ts:161 fn
 `readScalar` src/glb.ts:220 fn
 `readScene` src/plan.ts:171 fn
-`readStair` src/floors-svg.ts:748 fn
-`readSurfaceTile` src/floors-svg.ts:839 fn
+`readStair` src/floors-svg.ts:786 fn
+`readSurfaceTile` src/floors-svg.ts:877 fn
 `readSvg` src/crate.ts:76 fn
 `readSvg` src/prop.ts:61 fn
 `readText` src/bake.ts:1277 fn
@@ -1946,17 +1952,17 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `readVec3` src/glb.ts:213 fn
 `readWindow` src/room-svg.ts:369 fn
 `readZ` src/room-svg.ts:741 fn
-`realEdges` src/scene-graph.ts:333 fn
+`realEdges` src/scene-graph.ts:339 fn
 `Rect` src/places.ts:26 type
 `Rect` src/prop.ts:26 type
 `Rect` src/regions.ts:89 type
 `rectangleBox` src/bake.ts:1090 fn
 `rectBounds` src/plan.ts:1006 fn
-`rectBox` src/floors-svg.ts:958 fn
-`rectilinearRing` src/floors-svg.ts:657 fn
+`rectBox` src/floors-svg.ts:996 fn
+`rectilinearRing` src/floors-svg.ts:695 fn
 `rectOf` src/hall-floor.ts:205 fn
-`rectOf` src/places.ts:301 fn
-`rectPolygon` src/floors-svg.ts:598 fn
+`rectOf` src/places.ts:318 fn
+`rectPolygon` src/floors-svg.ts:636 fn
 `rectPolygon` src/regions.ts:389 fn
 `referencePlacement` src/rooms-bake.ts:1133 fn
 `Region` src/regions.ts:20 type
@@ -1971,19 +1977,19 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `requirePart` src/prop.ts:142 fn
 `RESERVED_OUTPUTS` src/bake.ts:104 const
 `resolveExteriorDoors` src/rooms-bake.ts:1168 fn
-`resolveProbe` src/scene-graph.ts:181 fn
+`resolveProbe` src/scene-graph.ts:187 fn
 `resolveRef` src/room-svg.ts:614 fn
-`resolveTextureHref` src/floors-svg.ts:862 fn
+`resolveTextureHref` src/floors-svg.ts:900 fn
 `rethrow` src/room-svg.ts:839 fn
 `rewriteEmptyCut` src/bake.ts:761 fn
 `Ring` src/union.ts:17 type
-`ringArea` src/floors-svg.ts:731 fn
+`ringArea` src/floors-svg.ts:769 fn
 `ringArea` src/hall-floor.ts:287 fn
 `ROOM_DOOR_BUILDING_CAP_M` src/rooms-bake.ts:185 const
 `roomApertures` src/room-cut.ts:48 fn
 `roomDoor` src/room-file.ts:110 fn
 `RoomDoor` src/room-file.ts:24 type
-`roomDoorDir` src/places.ts:500 fn
+`roomDoorDir` src/places.ts:517 fn
 `RoomDoorHosts` src/rooms-bake.ts:747 type
 `RoomFacadeOpening` src/rooms-bake.ts:136 type
 `roomFacadeOpenings` src/rooms-bake.ts:244 fn
@@ -1994,7 +2000,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `RoomFile` src/room-file.ts:61 type
 `roomFootprintAabb` src/hall-floor.ts:32 fn
 `RoomHole` src/room-svg.ts:54 type
-`RoomInstanceSource` src/floors-svg.ts:32 type
+`RoomInstanceSource` src/floors-svg.ts:33 type
 `roomLight` src/room-file.ts:200 fn
 `RoomLight` src/room-file.ts:50 type
 `RoomLightSource` src/room-svg.ts:56 type
@@ -2017,18 +2023,18 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `roundDoor` src/rooms-bake.ts:1491 fn
 `roundM` src/bake.ts:1352 fn
 `roundM` src/measure.ts:143 fn
-`roundM` src/places.ts:334 fn
+`roundM` src/places.ts:351 fn
 `roundM` src/room-file.ts:213 fn
 `roundM` src/rooms-bake.ts:1503 fn
-`roundM` src/scene-graph.ts:494 fn
+`roundM` src/scene-graph.ts:500 fn
 `roundValue` src/room-file.ts:218 fn
 `roundVec` src/bake.ts:1356 fn
 `roundVec` src/measure.ts:139 fn
 `roundVec` src/rooms-bake.ts:1508 fn
-`roundVec` src/scene-graph.ts:499 fn
+`roundVec` src/scene-graph.ts:505 fn
 `Run` src/footprint.ts:93 type
 `runBake` src/cli.ts:192 fn
-`runFloors` src/cli.ts:363 fn
+`runFloors` src/cli.ts:364 fn
 `runMeasure` src/cli.ts:181 fn
 `runProp` src/cli.ts:230 fn
 `runRoom` src/cli.ts:249 fn
@@ -2036,7 +2042,7 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `runsAlongRows` src/footprint.ts:1016 fn
 `runSceneGraph` src/cli.ts:269 fn
 `runSpatialDag` src/cli.ts:215 fn
-`sameDir` src/places.ts:522 fn
+`sameDir` src/places.ts:539 fn
 `sameEdge` src/bake.ts:701 fn
 `sameFile` src/room-glb.ts:229 fn
 `sameOpening` src/bake.ts:777 fn
@@ -2055,20 +2061,20 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `ScenePortal` src/scene-graph.ts:16 type
 `SceneProp` src/types.ts:80 type
 `SceneSpawn` src/types.ts:94 type
-`Scope` src/floors-svg.ts:187 type
+`Scope` src/floors-svg.ts:194 type
 `sealedOpeningBox` src/building-mesh-cut.ts:106 fn
-`segmentsCross` src/places.ts:810 fn
+`segmentsCross` src/places.ts:827 fn
 `SEMANTIC` src/room-svg.ts:93 const
 `semanticRole` src/room-svg.ts:809 fn
 `setAxis` src/rooms-bake.ts:942 fn
 `shapeCenter` src/room-svg.ts:688 fn
 `SHAPES` src/room-svg.ts:95 const
 `sharedOpenings` src/bake.ts:771 fn
-`sharedPieces` src/scene-graph.ts:348 fn
+`sharedPieces` src/scene-graph.ts:354 fn
 `SHELL_M` src/footprint.ts:52 const
 `shiftBox` src/room-svg.ts:720 fn
-`sidePoint` src/places.ts:564 fn
-`signedArea` src/places.ts:324 fn
+`sidePoint` src/places.ts:581 fn
+`signedArea` src/places.ts:341 fn
 `signedArea` src/union.ts:203 fn
 `SILL_LIFT_M` src/scene-graph.ts:51 const
 `simplify` src/union.ts:179 fn
@@ -2080,11 +2086,11 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `SKIN_M` src/building-mesh-cut.ts:79 const
 `SKIN_REACH_M` src/building-mesh-cut.ts:86 const
 `SLIVER` src/regions.ts:95 const
-`smallest` src/scene-graph.ts:425 fn
-`smallestPlace` src/places.ts:698 fn
+`smallest` src/scene-graph.ts:431 fn
+`smallestPlace` src/places.ts:715 fn
 `SNAP` src/regions.ts:93 const
-`snapAxes` src/floors-svg.ts:703 fn
-`snapCardinal` src/places.ts:517 fn
+`snapAxes` src/floors-svg.ts:741 fn
+`snapCardinal` src/places.ts:534 fn
 `snapShape` src/room-svg.ts:513 fn
 `snapToWall` src/room-svg.ts:525 fn
 `snapToWallPlanes` src/footprint.ts:207 fn
@@ -2094,8 +2100,8 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `SPAN_OVERLAP_M` src/rooms-bake.ts:181 const
 `Span` src/room-svg.ts:145 type
 `spanAlong` src/doors.ts:334 fn
-`spanAlong` src/floors-svg.ts:1024 fn
-`spanAlong` src/places.ts:668 fn
+`spanAlong` src/floors-svg.ts:1062 fn
+`spanAlong` src/places.ts:685 fn
 `spanX` src/crate.ts:171 fn
 `spanX` src/room-svg.ts:775 fn
 `spanY` src/crate.ts:175 fn
@@ -2112,30 +2118,30 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `STAIR_BOTTOM_COST` src/scene-graph.ts:59 const
 `STAIR_TOP_RUN` src/scene-graph.ts:60 const
 `stairsGlb` src/stairs-mesh.ts:55 fn
-`stairsLandings` src/places.ts:431 fn
+`stairsLandings` src/places.ts:448 fn
 `StairsPlace` src/types.ts:243 type
 `stairsStepBoxes` src/stairs-mesh.ts:20 fn
-`stairUp` src/floors-svg.ts:912 fn
+`stairUp` src/floors-svg.ts:950 fn
 `stamp` src/regions.ts:467 fn
 `stampPlacement` src/asset-type.ts:77 fn
-`standPoints` src/scene-graph.ts:393 fn
+`standPoints` src/scene-graph.ts:399 fn
 `standRegion` src/regions.ts:288 fn
 `STENCIL_SLIVER_M` src/stencil.ts:7 const
 `stencilBoxes` src/stencil.ts:41 fn
 `stencilCenter` src/bake.ts:1222 fn
 `stencilPose` src/plan.ts:567 fn
-`StencilShape` src/floors-svg.ts:519 type
-`stencilShape` src/floors-svg.ts:526 fn
+`StencilShape` src/floors-svg.ts:557 type
+`stencilShape` src/floors-svg.ts:564 fn
 `stencilSize` src/stencil.ts:88 fn
 `stencilSvg` src/measure.ts:89 fn
 `STEP_HEIGHT` src/regions.ts:18 const
 `STEP_THICKNESS_M` src/stairs-mesh.ts:13 const
-`stitch` src/places.ts:271 fn
+`stitch` src/places.ts:288 fn
 `stOf` src/room-cut.ts:22 fn
 `strip` src/regions.ts:335 fn
 `sub3` src/building-mesh-cut.ts:624 fn
 `sub` src/room-cut.ts:14 fn
-`subpathCounts` src/floors-svg.ts:562 fn
+`subpathCounts` src/floors-svg.ts:600 fn
 `subQuad` src/room-cut.ts:33 fn
 `subtractAabbs` src/union.ts:26 fn
 `subtractBox` src/building-mesh-cut.ts:517 fn
@@ -2143,8 +2149,8 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `subtractDoorOpening` src/doors.ts:186 fn
 `subtractFacadePart` src/rooms-bake.ts:907 fn
 `subtractFlat` src/rooms-bake.ts:949 fn
-`surfaceTexture` src/floors-svg.ts:818 fn
-`svgDeltaToLocal` src/floors-svg.ts:982 fn
+`surfaceTexture` src/floors-svg.ts:856 fn
+`svgDeltaToLocal` src/floors-svg.ts:1020 fn
 `svgGlb` src/room-glb.ts:185 fn
 `svgPointToWorld` src/plan.ts:73 fn
 `taggedModel` src/plan.ts:580 fn
@@ -2161,12 +2167,12 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `TexturedPrimitive` src/glb.ts:343 type
 `texturedPrimitives` src/glb.ts:434 fn
 `TexturedVertex` src/glb.ts:336 type
-`textureFromElement` src/floors-svg.ts:1236 fn
+`textureFromElement` src/floors-svg.ts:1274 fn
 `textureSource` src/room-svg.ts:623 fn
 `throughOpening` src/doors.ts:309 fn
-`toLocal` src/floors-svg.ts:221 fn
+`toLocal` src/floors-svg.ts:229 fn
 `toLocalBox` src/doors.ts:444 fn
-`toLocalBox` src/floors-svg.ts:1170 fn
+`toLocalBox` src/floors-svg.ts:1208 fn
 `toVertex` src/building-mesh-cut.ts:489 fn
 `trace` src/union.ts:129 fn
 `transformBounds` src/plan.ts:1052 fn
@@ -2198,12 +2204,13 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `unlabeledDesign` src/crate.ts:106 fn
 `unpack` src/footprint.ts:1175 fn
 `USAGE` src/cli.ts:19 const
-`userBox` src/floors-svg.ts:1342 fn
+`userBox` src/floors-svg.ts:1380 fn
 `userLength` src/plan.ts:494 fn
 `Vec3` src/types.ts:1 type
 `vec3Accessor` src/glb-write.ts:465 fn
 `Vert` src/building-mesh-cut.ts:15 type
 `vertexAt` src/building-mesh-cut.ts:479 fn
+`voidAabb` src/floors-svg.ts:239 fn
 `walk` src/plan.ts:518 fn
 `WALK` src/regions.ts:98 const
 `walkDesign` src/plan.ts:345 fn
@@ -2220,10 +2227,11 @@ used by: src/bake.ts, src/building-mesh-cut.ts, src/doors.ts, src/floors-svg.ts,
 `wallRect` src/room-cut.ts:180 fn
 `warnDeepBuildingDoors` src/rooms-bake.ts:1015 fn
 `weldSkins` src/footprint.ts:803 fn
-`withinOutline` src/floors-svg.ts:1073 fn
+`withinOutline` src/floors-svg.ts:1111 fn
+`worldAabb` src/places.ts:239 fn
 `worldAabb` src/plan.ts:870 fn
 `WorldAabb` src/rooms-bake.ts:1127 type
-`worldAt` src/places.ts:709 fn
+`worldAt` src/places.ts:726 fn
 `WorldBox` src/doors.ts:26 type
 `worldBox` src/room-svg.ts:651 fn
 `worldDoor` src/rooms-bake.ts:1217 fn

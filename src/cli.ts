@@ -282,10 +282,11 @@ function runSceneGraph(argv: string[]): void {
     ...(flags["room-doors"] ? readObstacleBoxes(flags["room-doors"]) : []),
   ];
   const buildings = readPlacements(flags.buildings);
-  const doors = [
-    ...readDoorPlacements(flags.doors),
-    ...(flags["room-doors"] ? readRoomDoors(flags["room-doors"]) : []),
-  ];
+  const roomDoors = flags["room-doors"] ? readRoomDoors(flags["room-doors"]) : [];
+  const doors = [...readDoorPlacements(flags.doors), ...roomDoors];
+  // A rooms-file leaf keeps its lock on doors.placements.json: the loader drops
+  // `locked`/`key` for room leaves so KeyE still works, so the graph must not copy them.
+  const roomDoorIds = new Set(roomDoors.map((door) => door.id));
   const bounds = readBounds(flags.bounds);
   const floorsDir = flags.floors;
   const roomsDir = flags.rooms;
@@ -303,7 +304,7 @@ function runSceneGraph(argv: string[]): void {
     },
     taken: new Set([...buildings.map((building) => building.id), ...doors.map((door) => door.id)]),
   });
-  const linked = buildSceneGraph({ places: derived.places, doors, bounds });
+  const linked = buildSceneGraph({ places: derived.places, doors, roomDoorIds, bounds });
   const regions = bakeWalkableRegions(linked.graph, boxes, radius, height);
   const regionsPath = path.join(path.dirname(flags.out), "regions.json");
   mkdirSync(path.dirname(path.resolve(flags.out)), { recursive: true });

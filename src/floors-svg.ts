@@ -26,6 +26,7 @@ import {
   type PageFrame,
 } from "./plan.ts";
 import type { SceneDoor, SceneProp, Vec3, Yaw } from "./types.ts";
+import type { Aabb2 } from "./union.ts";
 import { attr, localName, parseXml, type XmlNode } from "./xml.ts";
 import { inverseYaw, transformXz } from "./yaw.ts";
 
@@ -144,6 +145,12 @@ export type FloorSource = {
    */
   outlines?: Array<Array<[number, number]>>;
   rooms: RoomInstanceSource[];
+  /**
+   * Authored `void` rects: hall areas excluded from the place polygon. Building-local,
+   * subtracted from the hall like a room but with no place and no floor-mesh change.
+   * Absent when the floor authors none.
+   */
+  voids?: Aabb2[];
   platforms: FloorPlatformSource[];
   /** Set when the floor layer has `data-kind="platform"`. */
   platformDeck?: number;
@@ -198,6 +205,7 @@ type FloorAcc = {
   layer: XmlNode;
   stencils: Hit[];
   rooms: Hit[];
+  voids: Hit[];
   platforms: Hit[];
   stairs: Hit[];
   landings: Hit[];
@@ -220,6 +228,29 @@ type Pose = {
  */
 function toLocal(x: number, z: number, origin: Vec3, yaw: Yaw): { x: number; z: number } {
   return transformXz(x - origin[0], z - origin[2], inverseYaw(yaw));
+}
+
+/**
+ * A `void` rect in building-local metres.
+ * @pre The element is a `rect` on a `floor-<n>` layer.
+ * @post The AABB of the page rect through its matrix and the floor pose; axis-aligned
+ *       because floor rects are.
+ */
+function voidAabb(hit: Hit, frame: PageFrame, units: string | undefined, origin: Vec3, yaw: Yaw): Aabb2 {
+  const bounds = rectBounds(hit.el, frame.meters, units);
+  if (!bounds) throw new PlanError(`void rect "${attr(hit.el, "id") ?? "?"}" has no size`);
+  const a = apply(hit.matrix, bounds.minX, bounds.minY);
+  const b = apply(hit.matrix, bounds.maxX, bounds.maxY);
+  const pa = svgPointToWorld(a[0], a[1], 0, frame);
+  const pb = svgPointToWorld(b[0], b[1], 0, frame);
+  const la = toLocal(pa[0], pa[2], origin, yaw);
+  const lb = toLocal(pb[0], pb[2], origin, yaw);
+  return {
+    minX: Math.min(la.x, lb.x),
+    maxX: Math.max(la.x, lb.x),
+    minZ: Math.min(la.z, lb.z),
+    maxZ: Math.max(la.z, lb.z),
+  };
 }
 
 /**
@@ -265,6 +296,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
           layer: el,
           stencils: [],
           rooms: [],
+          voids: [],
           platforms: [],
           stairs: [],
           landings: [],
@@ -307,6 +339,10 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
         scope.floor.landings.push({ el, matrix });
       } else if ((name === "g" || name === "path") && stencilPose(el, matrix, frame) && taggedModel(el)) {
         scope.floor.stencils.push({ el, matrix });
+      } else if (name === "rect" && attr(el, "label")?.trim() === "void") {
+        // Authored void: subtracted from the hall place like a room rect, but it
+        // creates no place and the floor mesh keeps its slab.
+        scope.floor.voids.push({ el, matrix });
       } else if (name === "rect") {
         const tagged = taggedModel(el);
         if (tagged) {
@@ -400,6 +436,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
       });
     }
     const platforms = floor.platforms.map((hit) => readPlatform(hit, frame, units, origin, yaw));
+    const voids = floor.voids.map((hit) => voidAabb(hit, frame, units, origin, yaw));
     const floorShape = shapes[index]!;
     const source: FloorSource = {
       n: floor.n,
@@ -409,6 +446,7 @@ export function readFloorsSvg(svgText: string, svgPath?: string): FloorsSource {
       outline: floorShape.outline,
       ...(floorShape.outlines.length > 1 ? { outlines: floorShape.outlines } : {}),
       rooms,
+      ...(voids.length > 0 ? { voids } : {}),
       platforms,
       ...(floorShape.fallback ? { outlineFallback: floorShape.fallback } : {}),
     };

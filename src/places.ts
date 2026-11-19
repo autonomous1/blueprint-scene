@@ -12,7 +12,7 @@ import { hallCellsOf, outlinePieces } from "./hall-floor.ts";
 import type { RoomFile } from "./room-file.ts";
 import { addYaw, buildingToWorld, roomToBuilding, wallNormal } from "./rooms-bake.ts";
 import type { AnyPlace, ElevatorPlace, Placement, ScenePlace, StairsPlace, Vec3, Yaw } from "./types.ts";
-import { unionAabbs } from "./union.ts";
+import { unionAabbs, type Aabb2 } from "./union.ts";
 import { placeBox, transformXz } from "./yaw.ts";
 
 type PlaceBuilding = {
@@ -118,7 +118,7 @@ export function derivePlaces(args: {
         building.id,
         floorName,
         y,
-        hallPolygon(outline, pieces, roomPolys, warnings, hallId),
+        hallPolygon(outline, pieces, roomPolys, (floor.voids ?? []).map((voidRect) => worldAabb(building, voidRect)), warnings, hallId),
       ));
       if (floor.platformDeck !== undefined) {
         const id = `${building.id}.floor-${floor.n}.platform`;
@@ -231,6 +231,22 @@ function worldPoly(building: PlaceBuilding, local: Array<[number, number]>): Arr
   });
 }
 
+/**
+ * A building-local rect in the world frame `hallPolygon` works in.
+ * @pre The rect is axis-aligned in the building frame.
+ * @post The world AABB of the two mapped corners; a 90° placement swaps the axes.
+ */
+function worldAabb(building: PlaceBuilding, rect: Aabb2): Aabb2 {
+  const corners = worldPoly(building, [[rect.minX, rect.minZ], [rect.maxX, rect.maxZ]]);
+  const [a, b] = corners as [[number, number], [number, number]];
+  return {
+    minX: Math.min(a[0], b[0]),
+    maxX: Math.max(a[0], b[0]),
+    minZ: Math.min(a[1], b[1]),
+    maxZ: Math.max(a[1], b[1]),
+  };
+}
+
 function placementOf(building: PlaceBuilding): Placement {
   return {
     id: building.id,
@@ -242,18 +258,19 @@ function placementOf(building: PlaceBuilding): Placement {
 }
 
 /**
- * Outline minus room rectangles. Cells come from `hallCells` (the facade edge
- * is inset; room edges are not). An empty or degenerate difference keeps the
- * outline and warns.
+ * Outline minus room rectangles and authored voids. Cells come from `hallCells`
+ * (the facade edge is inset; room and void edges are not). An empty or
+ * degenerate difference keeps the outline and warns.
  */
 function hallPolygon(
   outline: Array<[number, number]>,
   pieces: readonly (readonly (readonly [number, number])[])[],
   rooms: readonly (readonly (readonly [number, number])[])[],
+  voids: readonly Aabb2[],
   warnings: string[],
   id: string,
 ): Array<[number, number]> {
-  const cells = hallCellsOf(pieces, rooms.map((polygon) => rectOf(polygon)));
+  const cells = hallCellsOf(pieces, [...rooms.map((polygon) => rectOf(polygon)), ...voids]);
   if (cells.length === 0) {
     warnings.push(`hall "${id}" difference is empty; using the outline`);
     return outline;
